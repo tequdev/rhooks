@@ -1,31 +1,33 @@
-[env]
-# This machine's mise-managed Rust toolchain is not on PATH by default, and
-# only its "rustup" multiplexer binary knows how to resolve the actual
-# cargo/rustc paths (via RUSTUP_HOME / RUSTUP_TOOLCHAIN, already exported by
-# mise's global rust tool). Every task below re-derives PATH from that.
-_.path = ["{{env.HOME}}/.local/share/mise/installs/rust/1.89.0"]
+[tools]
+# Pin the Rust toolchain for this project (exports RUSTUP_TOOLCHAIN=1.89.0,
+# which the rustup argv0 proxies resolve).
+rust = "1.89.0"
+
+# [env._]
+# mise's core rust tool (symlink install) does not register a bin dir on
+# PATH itself, so add the proxy directory declaratively here. With this,
+# every task below can call plain `cargo` — no per-task PATH surgery.
+path = ["{{env.HOME}}/.local/share/mise/installs/rust/1.89.0"]
 
 [tasks.fmt]
 description = "Format the whole workspace"
-run = "sh -c 'export PATH=\"$(dirname \"$(rustup which cargo)\"):$PATH\"; cargo fmt --all'"
+run = "cargo fmt --all"
 
 [tasks.lint]
 description = "Lint the whole workspace (deny warnings)"
-run = "sh -c 'export PATH=\"$(dirname \"$(rustup which cargo)\"):$PATH\"; cargo clippy --workspace --all-targets -- -D warnings'"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
 
 [tasks.test]
 description = "Run all workspace tests"
-run = "sh -c 'export PATH=\"$(dirname \"$(rustup which cargo)\"):$PATH\"; cargo test --workspace'"
+run = "cargo test --workspace"
 
 [tasks.build-wasm]
 description = "Build the no_std crates for the wasm32v1-none Hook target"
-run = "sh -c 'export PATH=\"$(dirname \"$(rustup which cargo)\"):$PATH\"; cargo build -p hooks-core -p hooks-lib --target wasm32v1-none --release'"
+run = "cargo build -p hooks-core -p hooks-lib --target wasm32v1-none --release"
 
 [tasks.build-examples]
 description = "Build every example through hooks-build and check the output (end-to-end test)"
 run = """
-sh -c '
-export PATH="$(dirname "$(rustup which cargo)"):$PATH"
 set -e
 
 # accept-all and state-counter are guard-clean at the source level (no
@@ -51,5 +53,4 @@ cargo run -p hooks-build -- check examples/firewall/out/firewall.wasm
 # iterations, not just the --auto-guard default of 16.
 cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml --auto-guard --default-maxiter 48
 cargo run -p hooks-build -- check examples/emit-txn/out/emit_txn.wasm
-'
 """
