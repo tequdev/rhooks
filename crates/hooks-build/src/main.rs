@@ -139,6 +139,12 @@ fn print_report(report: &ValidationReport) {
     for w in &report.warnings {
         eprintln!("warning: {w}");
     }
+    if let Some(verdict) = report.guard_verdict {
+        println!(
+            "worst-case instructions: hook={} cbak={}",
+            verdict.hook_cost, verdict.cbak_cost
+        );
+    }
 }
 
 fn print_size_and_fee(bytes: &[u8]) {
@@ -262,7 +268,7 @@ fn run_and_write(wasm: &[u8], out_path: &Path, opts: &Options) -> Result<()> {
 
 fn cmd_check(file: &Path, opts: &Options) -> Result<()> {
     let wasm = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
-    match hooks_build::validate(&wasm, opts) {
+    match hooks_build::verify(&wasm, opts) {
         Ok(report) => {
             print_report(&report);
             println!("OK: {} is a valid SetHook wasm binary", file.display());

@@ -1,0 +1,24 @@
+name: Vendor drift check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly (Monday 06:00 UTC): catch upstream `release`-branch changes to
+    # the vendored guard-checker sources even when the repo itself is idle.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  vendor-drift:
+    name: Vendored guard checker matches upstream
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Fails when crates/hooks-build/vendor/xahaud/{Guard.h,Enum.h,hook_api.macro}
+      # differ from Xahau/xahaud@release, or when SHA256SUMS does not match
+      # the files on disk. Re-sync with scripts/sync-vendor.sh, review the
+      # diff, run `cargo test -p hooks-build`, and commit.
+      - name: Check vendored files against upstream release branch
+        run: ./scripts/sync-vendor.sh --check

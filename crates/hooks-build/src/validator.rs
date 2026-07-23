@@ -5,8 +5,6 @@
 //! (after cleaning and the optional guard pass) and as the entirety of
 //! `check`, which runs it against arbitrary wasm (including C-built hooks).
 
-use std::collections::HashSet;
-
 use anyhow::{Result, bail};
 
 use crate::guard::{find_g_index, scan_function_loops};
@@ -28,6 +26,12 @@ pub struct ValidationReport {
     /// True if the module exceeded [`MAX_SIZE`] but was allowed through by
     /// `opts.allow_oversize` (only ever set outside of `check`).
     pub oversize_allowed: bool,
+    /// The worst-case instruction counts reported by the vendored upstream
+    /// guard checker (`docs/DESIGN.md` §6.5), when it ran and accepted the
+    /// module. Only ever set for API version 0, by
+    /// [`crate::verify`]/[`crate::run_pipeline`] — [`validate`] itself
+    /// (the pure-Rust pass) never populates this field.
+    pub guard_verdict: Option<crate::GuardVerdict>,
 }
 
 /// Validates `wasm` against the full SetHook rule set. Returns `Ok` (with
@@ -258,15 +262,63 @@ pub fn validate(wasm: &[u8], opts: &Options) -> Result<ValidationReport> {
     }
 
     // --- Recursion: DFS over the direct-call graph must be acyclic. ---
-    if let Some(cycle) = find_call_cycle(&m) {
+    if let Some(cycle) = ir::find_call_cycle(&m) {
         errors.push(format!(
             "recursive call cycle detected among functions: {cycle:?} (recursion is not allowed)"
         ));
     }
 
-    // --- Guards (API version 0 only). ---
+    // --- Guards, R1, R2 (API version 0 only; `docs/DESIGN.md` §6.2b/§6.4). ---
     if opts.api_version == ApiVersion::V0 {
         let g_index = find_g_index(&m);
+
+        // R1: every api-version-0 module must import `_g`, even if it has no
+        // loop at all — the vendored upstream checker enforces this
+        // unconditionally (discovered running it against phase-4 artifacts
+        // that the pure-Rust validator had wrongly accepted).
+        if g_index.is_none() {
+            errors.push(
+                "module does not import `_g` (env::_g, type (i32,i32)->i32) — required for \
+                 every api-version-0 module, even without loops (R1)"
+                    .to_string(),
+            );
+        }
+
+        // R2: every type-section entry must be the type of an import or the
+        // `(i32) -> i64` entry-point type. A defined helper function with any
+        // other signature (notably compiler_builtins memset/memcpy/bcmp,
+        // `(i32,i32,i32) -> i32`) makes the whole module invalid to the
+        // upstream checker; the flatten pass (§6.2b) is what makes this hold
+        // for api-version-0 modules built through `hooks-build`.
+        let entry_ty = (
+            [wasmparser::ValType::I32].as_slice(),
+            [wasmparser::ValType::I64].as_slice(),
+        );
+        let import_shapes: std::collections::HashSet<(
+            &[wasmparser::ValType],
+            &[wasmparser::ValType],
+        )> = m
+            .imports
+            .iter()
+            .filter_map(|imp| match imp.ty {
+                wasmparser::TypeRef::Func(idx) => m.types.get(idx as usize),
+                _ => None,
+            })
+            .map(|ty| (ty.params(), ty.results()))
+            .collect();
+        for (i, ty) in m.types.iter().enumerate() {
+            let shape = (ty.params(), ty.results());
+            if shape != entry_ty && !import_shapes.contains(&shape) {
+                errors.push(format!(
+                    "type {i} (`({:?}) -> {:?}`) is neither an import's type nor the entry-point \
+                     type `(i32) -> i64` (R2) — this is only reachable if a defined helper \
+                     function was left un-inlined",
+                    ty.params(),
+                    ty.results()
+                ));
+            }
+        }
+
         for (i, body) in m.code.iter().enumerate() {
             let func_idx = m.num_imported_funcs() + i as u32;
             match scan_function_loops(body, g_index) {
@@ -301,6 +353,7 @@ pub fn validate(wasm: &[u8], opts: &Options) -> Result<ValidationReport> {
     Ok(ValidationReport {
         warnings,
         oversize_allowed,
+        guard_verdict: None,
     })
 }
 
@@ -361,80 +414,4 @@ fn valtype_eq(a: wasmparser::ValType, b: wasm_encoder::ValType) -> bool {
             | (wasmparser::ValType::F32, wasm_encoder::ValType::F32)
             | (wasmparser::ValType::F64, wasm_encoder::ValType::F64)
     )
-}
-
-/// DFS-based cycle detection over the direct-call graph (imports are leaves
-/// with no out-edges). Returns one cycle (as a `Vec` of function indices)
-/// if any exists.
-fn find_call_cycle(m: &ir::ParsedModule) -> Option<Vec<u32>> {
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Color {
-        White,
-        Gray,
-        Black,
-    }
-
-    let total = m.total_funcs();
-    let mut color = vec![Color::White; total as usize];
-    let mut path: Vec<u32> = Vec::new();
-
-    // Treats an out-of-range index (only possible for already-malformed
-    // input the generic validator will separately reject) as "no such
-    // node" rather than panicking.
-    let get = |color: &[Color], idx: u32| color.get(idx as usize).copied().unwrap_or(Color::Black);
-    let set = |color: &mut [Color], idx: u32, c: Color| {
-        if let Some(slot) = color.get_mut(idx as usize) {
-            *slot = c;
-        }
-    };
-
-    // Iterative DFS to avoid unbounded recursion on adversarial input.
-    for start in 0..total {
-        if get(&color, start) != Color::White {
-            continue;
-        }
-        let mut stack: Vec<(u32, Vec<u32>)> = vec![(start, out_edges(m, start))];
-        set(&mut color, start, Color::Gray);
-        path.push(start);
-        while let Some((node, edges)) = stack.last_mut() {
-            let node = *node;
-            if let Some(next) = edges.pop() {
-                match get(&color, next) {
-                    Color::White => {
-                        set(&mut color, next, Color::Gray);
-                        path.push(next);
-                        let next_edges = out_edges(m, next);
-                        stack.push((next, next_edges));
-                    }
-                    Color::Gray => {
-                        let cycle_start = path.iter().position(|&p| p == next).unwrap_or(0);
-                        let mut cycle = path.get(cycle_start..).unwrap_or(&[]).to_vec();
-                        cycle.push(next);
-                        return Some(cycle);
-                    }
-                    Color::Black => {}
-                }
-            } else {
-                set(&mut color, node, Color::Black);
-                path.pop();
-                stack.pop();
-            }
-        }
-    }
-    None
-}
-
-fn out_edges(m: &ir::ParsedModule, idx: u32) -> Vec<u32> {
-    match m.defined_body(idx) {
-        Some(body) => match ir::scan_refs(body) {
-            Ok(refs) => refs
-                .calls
-                .into_iter()
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect(),
-            Err(_) => Vec::new(),
-        },
-        None => Vec::new(),
-    }
 }

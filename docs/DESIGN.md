@@ -350,6 +350,42 @@ Input: cargo's wasm. Output: SetHook-shaped wasm.
 5. Verify entry signatures: `hook`/`cbak` must be `(i32) -> i64`; error out
    otherwise (catches a missing `extern "C"` or wrong signature early).
 
+### 6.2b Flatten pass (full inlining) — api-version 0
+
+Two rules of the real checker (`Guard.h`, discovered by running the vendored
+checker against our phase-4 artifacts, which the Rust reimplementation had
+wrongly accepted):
+
+- **R1**: every api-version-0 module must import `_g`, even if it contains
+  no loop at all.
+- **R2**: every entry in the type section must be the type of an import or
+  the `(i32) -> i64` entry-point type. A defined helper function with any
+  other signature — notably `compiler_builtins` `memset`/`memcpy`/`bcmp`
+  (`(i32,i32,i32) -> i32`), which rustc emits for large buffer zero-inits
+  and array comparisons — makes the whole module invalid.
+  (`#![no_builtins]` does not prevent these under fat LTO; verified
+  empirically. Source-level avoidance is not reliable.)
+
+Consequently the cleaner is followed by a **flatten pass** for api-version
+0: inline every defined non-entry function into its callers, bottom-up in
+topological order (the call graph is acyclic — recursion is banned — so
+this terminates), then drop the inlined functions and rebuild the type
+section to exactly {import types} ∪ {entry type}. Inlining transform per
+call site: arguments are spilled to fresh locals, the callee body is
+spliced in wrapped in a `block` of the callee's result type, callee locals
+are remapped to appended caller locals, and every `return` in the callee
+becomes a `br` to the wrapper block (branch depths inside the body shift by
+one accordingly). Multiple call sites duplicate the body — a size cost that
+is acceptable and reported. `_g` is ensured present as an import for
+api-version 0 (added if absent, never GC'd) per R1.
+
+The guard pass (6.3) runs **after** flattening, so loops that arrive in
+`hook()` by inlining (memset/bcmp loops) get guards like any other loop.
+Correctness of the inliner is tested differentially: fixture modules are
+executed pre- and post-flatten in a wasm interpreter (dev-dependency) with
+recorded host stubs, asserting identical results and host-call sequences —
+an inlining bug must fail tests, not silently change hook semantics.
+
 ### 6.3 Guard pass (guard-checker equivalent + auto-insert)
 
 Skipped entirely when `--api-version 1`.
@@ -393,6 +429,12 @@ trade-off):
   loop runs up to 20 iterations; the memset bulk loop ~40). The examples
   size maxiter from disassembly (24 and 48 respectively) and the CLI docs
   must tell users to do the same.
+- **Post-vendoring correction**: the four phase-4 artifacts, though accepted
+  by the Rust reimplementation, are all rejected by the real (vendored)
+  checker — see 6.2b R1/R2. The guard findings above remain valid (the
+  loops still exist and still need guards), but compiler-generated loops
+  additionally must be *inlined into the entry function* (flatten pass);
+  their guards are then inserted at the inlined loop heads.
 
 If a guard was inserted and `_g` is not imported, the import is added
 (import section rewrite ⇒ function index shift ⇒ handled by the same
@@ -401,6 +443,8 @@ renumbering machinery as GC).
 **After any mutation, the full guard verifier and validator (6.4) run again
 on the final bytes** — `build` never emits an artifact that `check` would
 reject; a bug in the insertion pass fails the build instead of shipping.
+For api-version 0 the authoritative final verdict comes from the vendored
+upstream checker (6.5), not from the Rust reimplementation.
 
 `emit()` reachability note: xahaud requires hooks that `emit` to have called
 `etxn_reserve`; that is runtime behavior, not validated here.
@@ -429,6 +473,8 @@ against xahaud source plus a known-good C-built hook fixture):
   `call_indirect` is banned.
 - For api-version 0: any unguarded `loop` (both `check` mode and the
   post-mutation re-verification in `build`).
+- For api-version 0: missing `_g` import (6.2b R1), and any type-section
+  entry that is not an import's type or the entry-point type (6.2b R2).
 - Binary > 65,535 bytes. (`build` refuses to emit; `--allow-oversize`
   writes the artifact anyway for size-debugging, clearly marked INVALID.)
 
@@ -441,12 +487,56 @@ Validation always runs against the **final output bytes** (post-clean,
 post-guard), and `check <file>` applies the identical rule set to arbitrary
 external wasm (including C-built hooks).
 
-### 6.5 Why native Rust instead of shelling out to hook-cleaner-c / guard-checker
+### 6.5 Verdict authority: the vendored upstream checker
 
-Single `cargo install`-able toolchain, no C submodules, testable stages, and
-the previous iteration of this project validated the approach. Behavioral
-reference tests compare our verdicts against known-good/known-bad fixtures
-(including a C-compiled hook checked in as a binary fixture).
+The final accept/reject verdict for API-version-0 modules comes from
+**xahaud's own guard checker, compiled into hooks-build from vendored,
+byte-identical upstream source** — not from a Rust reimplementation. A port,
+however careful, can diverge from what the node actually runs; the checker
+is consensus logic, not a reference tool, so divergence means "hooks-build
+says valid, SetHook says `temMALFORMED`" (or worse, vice versa).
+
+Vendored files (upstream `Xahau/xahaud`, branch `release`, kept verbatim —
+never hand-edited; re-sync only via `scripts/sync-vendor.sh`, which also
+regenerates the `SHA256SUMS` tripwire file; CI verifies byte-identity
+against upstream on every push/PR and weekly —
+`.github/workflows/vendor-sync.yml`):
+
+- `include/xrpl/hook/Guard.h` — `validateGuards()` / `check_guard()`
+- `include/xrpl/hook/Enum.h` — log codes, `APIWhitelist`,
+  `getImportWhitelist()`, guard-rules versioning
+- `include/xrpl/hook/hook_api.macro` — the API table behind the whitelist
+
+Upstream explicitly supports standalone compilation via
+`-DGUARD_CHECKER_BUILD` (Enum.h stubs `uint256`/`Rules` with an
+"all amendments enabled" `Rules`, which also yields the current
+`getGuardRulesVersion` bit set). A small `guard_shim.cpp` (the only C++ we
+author) exposes one `extern "C"` entry point: bytes in → verdict, the
+upstream log text (captured from `GuardLog`), and on success the
+worst-case instruction counts for `hook()`/`cbak()` that `validateGuards`
+computes. Built by `build.rs` via the `cc` crate (C++17); a host C++
+compiler becomes a build requirement of hooks-build.
+
+`validateGuards` covers far more than loop guards (imports vs whitelist,
+export shape, `call_indirect`, memory limits, custom sections, instruction
+legality), so the division of labor is:
+
+- **C++ vendored checker** — authoritative pass/fail for api-version 0, in
+  both `check` and post-transform `build`. Its captured log is printed on
+  failure verbatim; on success the instruction counts are reported (they
+  are also what SetHook fee estimation derives from).
+- **Rust pipeline (6.2–6.4)** — everything the checker does not do
+  (cleaning, auto-guard insertion, the 65,535-byte size gate, fee
+  estimate, api-version 1 checks) plus pre-transform diagnostics with
+  precise function/offset locations, which upstream's log lacks. If the
+  Rust validator and the C++ checker ever disagree, the C++ verdict wins
+  and the disagreement is surfaced as a hooks-build bug.
+
+The cleaner remains native Rust (upstream hook-cleaner is a separate
+project, and cleaning is a transform whose output the authoritative checker
+then judges); `wasmparser`/`wasm-encoder` byte-exactness (C8) is unchanged.
+Behavioral reference tests compare verdicts on known-good/known-bad
+fixtures, including the built examples.
 
 ## 7. examples/
 

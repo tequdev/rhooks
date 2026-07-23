@@ -7,7 +7,7 @@
 //! [`wasm_encoder::reencode::Reencode`] to translate instruction streams
 //! rather than hand-rolling a match over every WebAssembly opcode.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use anyhow::{Context, Result, bail};
 use wasm_encoder::reencode::{self, Reencode};
@@ -447,6 +447,86 @@ pub(crate) fn remap_const_expr(
     remapper
         .const_expr(expr.clone())
         .map_err(|e| anyhow::anyhow!("failed to translate const expr: {e}"))
+}
+
+/// The direct-call out-edges of function `idx` (imports are leaves with no
+/// out-edges; a malformed/out-of-range `idx` also has none — the generic
+/// wasmparser validator separately rejects genuinely malformed modules).
+/// Shared by [`find_call_cycle`] (recursion is a hard error, checked both
+/// pre- and post-flatten) and the flatten pass's own call-graph traversal.
+pub(crate) fn out_edges(m: &ParsedModule, idx: u32) -> Vec<u32> {
+    match m.defined_body(idx) {
+        Some(body) => match scan_refs(body) {
+            Ok(refs) => refs
+                .calls
+                .into_iter()
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect(),
+            Err(_) => Vec::new(),
+        },
+        None => Vec::new(),
+    }
+}
+
+/// DFS-based cycle detection over the direct-call graph (imports are leaves
+/// with no out-edges). Returns one cycle (as a `Vec` of function indices) if
+/// any exists. Used by the validator (recursion is a hard error) and by the
+/// flatten pass (its inlining algorithm requires the call graph to be a DAG,
+/// checked *before* flattening — see `docs/DESIGN.md` §6.2b).
+pub(crate) fn find_call_cycle(m: &ParsedModule) -> Option<Vec<u32>> {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Color {
+        White,
+        Gray,
+        Black,
+    }
+
+    let total = m.total_funcs();
+    let mut color = vec![Color::White; total as usize];
+    let mut path: Vec<u32> = Vec::new();
+
+    let get = |color: &[Color], idx: u32| color.get(idx as usize).copied().unwrap_or(Color::Black);
+    let set = |color: &mut [Color], idx: u32, c: Color| {
+        if let Some(slot) = color.get_mut(idx as usize) {
+            *slot = c;
+        }
+    };
+
+    // Iterative DFS to avoid unbounded recursion on adversarial input.
+    for start in 0..total {
+        if get(&color, start) != Color::White {
+            continue;
+        }
+        let mut stack: Vec<(u32, Vec<u32>)> = vec![(start, out_edges(m, start))];
+        set(&mut color, start, Color::Gray);
+        path.push(start);
+        while let Some((node, edges)) = stack.last_mut() {
+            let node = *node;
+            if let Some(next) = edges.pop() {
+                match get(&color, next) {
+                    Color::White => {
+                        set(&mut color, next, Color::Gray);
+                        path.push(next);
+                        let next_edges = out_edges(m, next);
+                        stack.push((next, next_edges));
+                    }
+                    Color::Gray => {
+                        let cycle_start = path.iter().position(|&p| p == next).unwrap_or(0);
+                        let mut cycle = path.get(cycle_start..).unwrap_or(&[]).to_vec();
+                        cycle.push(next);
+                        return Some(cycle);
+                    }
+                    Color::Black => {}
+                }
+            } else {
+                set(&mut color, node, Color::Black);
+                path.pop();
+                stack.pop();
+            }
+        }
+    }
+    None
 }
 
 /// Finds a function type matching the given params/results exactly, or

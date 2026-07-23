@@ -369,8 +369,15 @@ fn auto_guard_inserts_exact_pattern_and_passes_revalidation() {
 // Validator hard-error rules
 // ---------------------------------------------------------------------
 
+// `_g` is imported (but never called — there are no loops here) purely to
+// satisfy R1 (`docs/DESIGN.md` §6.2b/§6.4): every api-version-0 module must
+// import `_g`, even without a single loop. This is a real, vendored-checker-
+// discovered rule, not a pipeline artifact of the `build`/`clean` commands
+// (which now guarantee it via the flatten pass) — `validate()` is exercised
+// directly here, bypassing that pass, so the fixture must supply it itself.
 const MINIMAL_HOOK_ALREADY_CLEAN: &str = r#"
 (module
+  (import "env" "_g" (func $g (param i32 i32) (result i32)))
   (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
   (func $hook (param i32) (result i64)
     (call $accept (i32.const 0) (i32.const 0) (i64.const 0)))
@@ -541,8 +548,11 @@ fn validator_rejects_oversized_module() {
 #[test]
 fn validator_allow_oversize_downgrades_to_warning() {
     let big = "x".repeat(70_000);
+    // `_g` import: R1 (`docs/DESIGN.md` §6.2b/§6.4) — see the comment on
+    // `MINIMAL_HOOK_ALREADY_CLEAN` above; this test also calls `validate()`
+    // directly, so the fixture must satisfy R1 itself.
     let src = format!(
-        r#"(module (memory 2) (data (i32.const 0) "{big}") (func $hook (param i32) (result i64) (i64.const 0)) (export "hook" (func $hook)))"#
+        r#"(module (import "env" "_g" (func $g (param i32 i32) (result i32))) (memory 2) (data (i32.const 0) "{big}") (func $hook (param i32) (result i64) (i64.const 0)) (export "hook" (func $hook)))"#
     );
     let m = wasm(&src);
     let o = Options {
@@ -590,10 +600,22 @@ fn end_to_end_clean_and_check_is_idempotent() {
 
 #[test]
 fn run_pipeline_reports_fee_relevant_size() {
+    // `MINIMAL_HOOK` has no loop and never calls `_g`, so it does not
+    // survive the pipeline's final gate any more: the vendored upstream
+    // guard checker (`docs/DESIGN.md` §6.5) unconditionally requires every
+    // API-version-0 module to import `_g`, regardless of whether it has any
+    // loops at all — a real divergence from the old Rust-only pipeline (see
+    // the end-to-end report). `GUARDED_LOOP_HOOK` calls `_g` in a properly
+    // guarded loop, so it clears that gate and exercises the same
+    // fee-reporting behavior this test is actually about.
     let (out, report) =
-        hooks_build::run_pipeline(&wasm(MINIMAL_HOOK), &opts()).expect("pipeline succeeds");
+        hooks_build::run_pipeline(&wasm(GUARDED_LOOP_HOOK), &opts()).expect("pipeline succeeds");
     assert!(!out.is_empty());
     assert!(report.warnings.is_empty() || report.warnings.iter().all(|w| !w.contains("INVALID")));
+    assert!(
+        report.guard_verdict.is_some(),
+        "api-version-0 success should carry the native checker's instruction counts"
+    );
     let fee = hooks_build::estimate_fee(out.len());
     assert_eq!(fee.drops, fee.bytes * 5000);
 }
