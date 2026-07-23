@@ -1,0 +1,809 @@
+//! Raw Hook API function declarations.
+//!
+//! Upstream: `Xahau/xahaud`, branch `release`, `hook/extern.h`.
+//!
+//! This mirrors `extern.h` exactly, in header order: 75 functions total
+//! (`_g` plus 74 Hook API functions), all imported from wasm import module
+//! `env`. Parameter names and types are kept verbatim (`read_ptr`/`read_len`
+//! style `u32`, `i64` returns) so C hook source and this file can be
+//! compared line by line.
+//!
+//! On non-`wasm32` targets (host builds, so hooks-lib and its tests/docs can
+//! compile and run) the same signatures are provided as deterministic stub
+//! functions that return [`crate::error::NOT_IMPLEMENTED`] (the `_g` stub
+//! returns `0`, i.e. "guard check passed"). None of the stubs panic.
+
+// The Hook API import block, exactly as declared in `extern.h`.
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    /// C: `int32_t _g(uint32_t guard_id, uint32_t maxiter)` (extern.h)
+    pub fn _g(guard_id: u32, maxiter: u32) -> i32;
+
+    /// C: `int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code)` (extern.h)
+    pub fn accept(read_ptr: u32, read_len: u32, error_code: i64) -> i64;
+
+    /// C: `int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code)` (extern.h)
+    pub fn rollback(read_ptr: u32, read_len: u32, error_code: i64) -> i64;
+
+    /// C: `int64_t util_raddr(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h)
+    pub fn util_raddr(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64;
+
+    /// C: `int64_t util_accid(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h)
+    pub fn util_accid(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64;
+
+    /// C: `int64_t util_verify(uint32_t dread_ptr, uint32_t dread_len, uint32_t sread_ptr, uint32_t sread_len, uint32_t kread_ptr, uint32_t kread_len)` (extern.h)
+    pub fn util_verify(
+        dread_ptr: u32,
+        dread_len: u32,
+        sread_ptr: u32,
+        sread_len: u32,
+        kread_ptr: u32,
+        kread_len: u32,
+    ) -> i64;
+
+    /// C: `int64_t util_sha512h(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h)
+    pub fn util_sha512h(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64;
+
+    /// C: `int64_t util_keylet(uint32_t write_ptr, uint32_t write_len, uint32_t keylet_type, uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f)` (extern.h)
+    #[allow(clippy::too_many_arguments)]
+    pub fn util_keylet(
+        write_ptr: u32,
+        write_len: u32,
+        keylet_type: u32,
+        a: u32,
+        b: u32,
+        c: u32,
+        d: u32,
+        e: u32,
+        f: u32,
+    ) -> i64;
+
+    /// C: `int64_t sto_validate(uint32_t tread_ptr, uint32_t tread_len)` (extern.h)
+    pub fn sto_validate(tread_ptr: u32, tread_len: u32) -> i64;
+
+    /// C: `int64_t sto_subfield(uint32_t read_ptr, uint32_t read_len, uint32_t field_id)` (extern.h)
+    pub fn sto_subfield(read_ptr: u32, read_len: u32, field_id: u32) -> i64;
+
+    /// C: `int64_t sto_subarray(uint32_t read_ptr, uint32_t read_len, uint32_t array_id)` (extern.h)
+    pub fn sto_subarray(read_ptr: u32, read_len: u32, array_id: u32) -> i64;
+
+    /// C: `int64_t sto_emplace(uint32_t write_ptr, uint32_t write_len, uint32_t sread_ptr, uint32_t sread_len, uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id)` (extern.h)
+    #[allow(clippy::too_many_arguments)]
+    pub fn sto_emplace(
+        write_ptr: u32,
+        write_len: u32,
+        sread_ptr: u32,
+        sread_len: u32,
+        fread_ptr: u32,
+        fread_len: u32,
+        field_id: u32,
+    ) -> i64;
+
+    /// C: `int64_t sto_erase(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len, uint32_t field_id)` (extern.h)
+    pub fn sto_erase(
+        write_ptr: u32,
+        write_len: u32,
+        read_ptr: u32,
+        read_len: u32,
+        field_id: u32,
+    ) -> i64;
+
+    /// C: `int64_t etxn_burden()` (extern.h)
+    pub fn etxn_burden() -> i64;
+
+    /// C: `int64_t etxn_details(uint32_t write_ptr, uint32_t write_len)` (extern.h)
+    pub fn etxn_details(write_ptr: u32, write_len: u32) -> i64;
+
+    /// C: `int64_t etxn_fee_base(uint32_t read_ptr, uint32_t read_len)` (extern.h)
+    pub fn etxn_fee_base(read_ptr: u32, read_len: u32) -> i64;
+
+    /// C: `int64_t etxn_reserve(uint32_t count)` (extern.h)
+    pub fn etxn_reserve(count: u32) -> i64;
+
+    /// C: `int64_t etxn_generation()` (extern.h)
+    pub fn etxn_generation() -> i64;
+
+    /// C: `int64_t etxn_nonce(uint32_t write_ptr, uint32_t write_len)` (extern.h)
+    pub fn etxn_nonce(write_ptr: u32, write_len: u32) -> i64;
+
+    /// C: `int64_t emit(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h)
+    pub fn emit(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64;
+
+    /// C: `int64_t float_set(int32_t exponent, int64_t mantissa)` (extern.h)
+    pub fn float_set(exponent: i32, mantissa: i64) -> i64;
+
+    /// C: `int64_t float_multiply(int64_t float1, int64_t float2)` (extern.h)
+    pub fn float_multiply(float1: i64, float2: i64) -> i64;
+
+    /// C: `int64_t float_mulratio(int64_t float1, uint32_t round_up, uint32_t numerator, uint32_t denominator)` (extern.h)
+    pub fn float_mulratio(float1: i64, round_up: u32, numerator: u32, denominator: u32) -> i64;
+
+    /// C: `int64_t float_negate(int64_t float1)` (extern.h)
+    pub fn float_negate(float1: i64) -> i64;
+
+    /// C: `int64_t float_compare(int64_t float1, int64_t float2, uint32_t mode)` (extern.h)
+    pub fn float_compare(float1: i64, float2: i64, mode: u32) -> i64;
+
+    /// C: `int64_t float_sum(int64_t float1, int64_t float2)` (extern.h)
+    pub fn float_sum(float1: i64, float2: i64) -> i64;
+
+    /// C: `int64_t float_sto(uint32_t write_ptr, uint32_t write_len, uint32_t cread_ptr, uint32_t cread_len, uint32_t iread_ptr, uint32_t iread_len, int64_t float1, uint32_t field_code)` (extern.h)
+    #[allow(clippy::too_many_arguments)]
+    pub fn float_sto(
+        write_ptr: u32,
+        write_len: u32,
+        cread_ptr: u32,
+        cread_len: u32,
+        iread_ptr: u32,
+        iread_len: u32,
+        float1: i64,
+        field_code: u32,
+    ) -> i64;
+
+    /// C: `int64_t float_sto_set(uint32_t read_ptr, uint32_t read_len)` (extern.h)
+    pub fn float_sto_set(read_ptr: u32, read_len: u32) -> i64;
+
+    /// C: `int64_t float_invert(int64_t float1)` (extern.h)
+    pub fn float_invert(float1: i64) -> i64;
+
+    /// C: `int64_t float_divide(int64_t float1, int64_t float2)` (extern.h)
+    pub fn float_divide(float1: i64, float2: i64) -> i64;
+
+    /// C: `int64_t float_one()` (extern.h)
+    pub fn float_one() -> i64;
+
+    /// C: `int64_t float_mantissa(int64_t float1)` (extern.h)
+    pub fn float_mantissa(float1: i64) -> i64;
+
+    /// C: `int64_t float_sign(int64_t float1)` (extern.h)
+    pub fn float_sign(float1: i64) -> i64;
+
+    /// C: `int64_t float_int(int64_t float1, uint32_t decimal_places, uint32_t abs)` (extern.h)
+    pub fn float_int(float1: i64, decimal_places: u32, abs: u32) -> i64;
+
+    /// C: `int64_t float_log(int64_t float1)` (extern.h)
+    pub fn float_log(float1: i64) -> i64;
+
+    /// C: `int64_t float_root(int64_t float1, uint32_t n)` (extern.h)
+    pub fn float_root(float1: i64, n: u32) -> i64;
+
+    /// C: `int64_t fee_base()` (extern.h)
+    pub fn fee_base() -> i64;
+
+    /// C: `int64_t ledger_seq()` (extern.h)
+    pub fn ledger_seq() -> i64;
+
+    /// C: `int64_t ledger_last_time()` (extern.h)
+    pub fn ledger_last_time() -> i64;
+
+    /// C: `int64_t ledger_last_hash(uint32_t write_ptr, uint32_t write_len)` (extern.h)
+    pub fn ledger_last_hash(write_ptr: u32, write_len: u32) -> i64;
+
+    /// C: `int64_t ledger_nonce(uint32_t write_ptr, uint32_t write_len)` (extern.h)
+    pub fn ledger_nonce(write_ptr: u32, write_len: u32) -> i64;
+
+    /// C: `int64_t ledger_keylet(uint32_t write_ptr, uint32_t write_len, uint32_t lread_ptr, uint32_t lread_len, uint32_t hread_ptr, uint32_t hread_len)` (extern.h)
+    pub fn ledger_keylet(
+        write_ptr: u32,
+        write_len: u32,
+        lread_ptr: u32,
+        lread_len: u32,
+        hread_ptr: u32,
+        hread_len: u32,
+    ) -> i64;
+
+    /// C: `int64_t hook_account(uint32_t write_ptr, uint32_t write_len)` (extern.h)
+    pub fn hook_account(write_ptr: u32, write_len: u32) -> i64;
+
+    /// C: `int64_t hook_hash(uint32_t write_ptr, uint32_t write_len, int32_t hook_no)` (extern.h)
+    pub fn hook_hash(write_ptr: u32, write_len: u32, hook_no: i32) -> i64;
+
+    /// C: `int64_t hook_param_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len, uint32_t hread_ptr, uint32_t hread_len)` (extern.h)
+    pub fn hook_param_set(
+        read_ptr: u32,
+        read_len: u32,
+        kread_ptr: u32,
+        kread_len: u32,
+        hread_ptr: u32,
+        hread_len: u32,
+    ) -> i64;
+
+    /// C: `int64_t hook_param(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h)
+    pub fn hook_param(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64;
+
+    /// C: `int64_t hook_again()` (extern.h)
+    pub fn hook_again() -> i64;
+
+    /// C: `int64_t hook_skip(uint32_t read_ptr, uint32_t read_len, uint32_t flags)` (extern.h)
+    pub fn hook_skip(read_ptr: u32, read_len: u32, flags: u32) -> i64;
+
+    /// C: `int64_t hook_pos()` (extern.h)
+    pub fn hook_pos() -> i64;
+
+    /// C: `int64_t slot(uint32_t write_ptr, uint32_t write_len, uint32_t slot)` (extern.h)
+    pub fn slot(write_ptr: u32, write_len: u32, slot: u32) -> i64;
+
+    /// C: `int64_t slot_clear(uint32_t slot)` (extern.h)
+    pub fn slot_clear(slot: u32) -> i64;
+
+    /// C: `int64_t slot_count(uint32_t slot)` (extern.h)
+    pub fn slot_count(slot: u32) -> i64;
+
+    /// C: `int64_t slot_set(uint32_t read_ptr, uint32_t read_len, uint32_t slot)` (extern.h)
+    pub fn slot_set(read_ptr: u32, read_len: u32, slot: u32) -> i64;
+
+    /// C: `int64_t slot_size(uint32_t slot)` (extern.h)
+    pub fn slot_size(slot: u32) -> i64;
+
+    /// C: `int64_t slot_subarray(uint32_t parent_slot, uint32_t array_id, uint32_t new_slot)` (extern.h)
+    pub fn slot_subarray(parent_slot: u32, array_id: u32, new_slot: u32) -> i64;
+
+    /// C: `int64_t slot_subfield(uint32_t parent_slot, uint32_t field_id, uint32_t new_slot)` (extern.h)
+    pub fn slot_subfield(parent_slot: u32, field_id: u32, new_slot: u32) -> i64;
+
+    /// C: `int64_t slot_type(uint32_t slot_no, uint32_t flags)` (extern.h)
+    pub fn slot_type(slot_no: u32, flags: u32) -> i64;
+
+    /// C: `int64_t slot_float(uint32_t slot_no)` (extern.h)
+    pub fn slot_float(slot_no: u32) -> i64;
+
+    /// C: `int64_t state_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len)` (extern.h)
+    pub fn state_set(read_ptr: u32, read_len: u32, kread_ptr: u32, kread_len: u32) -> i64;
+
+    /// C: `int64_t state_foreign_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t aread_ptr, uint32_t aread_len)` (extern.h)
+    #[allow(clippy::too_many_arguments)]
+    pub fn state_foreign_set(
+        read_ptr: u32,
+        read_len: u32,
+        kread_ptr: u32,
+        kread_len: u32,
+        nread_ptr: u32,
+        nread_len: u32,
+        aread_ptr: u32,
+        aread_len: u32,
+    ) -> i64;
+
+    /// C: `int64_t state(uint32_t write_ptr, uint32_t write_len, uint32_t kread_ptr, uint32_t kread_len)` (extern.h)
+    pub fn state(write_ptr: u32, write_len: u32, kread_ptr: u32, kread_len: u32) -> i64;
+
+    /// C: `int64_t state_foreign(uint32_t write_ptr, uint32_t write_len, uint32_t kread_ptr, uint32_t kread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t aread_ptr, uint32_t aread_len)` (extern.h)
+    #[allow(clippy::too_many_arguments)]
+    pub fn state_foreign(
+        write_ptr: u32,
+        write_len: u32,
+        kread_ptr: u32,
+        kread_len: u32,
+        nread_ptr: u32,
+        nread_len: u32,
+        aread_ptr: u32,
+        aread_len: u32,
+    ) -> i64;
+
+    /// C: `int64_t trace(uint32_t mread_ptr, uint32_t mread_len, uint32_t dread_ptr, uint32_t dread_len, uint32_t as_hex)` (extern.h)
+    pub fn trace(
+        mread_ptr: u32,
+        mread_len: u32,
+        dread_ptr: u32,
+        dread_len: u32,
+        as_hex: u32,
+    ) -> i64;
+
+    /// C: `int64_t trace_num(uint32_t read_ptr, uint32_t read_len, int64_t number)` (extern.h)
+    pub fn trace_num(read_ptr: u32, read_len: u32, number: i64) -> i64;
+
+    /// C: `int64_t trace_float(uint32_t read_ptr, uint32_t read_len, int64_t float1)` (extern.h)
+    pub fn trace_float(read_ptr: u32, read_len: u32, float1: i64) -> i64;
+
+    /// C: `int64_t otxn_burden()` (extern.h)
+    pub fn otxn_burden() -> i64;
+
+    /// C: `int64_t otxn_field(uint32_t write_ptr, uint32_t write_len, uint32_t field_id)` (extern.h)
+    pub fn otxn_field(write_ptr: u32, write_len: u32, field_id: u32) -> i64;
+
+    /// C: `int64_t otxn_generation()` (extern.h)
+    pub fn otxn_generation() -> i64;
+
+    /// C: `int64_t otxn_id(uint32_t write_ptr, uint32_t write_len, uint32_t flags)` (extern.h)
+    pub fn otxn_id(write_ptr: u32, write_len: u32, flags: u32) -> i64;
+
+    /// C: `int64_t otxn_type()` (extern.h)
+    pub fn otxn_type() -> i64;
+
+    /// C: `int64_t otxn_slot(uint32_t slot_no)` (extern.h)
+    pub fn otxn_slot(slot_no: u32) -> i64;
+
+    /// C: `int64_t otxn_param(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h)
+    pub fn otxn_param(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64;
+
+    /// C: `int64_t meta_slot(uint32_t slot_no)` (extern.h)
+    pub fn meta_slot(slot_no: u32) -> i64;
+
+    /// C: `int64_t xpop_slot(uint32_t slot_no_tx, uint32_t slot_no_meta)` (extern.h)
+    pub fn xpop_slot(slot_no_tx: u32, slot_no_meta: u32) -> i64;
+
+    /// C: `int64_t prepare(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h)
+    pub fn prepare(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64;
+}
+
+/// Non-wasm host stubs mirroring the `extern.h` signatures exactly, so
+/// hooks-lib and its docs/tests compile and run on the host. Every stub is a
+/// deterministic, non-panicking placeholder: it returns
+/// [`crate::error::NOT_IMPLEMENTED`] (the `_g` stub returns `0`, meaning
+/// "guard check passed").
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(
+    missing_docs,
+    clippy::missing_safety_doc,
+    unused_variables,
+    clippy::too_many_arguments
+)]
+mod host_stubs {
+    use crate::error::NOT_IMPLEMENTED;
+
+    /// C: `int32_t _g(uint32_t guard_id, uint32_t maxiter)` (extern.h) — host stub
+    pub unsafe fn _g(guard_id: u32, maxiter: u32) -> i32 {
+        0
+    }
+
+    /// C: `int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code)` (extern.h) — host stub
+    pub unsafe fn accept(read_ptr: u32, read_len: u32, error_code: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code)` (extern.h) — host stub
+    pub unsafe fn rollback(read_ptr: u32, read_len: u32, error_code: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t util_raddr(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h) — host stub
+    pub unsafe fn util_raddr(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t util_accid(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h) — host stub
+    pub unsafe fn util_accid(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t util_verify(uint32_t dread_ptr, uint32_t dread_len, uint32_t sread_ptr, uint32_t sread_len, uint32_t kread_ptr, uint32_t kread_len)` (extern.h) — host stub
+    pub unsafe fn util_verify(
+        dread_ptr: u32,
+        dread_len: u32,
+        sread_ptr: u32,
+        sread_len: u32,
+        kread_ptr: u32,
+        kread_len: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t util_sha512h(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h) — host stub
+    pub unsafe fn util_sha512h(
+        write_ptr: u32,
+        write_len: u32,
+        read_ptr: u32,
+        read_len: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t util_keylet(uint32_t write_ptr, uint32_t write_len, uint32_t keylet_type, uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f)` (extern.h) — host stub
+    pub unsafe fn util_keylet(
+        write_ptr: u32,
+        write_len: u32,
+        keylet_type: u32,
+        a: u32,
+        b: u32,
+        c: u32,
+        d: u32,
+        e: u32,
+        f: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t sto_validate(uint32_t tread_ptr, uint32_t tread_len)` (extern.h) — host stub
+    pub unsafe fn sto_validate(tread_ptr: u32, tread_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t sto_subfield(uint32_t read_ptr, uint32_t read_len, uint32_t field_id)` (extern.h) — host stub
+    pub unsafe fn sto_subfield(read_ptr: u32, read_len: u32, field_id: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t sto_subarray(uint32_t read_ptr, uint32_t read_len, uint32_t array_id)` (extern.h) — host stub
+    pub unsafe fn sto_subarray(read_ptr: u32, read_len: u32, array_id: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t sto_emplace(uint32_t write_ptr, uint32_t write_len, uint32_t sread_ptr, uint32_t sread_len, uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id)` (extern.h) — host stub
+    pub unsafe fn sto_emplace(
+        write_ptr: u32,
+        write_len: u32,
+        sread_ptr: u32,
+        sread_len: u32,
+        fread_ptr: u32,
+        fread_len: u32,
+        field_id: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t sto_erase(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len, uint32_t field_id)` (extern.h) — host stub
+    pub unsafe fn sto_erase(
+        write_ptr: u32,
+        write_len: u32,
+        read_ptr: u32,
+        read_len: u32,
+        field_id: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t etxn_burden()` (extern.h) — host stub
+    pub unsafe fn etxn_burden() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t etxn_details(uint32_t write_ptr, uint32_t write_len)` (extern.h) — host stub
+    pub unsafe fn etxn_details(write_ptr: u32, write_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t etxn_fee_base(uint32_t read_ptr, uint32_t read_len)` (extern.h) — host stub
+    pub unsafe fn etxn_fee_base(read_ptr: u32, read_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t etxn_reserve(uint32_t count)` (extern.h) — host stub
+    pub unsafe fn etxn_reserve(count: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t etxn_generation()` (extern.h) — host stub
+    pub unsafe fn etxn_generation() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t etxn_nonce(uint32_t write_ptr, uint32_t write_len)` (extern.h) — host stub
+    pub unsafe fn etxn_nonce(write_ptr: u32, write_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t emit(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h) — host stub
+    pub unsafe fn emit(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_set(int32_t exponent, int64_t mantissa)` (extern.h) — host stub
+    pub unsafe fn float_set(exponent: i32, mantissa: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_multiply(int64_t float1, int64_t float2)` (extern.h) — host stub
+    pub unsafe fn float_multiply(float1: i64, float2: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_mulratio(int64_t float1, uint32_t round_up, uint32_t numerator, uint32_t denominator)` (extern.h) — host stub
+    pub unsafe fn float_mulratio(
+        float1: i64,
+        round_up: u32,
+        numerator: u32,
+        denominator: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_negate(int64_t float1)` (extern.h) — host stub
+    pub unsafe fn float_negate(float1: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_compare(int64_t float1, int64_t float2, uint32_t mode)` (extern.h) — host stub
+    pub unsafe fn float_compare(float1: i64, float2: i64, mode: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_sum(int64_t float1, int64_t float2)` (extern.h) — host stub
+    pub unsafe fn float_sum(float1: i64, float2: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_sto(uint32_t write_ptr, uint32_t write_len, uint32_t cread_ptr, uint32_t cread_len, uint32_t iread_ptr, uint32_t iread_len, int64_t float1, uint32_t field_code)` (extern.h) — host stub
+    pub unsafe fn float_sto(
+        write_ptr: u32,
+        write_len: u32,
+        cread_ptr: u32,
+        cread_len: u32,
+        iread_ptr: u32,
+        iread_len: u32,
+        float1: i64,
+        field_code: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_sto_set(uint32_t read_ptr, uint32_t read_len)` (extern.h) — host stub
+    pub unsafe fn float_sto_set(read_ptr: u32, read_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_invert(int64_t float1)` (extern.h) — host stub
+    pub unsafe fn float_invert(float1: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_divide(int64_t float1, int64_t float2)` (extern.h) — host stub
+    pub unsafe fn float_divide(float1: i64, float2: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_one()` (extern.h) — host stub
+    pub unsafe fn float_one() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_mantissa(int64_t float1)` (extern.h) — host stub
+    pub unsafe fn float_mantissa(float1: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_sign(int64_t float1)` (extern.h) — host stub
+    pub unsafe fn float_sign(float1: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_int(int64_t float1, uint32_t decimal_places, uint32_t abs)` (extern.h) — host stub
+    pub unsafe fn float_int(float1: i64, decimal_places: u32, abs: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_log(int64_t float1)` (extern.h) — host stub
+    pub unsafe fn float_log(float1: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t float_root(int64_t float1, uint32_t n)` (extern.h) — host stub
+    pub unsafe fn float_root(float1: i64, n: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t fee_base()` (extern.h) — host stub
+    pub unsafe fn fee_base() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t ledger_seq()` (extern.h) — host stub
+    pub unsafe fn ledger_seq() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t ledger_last_time()` (extern.h) — host stub
+    pub unsafe fn ledger_last_time() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t ledger_last_hash(uint32_t write_ptr, uint32_t write_len)` (extern.h) — host stub
+    pub unsafe fn ledger_last_hash(write_ptr: u32, write_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t ledger_nonce(uint32_t write_ptr, uint32_t write_len)` (extern.h) — host stub
+    pub unsafe fn ledger_nonce(write_ptr: u32, write_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t ledger_keylet(uint32_t write_ptr, uint32_t write_len, uint32_t lread_ptr, uint32_t lread_len, uint32_t hread_ptr, uint32_t hread_len)` (extern.h) — host stub
+    pub unsafe fn ledger_keylet(
+        write_ptr: u32,
+        write_len: u32,
+        lread_ptr: u32,
+        lread_len: u32,
+        hread_ptr: u32,
+        hread_len: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t hook_account(uint32_t write_ptr, uint32_t write_len)` (extern.h) — host stub
+    pub unsafe fn hook_account(write_ptr: u32, write_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t hook_hash(uint32_t write_ptr, uint32_t write_len, int32_t hook_no)` (extern.h) — host stub
+    pub unsafe fn hook_hash(write_ptr: u32, write_len: u32, hook_no: i32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t hook_param_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len, uint32_t hread_ptr, uint32_t hread_len)` (extern.h) — host stub
+    pub unsafe fn hook_param_set(
+        read_ptr: u32,
+        read_len: u32,
+        kread_ptr: u32,
+        kread_len: u32,
+        hread_ptr: u32,
+        hread_len: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t hook_param(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h) — host stub
+    pub unsafe fn hook_param(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t hook_again()` (extern.h) — host stub
+    pub unsafe fn hook_again() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t hook_skip(uint32_t read_ptr, uint32_t read_len, uint32_t flags)` (extern.h) — host stub
+    pub unsafe fn hook_skip(read_ptr: u32, read_len: u32, flags: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t hook_pos()` (extern.h) — host stub
+    pub unsafe fn hook_pos() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t slot(uint32_t write_ptr, uint32_t write_len, uint32_t slot)` (extern.h) — host stub
+    pub unsafe fn slot(write_ptr: u32, write_len: u32, slot: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t slot_clear(uint32_t slot)` (extern.h) — host stub
+    pub unsafe fn slot_clear(slot: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t slot_count(uint32_t slot)` (extern.h) — host stub
+    pub unsafe fn slot_count(slot: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t slot_set(uint32_t read_ptr, uint32_t read_len, uint32_t slot)` (extern.h) — host stub
+    pub unsafe fn slot_set(read_ptr: u32, read_len: u32, slot: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t slot_size(uint32_t slot)` (extern.h) — host stub
+    pub unsafe fn slot_size(slot: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t slot_subarray(uint32_t parent_slot, uint32_t array_id, uint32_t new_slot)` (extern.h) — host stub
+    pub unsafe fn slot_subarray(parent_slot: u32, array_id: u32, new_slot: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t slot_subfield(uint32_t parent_slot, uint32_t field_id, uint32_t new_slot)` (extern.h) — host stub
+    pub unsafe fn slot_subfield(parent_slot: u32, field_id: u32, new_slot: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t slot_type(uint32_t slot_no, uint32_t flags)` (extern.h) — host stub
+    pub unsafe fn slot_type(slot_no: u32, flags: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t slot_float(uint32_t slot_no)` (extern.h) — host stub
+    pub unsafe fn slot_float(slot_no: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t state_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len)` (extern.h) — host stub
+    pub unsafe fn state_set(read_ptr: u32, read_len: u32, kread_ptr: u32, kread_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t state_foreign_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t aread_ptr, uint32_t aread_len)` (extern.h) — host stub
+    pub unsafe fn state_foreign_set(
+        read_ptr: u32,
+        read_len: u32,
+        kread_ptr: u32,
+        kread_len: u32,
+        nread_ptr: u32,
+        nread_len: u32,
+        aread_ptr: u32,
+        aread_len: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t state(uint32_t write_ptr, uint32_t write_len, uint32_t kread_ptr, uint32_t kread_len)` (extern.h) — host stub
+    pub unsafe fn state(write_ptr: u32, write_len: u32, kread_ptr: u32, kread_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t state_foreign(uint32_t write_ptr, uint32_t write_len, uint32_t kread_ptr, uint32_t kread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t aread_ptr, uint32_t aread_len)` (extern.h) — host stub
+    pub unsafe fn state_foreign(
+        write_ptr: u32,
+        write_len: u32,
+        kread_ptr: u32,
+        kread_len: u32,
+        nread_ptr: u32,
+        nread_len: u32,
+        aread_ptr: u32,
+        aread_len: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t trace(uint32_t mread_ptr, uint32_t mread_len, uint32_t dread_ptr, uint32_t dread_len, uint32_t as_hex)` (extern.h) — host stub
+    pub unsafe fn trace(
+        mread_ptr: u32,
+        mread_len: u32,
+        dread_ptr: u32,
+        dread_len: u32,
+        as_hex: u32,
+    ) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t trace_num(uint32_t read_ptr, uint32_t read_len, int64_t number)` (extern.h) — host stub
+    pub unsafe fn trace_num(read_ptr: u32, read_len: u32, number: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t trace_float(uint32_t read_ptr, uint32_t read_len, int64_t float1)` (extern.h) — host stub
+    pub unsafe fn trace_float(read_ptr: u32, read_len: u32, float1: i64) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t otxn_burden()` (extern.h) — host stub
+    pub unsafe fn otxn_burden() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t otxn_field(uint32_t write_ptr, uint32_t write_len, uint32_t field_id)` (extern.h) — host stub
+    pub unsafe fn otxn_field(write_ptr: u32, write_len: u32, field_id: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t otxn_generation()` (extern.h) — host stub
+    pub unsafe fn otxn_generation() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t otxn_id(uint32_t write_ptr, uint32_t write_len, uint32_t flags)` (extern.h) — host stub
+    pub unsafe fn otxn_id(write_ptr: u32, write_len: u32, flags: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t otxn_type()` (extern.h) — host stub
+    pub unsafe fn otxn_type() -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t otxn_slot(uint32_t slot_no)` (extern.h) — host stub
+    pub unsafe fn otxn_slot(slot_no: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t otxn_param(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h) — host stub
+    pub unsafe fn otxn_param(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t meta_slot(uint32_t slot_no)` (extern.h) — host stub
+    pub unsafe fn meta_slot(slot_no: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t xpop_slot(uint32_t slot_no_tx, uint32_t slot_no_meta)` (extern.h) — host stub
+    pub unsafe fn xpop_slot(slot_no_tx: u32, slot_no_meta: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+
+    /// C: `int64_t prepare(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len)` (extern.h) — host stub
+    pub unsafe fn prepare(write_ptr: u32, write_len: u32, read_ptr: u32, read_len: u32) -> i64 {
+        NOT_IMPLEMENTED
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use host_stubs::*;

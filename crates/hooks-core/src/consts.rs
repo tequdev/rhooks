@@ -1,0 +1,126 @@
+//! Keylet, compare, and field-offset constants.
+//!
+//! Upstream: `Xahau/xahaud`, branch `release`, `hook/hookapi.h` (`KEYLET_*`,
+//! `COMPARE_*`) and `hook/macro.h` (`tfCANONICAL`, the `atACCOUNT` family,
+//! the `amAMOUNT` family). Function-like macros from `macro.h` (`SBUF`,
+//! `BUFFER_EQUAL`, `GUARD`, ...) are C conveniences, not constants, and are
+//! NOT ported here — hooks-lib covers their roles with real functions/macros.
+
+// --- hookapi.h: KEYLET_* ---
+
+/// C: `KEYLET_HOOK` (hookapi.h)
+pub const KEYLET_HOOK: u32 = 1;
+/// C: `KEYLET_HOOK_STATE` (hookapi.h)
+pub const KEYLET_HOOK_STATE: u32 = 2;
+/// C: `KEYLET_ACCOUNT` (hookapi.h)
+pub const KEYLET_ACCOUNT: u32 = 3;
+/// C: `KEYLET_AMENDMENTS` (hookapi.h)
+pub const KEYLET_AMENDMENTS: u32 = 4;
+/// C: `KEYLET_CHILD` (hookapi.h)
+pub const KEYLET_CHILD: u32 = 5;
+/// C: `KEYLET_SKIP` (hookapi.h)
+pub const KEYLET_SKIP: u32 = 6;
+/// C: `KEYLET_FEES` (hookapi.h)
+pub const KEYLET_FEES: u32 = 7;
+/// C: `KEYLET_NEGATIVE_UNL` (hookapi.h)
+pub const KEYLET_NEGATIVE_UNL: u32 = 8;
+/// C: `KEYLET_LINE` (hookapi.h)
+pub const KEYLET_LINE: u32 = 9;
+/// C: `KEYLET_OFFER` (hookapi.h)
+pub const KEYLET_OFFER: u32 = 10;
+/// C: `KEYLET_QUALITY` (hookapi.h)
+pub const KEYLET_QUALITY: u32 = 11;
+/// C: `KEYLET_EMITTED_DIR` (hookapi.h)
+pub const KEYLET_EMITTED_DIR: u32 = 12;
+/// C: `KEYLET_TICKET` (hookapi.h)
+pub const KEYLET_TICKET: u32 = 13;
+/// C: `KEYLET_SIGNERS` (hookapi.h)
+pub const KEYLET_SIGNERS: u32 = 14;
+/// C: `KEYLET_CHECK` (hookapi.h)
+pub const KEYLET_CHECK: u32 = 15;
+/// C: `KEYLET_DEPOSIT_PREAUTH` (hookapi.h)
+pub const KEYLET_DEPOSIT_PREAUTH: u32 = 16;
+/// C: `KEYLET_UNCHECKED` (hookapi.h)
+pub const KEYLET_UNCHECKED: u32 = 17;
+/// C: `KEYLET_OWNER_DIR` (hookapi.h)
+pub const KEYLET_OWNER_DIR: u32 = 18;
+/// C: `KEYLET_PAGE` (hookapi.h)
+pub const KEYLET_PAGE: u32 = 19;
+/// C: `KEYLET_ESCROW` (hookapi.h)
+pub const KEYLET_ESCROW: u32 = 20;
+/// C: `KEYLET_PAYCHAN` (hookapi.h)
+pub const KEYLET_PAYCHAN: u32 = 21;
+/// C: `KEYLET_EMITTED` (hookapi.h)
+pub const KEYLET_EMITTED: u32 = 22;
+/// C: `KEYLET_NFT_OFFER` (hookapi.h)
+pub const KEYLET_NFT_OFFER: u32 = 23;
+/// C: `KEYLET_HOOK_DEFINITION` (hookapi.h)
+pub const KEYLET_HOOK_DEFINITION: u32 = 24;
+/// C: `KEYLET_HOOK_STATE_DIR` (hookapi.h)
+pub const KEYLET_HOOK_STATE_DIR: u32 = 25;
+/// C: `KEYLET_CRON` (hookapi.h)
+pub const KEYLET_CRON: u32 = 26;
+
+// --- hookapi.h: COMPARE_* ---
+
+/// C: `COMPARE_EQUAL` (hookapi.h)
+pub const COMPARE_EQUAL: u32 = 1;
+/// C: `COMPARE_LESS` (hookapi.h)
+pub const COMPARE_LESS: u32 = 2;
+/// C: `COMPARE_GREATER` (hookapi.h)
+pub const COMPARE_GREATER: u32 = 4;
+
+// --- macro.h: tfCANONICAL ---
+
+/// C: `tfCANONICAL` (macro.h)
+pub const tfCANONICAL: u32 = 0x8000_0000;
+
+// --- macro.h: atACCOUNT family (amount/account slot-field offsets) ---
+
+/// C: `atACCOUNT` (macro.h)
+pub const atACCOUNT: u32 = 1;
+/// C: `atOWNER` (macro.h)
+pub const atOWNER: u32 = 2;
+/// C: `atDESTINATION` (macro.h)
+pub const atDESTINATION: u32 = 3;
+/// C: `atISSUER` (macro.h)
+pub const atISSUER: u32 = 4;
+/// C: `atAUTHORIZE` (macro.h)
+pub const atAUTHORIZE: u32 = 5;
+/// C: `atUNAUTHORIZE` (macro.h)
+pub const atUNAUTHORIZE: u32 = 6;
+/// C: `atTARGET` (macro.h)
+pub const atTARGET: u32 = 7;
+/// C: `atREGULARKEY` (macro.h)
+pub const atREGULARKEY: u32 = 8;
+/// C: `atPSEUDOCALLBACK` (macro.h)
+pub const atPSEUDOCALLBACK: u32 = 9;
+
+// --- macro.h: amAMOUNT family ---
+
+/// C: `amAMOUNT` (macro.h)
+pub const amAMOUNT: u32 = 1;
+/// C: `amBALANCE` (macro.h)
+pub const amBALANCE: u32 = 2;
+/// C: `amLIMITAMOUNT` (macro.h)
+pub const amLIMITAMOUNT: u32 = 3;
+/// C: `amTAKERPAYS` (macro.h)
+pub const amTAKERPAYS: u32 = 4;
+/// C: `amTAKERGETS` (macro.h)
+pub const amTAKERGETS: u32 = 5;
+/// C: `amLOWLIMIT` (macro.h)
+pub const amLOWLIMIT: u32 = 6;
+/// C: `amHIGHLIMIT` (macro.h)
+pub const amHIGHLIMIT: u32 = 7;
+/// C: `amFEE` (macro.h)
+pub const amFEE: u32 = 8;
+/// C: `amSENDMAX` (macro.h)
+pub const amSENDMAX: u32 = 9;
+/// C: `amDELIVERMIN` (macro.h)
+pub const amDELIVERMIN: u32 = 10;
+/// C: `amMINIMUMOFFER` (macro.h)
+pub const amMINIMUMOFFER: u32 = 16;
+/// C: `amRIPPLEESCROW` (macro.h)
+pub const amRIPPLEESCROW: u32 = 17;
+/// C: `amDELIVEREDAMOUNT` (macro.h)
+pub const amDELIVEREDAMOUNT: u32 = 18;

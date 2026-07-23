@@ -1,0 +1,20 @@
+[package]
+name = "hooks-lib"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[dependencies]
+hooks-core = { path = "../hooks-core" }
+
+[features]
+default = ["panic-handler"]
+panic-handler = []
+trace = []
+
+[lints]
+workspace = true

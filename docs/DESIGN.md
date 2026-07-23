@@ -1,0 +1,559 @@
+# rhooks — Rust Library & Toolchain for Xahau Hooks
+
+Status: REVIEWED — rework findings from the external design review (Codex
+gpt-5.5, reasoning effort high, 2026-07-23) have been incorporated; see §11.
+Author: design by Claude (Fable 5); implementation delegated per phase
+Date: 2026-07-23
+
+## 1. Goals
+
+Provide a Rust monorepo for developing Xahau Hooks (WebAssembly smart
+contracts) end to end:
+
+1. **hooks-core** — zero-logic FFI layer: raw Hook API declarations and every
+   constant from the xahaud `hook/` headers (`error.h`, `extern.h`,
+   `ls_flags.h`, `sfcodes.h`, `tts.h`, `tx_flags.h`, keylet/compare constants
+   from `hookapi.h`), translated 1:1 into Rust.
+2. **hooks-lib** — ergonomic, Rust-idiomatic wrapper over hooks-core
+   (`Result`-based APIs, typed buffers, XFL type, guard/trace macros, panic
+   handler). This is the crate Hook developers import.
+3. **hooks-build** — CLI that turns a Rust crate into a SetHook-valid WASM:
+   drives `cargo build --target wasm32v1-none`, then performs the
+   hook-cleaner and guard-checker steps natively in Rust.
+4. **examples** — multiple working Hooks written with hooks-lib, buildable
+   with hooks-build.
+
+### Non-goals (v1)
+
+- Publishing to crates.io (names/ownership decided later; `publish = false`).
+- Gas-type hook (HookApiVersion 1) *ergonomics*. The pipeline accepts
+  `--api-version 1` (skips guard handling) but hooks-lib v1 targets
+  Guard-type hooks.
+- Deployment tooling (SetHook submission, faucet, networks). Out of scope;
+  hooks-build stops at a valid `.wasm` plus a fee estimate.
+- WAT round-tripping, debugger, simulator.
+
+## 2. Constraints that shape the design
+
+These come from xahaud's SetHook validation (`SetHook.cpp`,
+`validateHookSetEntry`) and prior experience building the same toolchain:
+
+- **C1. Export set**: the WASM may export only `hook` (and optionally
+  `cbak`), both `(func (param i32) (result i64))`. Rust `cdylib` output also
+  exports `memory` — it must be stripped, or SetHook fails `temMALFORMED`.
+- **C2. Guards**: for API version 0, every `loop` must begin with the exact
+  instruction sequence `i32.const <id>; i32.const <maxiter>; call $_g`
+  (result dropped). xahaud statically computes a worst-case instruction
+  count from these; missing guards ⇒ rejection.
+- **C3. Instruction set**: WASM 1.0 MVP only. No bulk-memory, sign-ext,
+  reference types, SIMD; **no floating-point opcodes at all**. Rust target
+  `wasm32v1-none` guarantees the MVP feature set but not float-freedom —
+  float ops must never appear in source (XFL math is done via host calls).
+- **C4. Imports**: only the documented Hook API functions plus `_g`, all
+  from module `env`. Anything else ⇒ rejection.
+- **C5. No recursion**: the static instruction-count analysis requires an
+  acyclic call graph.
+- **C6. Size**: ≤ 65,535 bytes; SetHook fee ≈ 5000 drops/byte, so every
+  byte matters. No allocator, no `core::fmt`, no panic machinery.
+- **C7. Panic machinery is poison**: slice bounds checks pull in panic paths
+  that add functions/calls and have historically broken validation.
+  hooks-lib must be panic-free by construction (no indexing that can
+  panic in release; caller-provided buffers; `Result` everywhere).
+- **C8. Byte-exact post-processing**: the post-processor must re-encode the
+  module without disturbing the guard byte pattern. Use
+  `wasmparser` + `wasm-encoder` (raw section copy where possible);
+  **walrus is deliberately avoided** — its IR round-trip does not preserve
+  instruction sequences byte-exactly.
+
+## 3. Repository layout
+
+```
+rhooks/
+├── Cargo.toml                # workspace: crates/* (examples excluded)
+├── rust-toolchain.toml       # stable channel + wasm32v1-none target
+├── rustfmt.toml
+├── mise.toml                 # fmt / lint / test / build-examples tasks
+├── .gitignore                # target/, out/, *.wasm artifacts
+├── docs/
+│   └── DESIGN.md             # this file
+├── crates/
+│   ├── hooks-core/           # no_std, FFI decls + constants, no logic
+│   ├── hooks-lib/            # no_std, idiomatic wrapper (depends: hooks-core)
+│   └── hooks-build/          # std, bin+lib CLI (clap, wasmparser, wasm-encoder)
+└── examples/
+    ├── Cargo.toml            # SEPARATE workspace (no_std cdylibs)
+    ├── accept-all/
+    ├── firewall/
+    ├── state-counter/
+    └── emit-txn/
+```
+
+- Root workspace members: `crates/*` only. `examples/` is its own workspace:
+  its crates are `no_std` cdylibs with hook-specific release profiles that
+  must not leak into host crates, and they don't build for host targets.
+- Edition 2024, `rust-version = "1.85"` (wasm32v1-none is stable ≥ 1.84).
+- All crates `publish = false` for now.
+- All comments, docs, and identifiers in English.
+
+## 4. hooks-core
+
+`#![no_std]`, zero dependencies, zero logic. A faithful, mechanical
+translation of the headers. Layout:
+
+```
+src/
+├── lib.rs        # crate docs, module wiring, re-exports
+├── api.rs        # extern "C" declarations (the 60+ Hook API fns + _g)
+├── error.rs      # error.h     → pub const SUCCESS: i64 = 0; OUT_OF_BOUNDS = -1; ...
+├── sfcodes.rs    # sfcodes.h   → pub const sfAccount: u32 = ...; (325 consts)
+├── tts.rs        # tts.h       → pub const ttPAYMENT: u32 = 0; ...
+├── ls_flags.rs   # ls_flags.h  → pub const lsfGlobalFreeze: u32 = ...;
+├── tx_flags.rs   # tx_flags.h  → pub const tfFullyCanonicalSig: u32 = ...;
+└── consts.rs     # hookapi.h + macro.h constant-like defines
+```
+
+`consts.rs` covers every *constant-like* define from `hookapi.h` and
+`macro.h`: `KEYLET_*` (1–26), `COMPARE_*`, `tfCANONICAL`, the `atACCOUNT`
+family (amount/account offset constants), and the `amAMOUNT` family.
+Function-like macros in `macro.h` (`SBUF`, `BUFFER_EQUAL`, …) are C
+conveniences and are NOT ported here — their roles are covered by hooks-lib.
+
+Rules:
+
+- **Names are kept verbatim** (`sfAccount`, `ttPAYMENT`, `lsfGlobalFreeze`,
+  `OUT_OF_BOUNDS`) under `#![allow(non_upper_case_globals)]` so code can be
+  grepped against C hooks and the official docs. No renaming, no typing
+  cleverness at this layer.
+- Types: error codes `i64` (they are compared against Hook API `i64`
+  returns); `sfcodes` `u32`; `tts` `u32`; flags `u32`.
+- The extern block mirrors `extern.h` exactly — `read_ptr`/`read_len` style
+  `u32` parameters, `i64` returns:
+
+```rust
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    pub fn _g(guard_id: u32, maxiter: u32) -> i32;
+    pub fn accept(read_ptr: u32, read_len: u32, error_code: i64) -> i64;
+    pub fn state(write_ptr: u32, write_len: u32, kread_ptr: u32, kread_len: u32) -> i64;
+    // ... every function from extern.h, in extern.h order
+}
+```
+
+- **Host builds**: the extern block is `#[cfg(target_arch = "wasm32")]`.
+  For other targets, same-signature deterministic stub fns are provided so
+  hooks-lib and its docs/tests compile *and run* on the host: every stub
+  returns `NOT_IMPLEMENTED` (no panicking `unimplemented!()`). A richer
+  feature-gated mock host is possible later without changing this surface.
+- Each declaration carries a one-line doc comment naming the C prototype;
+  a header comment records the upstream source
+  (`Xahau/xahaud`, branch `release`, `hook/<file>.h`) so re-generation diffs
+  are reviewable.
+
+## 5. hooks-lib
+
+`#![no_std]`, depends only on hooks-core. `#![deny(missing_docs)]`.
+
+```
+src/
+├── lib.rs         # prelude, panic handler (feature), re-export of hooks-core as `raw`
+├── error.rs       # HookError + Result<T>
+├── types.rs       # AccountId, Hash, Keylet, ... fixed-size buffer aliases
+├── xfl.rs         # XFL newtype over i64
+├── macros.rs      # guard!, trace!, rollback!, accept!, uninit_buf!
+└── api/
+    ├── mod.rs
+    ├── control.rs # accept, rollback (-> !), hook_again, hook_skip, hook_pos
+    ├── otxn.rs    # otxn_field, otxn_type, otxn_param, otxn_id, otxn_slot, ...
+    ├── state.rs   # state, state_set, state_foreign(_set)
+    ├── etxn.rs    # etxn_reserve, emit, etxn_details, etxn_fee_base, prepare
+    ├── ledger.rs  # ledger_seq, ledger_last_time, fee_base, ledger_keylet, ...
+    ├── hook_ctx.rs# hook_account, hook_hash, hook_param(_set)
+    ├── slot.rs    # slot_* family, meta_slot, xpop_slot
+    ├── sto.rs     # sto_subfield, sto_subarray, sto_emplace, sto_erase, sto_validate
+    ├── float.rs   # thin fns backing XFL (float_sto, float_sto_set, slot_float)
+    ├── util.rs    # util_accid, util_raddr, util_sha512h, util_verify, util_keylet
+    └── trace.rs   # trace, trace_num, trace_float
+```
+
+### 5.1 Error model
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookError {
+    OutOfBounds,          // -1
+    InternalError,        // -2
+    TooBig,               // -3
+    /* ... every code from error.h ... */
+    Unknown(i64),         // forward-compat for codes we don't know
+}
+pub type Result<T> = core::result::Result<T, HookError>;
+
+#[inline(always)]
+fn res(code: i64) -> Result<i64> { if code < 0 { Err(HookError::from(code)) } else { Ok(code) } }
+```
+
+Non-negative returns are payload (usually "bytes written"); negative maps to
+`HookError`. Functions whose success value is meaningful keep it
+(`Ok(len)`, `Ok(slot_no)`, …).
+
+### 5.2 API wrapper conventions
+
+- Caller-provided buffers, length returned — zero-copy and panic-free:
+
+```rust
+#[inline(always)]
+pub fn state(out: &mut [u8], key: &[u8]) -> Result<usize>;
+#[inline(always)]
+pub fn hook_account() -> Result<AccountId>;   // fixed-size convenience
+```
+
+- Every wrapper is `#[inline(always)]` (extra internal functions are both a
+  size cost and a validation risk — C7).
+- Buffers that have a protocol-fixed size get typed convenience wrappers
+  returning arrays (`AccountId = [u8; 20]`, `Hash = [u8; 32]`,
+  `Keylet = [u8; 34]`, `Nonce = [u8; 32]`, `EmitDetails = [u8; 105]`, …).
+- `accept`/`rollback` return `!` (call, then `unreachable` opcode — the host
+  never returns from them).
+- Slot/keylet numbers are plain `u32` in v1 (no newtype ceremony); field
+  codes are `u32` taken from `hooks_core::sfcodes`.
+- **Pointer-direction discipline**: wrappers call the raw extern functions
+  directly, spelling out `buf.as_mut_ptr() as u32` for `write_ptr` and
+  `buf.as_ptr() as u32` for `read_ptr` at each call site. No generic
+  "pass a slice" helper that erases direction — prior art has had bugs from
+  exactly that blur (e.g. around `hook_hash`/`hook_skip`). If helpers are
+  used at all they must be direction-specific (`out_buf!` vs `in_buf!`).
+
+### 5.3 XFL
+
+`#[derive(Clone, Copy)] pub struct XFL(i64);` — Xahau 64-bit decimal float.
+The inner field is **private**: XFL host calls return negative values as
+error codes, and a public field would let users smuggle an error code in as
+a "value". Escape hatches are explicit: `XFL::from_raw_bits(i64)` /
+`xfl.raw_bits()` (documented as unchecked representation access).
+All arithmetic goes through host calls and is fallible, so **no `core::ops`
+operator overloads** (they would need to panic). Methods:
+
+```rust
+impl XFL {
+    pub fn new(exponent: i32, mantissa: i64) -> Result<XFL>;      // float_set
+    pub fn one() -> XFL;
+    pub fn mul(self, rhs: XFL) -> Result<XFL>;                     // float_multiply
+    pub fn add(self, rhs: XFL) -> Result<XFL>;                     // float_sum
+    pub fn div(self, rhs: XFL) -> Result<XFL>;
+    pub fn neg(self) -> Result<XFL>; pub fn invert(self) -> Result<XFL>;
+    pub fn mulratio(self, round_up: bool, num: u32, den: u32) -> Result<XFL>;
+    pub fn mantissa(self) -> Result<i64>; pub fn exponent(self) -> Result<i64>;
+    pub fn sign(self) -> Result<bool>;
+    pub fn to_int(self, decimal_places: u32, absolute: bool) -> Result<i64>;
+    pub fn compare(self, rhs: XFL, mode: u32) -> Result<bool>;     // float_compare
+    pub fn log(self) -> Result<XFL>; pub fn root(self, n: u32) -> Result<XFL>;
+}
+```
+
+`PartialEq`/`PartialOrd` are NOT implemented (comparison is a fallible host
+call, and a silent "false on error" comparison is too dangerous for
+financial logic); `compare` plus `eq/lt/gt` helper methods returning
+`Result<bool>`. Bitwise representation equality, if ever needed, gets an
+explicitly named method (`bits_eq`), not `==`.
+
+### 5.4 Macros & entry point
+
+- `guard!(maxiter)` / `guard_m!(maxiter, n)` — match the C `GUARD`/`GUARDM`
+  macros from `macro.h` **exactly, including the `+ 1`**:
+  `GUARD(maxiter)` in C is `_g((1ULL << 31U) + __LINE__, (maxiter) + 1)`.
+  Rust: `guard!(m)` → `_g((1u32 << 31) + line!(), (m) + 1)`;
+  `guard_m!(m, n)` → `_g((1u32 << 31) + (line!() << 16) + (n), (m) + 1)`
+  (same id formula as C `GUARDM`) for multiple loops on one line. All
+  arithmetic explicit `u32` with `wrapping_add`-free constants.
+  Guards are the developer's responsibility by default (see 6.3); the
+  opt-in auto-guard pass exists mainly for compiler-generated loops.
+- `trace!("msg")`, `trace!("msg", data)`, `trace_num!`, `trace_float!` —
+  compiled to nothing unless **hooks-lib's** `trace` feature is enabled
+  (traces cost bytes and execution; examples enable it in dev). The feature
+  gate lives in hidden `#[inline(always)]` shim functions inside hooks-lib,
+  NOT as a `#[cfg]` in the macro body — a cfg written in a `macro_rules!`
+  body is evaluated against the *calling* crate's features, which would
+  force every hook crate to re-declare a same-named feature. With the shim,
+  `hooks-lib = { features = ["trace"] }` on the dependency line is all a
+  hook crate needs.
+- `accept!()/accept!(msg, code)`, `rollback!(msg, code)` — terse exits.
+- `uninit_buf!()` is NOT provided: `MaybeUninit::uninit().assume_init()` for
+  arrays is UB. Buffers are `[0u8; N]`; the cleaner/opt pipeline keeps the
+  cost acceptable, and correctness wins.
+- Entry point is written by the developer, no proc-macro crate in v1:
+
+```rust
+#[unsafe(no_mangle)]
+pub extern "C" fn hook(_reserved: u32) -> i64 { ... }
+```
+
+- Panic handler behind default feature `panic-handler`:
+  `rollback(b"panic", ...)` then `unreachable` — examples just work; users
+  embedding differently can disable it.
+
+## 6. hooks-build
+
+`std` crate: `src/main.rs` (clap CLI) + `src/lib.rs` (pipeline as pure
+`bytes → Result<bytes>` functions, unit-testable). Dependencies: `clap`,
+`wasmparser`, `wasm-encoder`, `anyhow`; dev-dep `wat` for fixtures.
+No walrus (C8).
+
+### 6.1 CLI
+
+```
+hooks-build build [--manifest-path <dir/Cargo.toml>] [-p <crate>]
+                  [--api-version 0|1] [--auto-guard] [--default-maxiter N]
+                  [--out <dir>] [--allow-oversize]
+hooks-build clean <in.wasm> [-o out.wasm] [--api-version 0|1]   # post-process only
+hooks-build check <file.wasm> [--api-version 0|1]               # validate only, no output
+```
+
+`build` =
+1. `cargo build --release --target wasm32v1-none` with
+   `--message-format=json` to locate the produced `.wasm` artifact (no
+   guessing at target dirs).
+2. Post-process (6.2, 6.3).
+3. Validate (6.4).
+4. Write `<out>/<crate>.wasm` (default `out/` beside the manifest), print
+   size and estimated SetHook fee (`bytes × 5000` drops).
+
+`check` runs only 6.4 (+ guard verification instead of insertion) — usable
+against any wasm, including C-built hooks.
+
+### 6.2 Cleaner (hook-cleaner equivalent)
+
+Input: cargo's wasm. Output: SetHook-shaped wasm.
+
+1. Drop all custom sections (`name`, `producers`, `target_features`, …).
+2. Restrict exports to exactly `hook` and (if present) `cbak`; everything
+   else — `memory`, `__wasm_call_ctors`, data/table globals — is removed.
+3. Reachability GC. Roots: the retained exports only (`call_indirect` is
+   rejected in v1 — see 6.4 — so table element segments are never roots;
+   a `start` section is rejected outright). Traversal follows direct
+   `call` instructions and `global.get/set`. Then:
+   - drop unreferenced functions and globals;
+   - drop the table and all element segments entirely when no
+     `call_indirect` survives (v1: always, given the hard error);
+   - keep active data segments as-is (merging is a future optimization);
+     a live defined memory is required for them.
+4. **Index renumbering is a whole-module concern.** One remap table per
+   index space (types, functions, globals, memories, tables) is built once
+   and applied everywhere that space is referenced: function section,
+   export section, element segments, code bodies (`call` immediates,
+   `global.get/set` immediates), and import ordering (imported functions
+   occupy the low indices, so adding/removing an import — e.g. `_g` —
+   shifts every defined function index). A code body may be raw-copied
+   **only if no index space it references changed**; otherwise it is
+   re-encoded instruction-by-instruction with immediates remapped.
+   Byte-comparison tests pin the re-encoder as lossless modulo remapped
+   immediates (C8).
+5. Verify entry signatures: `hook`/`cbak` must be `(i32) -> i64`; error out
+   otherwise (catches a missing `extern "C"` or wrong signature early).
+
+### 6.3 Guard pass (guard-checker equivalent + auto-insert)
+
+Skipped entirely when `--api-version 1`.
+
+For every function body, scan instructions; at each `loop` opcode:
+
+- If the body already starts with `i32.const a; i32.const b; call $_g`
+  (optionally followed by `drop`) — accept it, record `(a, b)`.
+- Otherwise it is a **hard error by default**, reported with function index
+  and instruction offset (pure guard-checker behavior, same as `check`).
+  Developers fix it with `guard!` at the top of the loop body.
+- With opt-in `--auto-guard`, the missing guard is instead inserted:
+  `i32.const <id>; i32.const <maxiter>; call $_g; drop` immediately after
+  the `loop` blocktype, id = `(1 << 30) + n` (sequential — disjoint from
+  the `(1 << 31) + …` space used by `guard!`/`guard_m!`), maxiter =
+  `--default-maxiter` (default 16, deliberately small). Auto-guard exists
+  primarily for **compiler-generated loops** the developer never wrote —
+  `compiler_builtins` `memcpy`/`memset` loops are the known offenders on
+  `wasm32v1-none` (no bulk-memory ⇒ byte loops). Whether examples can stay
+  guard-clean without it is validated empirically in phase 4; if they
+  cannot, revisit the default with that evidence.
+
+Rationale for default-off (review finding): silent insertion with a small
+maxiter can turn into runtime `GUARD_VIOLATION`s, and it hides the real
+worst-case instruction budget that SetHook fee estimation is based on.
+
+**Phase-4 empirical results** (2026-07-23, confirming both sides of this
+trade-off):
+- Compiler-generated loops are real. `firewall`'s `[u8; 20]` equality
+  lowers to a bcmp-style byte-compare loop; `emit-txn`'s 320-byte buffer
+  zero-init lowers to a `compiler_builtins`-style memset function with 5
+  loop constructs. Neither has any loop in Rust source; both need
+  `--auto-guard`.
+- Straight-line hooks (`accept-all`) and hooks whose only loops are
+  source-level with `guard!` (`state-counter`) build clean with no flags —
+  the strict default is workable.
+- **The `--default-maxiter` CLI default must not be trusted for real
+  deployments**: hooks-build validates guard *shape*, not that maxiter
+  covers the loop's true runtime bound. maxiter 16 passes `check` for both
+  examples above yet would raise `GUARD_VIOLATION` on-ledger (the compare
+  loop runs up to 20 iterations; the memset bulk loop ~40). The examples
+  size maxiter from disassembly (24 and 48 respectively) and the CLI docs
+  must tell users to do the same.
+
+If a guard was inserted and `_g` is not imported, the import is added
+(import section rewrite ⇒ function index shift ⇒ handled by the same
+renumbering machinery as GC).
+
+**After any mutation, the full guard verifier and validator (6.4) run again
+on the final bytes** — `build` never emits an artifact that `check` would
+reject; a bug in the insertion pass fails the build instead of shipping.
+
+`emit()` reachability note: xahaud requires hooks that `emit` to have called
+`etxn_reserve`; that is runtime behavior, not validated here.
+
+### 6.4 Validator
+
+Hard errors (module shape — the SetHook-derived rule set; the final
+authority is `SetHook.cpp`, and phase 3 includes cross-checking every rule
+against xahaud source plus a known-good C-built hook fixture):
+- Any export other than `hook`/`cbak`; missing `hook`; wrong signatures.
+- Any import from a module other than `env`, or a function name outside the
+  whitelist (the whitelist is generated from `extern.h` — single source of
+  truth shared with hooks-core; kept as a checked-in table with a test that
+  it matches hooks-core's extern block). Import signature mismatch against
+  `extern.h` types. Imported memories, tables, or globals.
+- A `start` section.
+- Passive data/element segments, `data count` section, or any element
+  segment form beyond MVP active-with-function-indices.
+- More than one (or zero, when data segments exist) defined memory;
+  memory initial size beyond xahaud limits.
+- Any floating-point opcode; any post-MVP opcode (encoding-level check via
+  `wasmparser` configured to MVP-only features).
+- `call_indirect` (v1 hard error: it defeats the recursion check and
+  reachability analysis; revisit only with conservative table analysis).
+- Call-graph cycle (recursion) — DFS over direct calls (C5); sound because
+  `call_indirect` is banned.
+- For api-version 0: any unguarded `loop` (both `check` mode and the
+  post-mutation re-verification in `build`).
+- Binary > 65,535 bytes. (`build` refuses to emit; `--allow-oversize`
+  writes the artifact anyway for size-debugging, clearly marked INVALID.)
+
+Warnings:
+- Mutable defined globals beyond the shadow stack pointer pattern (allowed,
+  but flagged as a size/audit smell).
+- Size approaching the limit (≥ 56 KiB) — printed with the fee estimate.
+
+Validation always runs against the **final output bytes** (post-clean,
+post-guard), and `check <file>` applies the identical rule set to arbitrary
+external wasm (including C-built hooks).
+
+### 6.5 Why native Rust instead of shelling out to hook-cleaner-c / guard-checker
+
+Single `cargo install`-able toolchain, no C submodules, testable stages, and
+the previous iteration of this project validated the approach. Behavioral
+reference tests compare our verdicts against known-good/known-bad fixtures
+(including a C-compiled hook checked in as a binary fixture).
+
+## 7. examples/
+
+Own workspace; every crate:
+
+```toml
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+```
+
+| example | demonstrates |
+|---|---|
+| `accept-all` | minimal hook: `accept` everything (starter template) |
+| `firewall` | read `otxn_field(sfAccount)` + hook param blacklist → `rollback` |
+| `state-counter` | `state`/`state_set` round-trip, counter in hook state |
+| `emit-txn` | `etxn_reserve` + `prepare`-style payment emission + `cbak` |
+
+Each README shows the exact build command:
+`hooks-build build --manifest-path examples/state-counter/Cargo.toml`
+(or via mise task `mise run build-examples`, which builds all examples and
+`check`s the outputs — this doubles as the end-to-end test).
+
+Source style rules for examples (enforced by review, documented in
+`examples/README.md`): no slice indexing that can panic (use fixed-size
+arrays and `split_at`-free patterns), no `format!`/`fmt`, loops carry
+`guard!` when the bound is known.
+
+## 8. Code health
+
+- `rustfmt.toml` (defaults; `edition = "2024"`), formatting enforced.
+- Workspace lints in root `Cargo.toml`, inherited via `[lints] workspace = true`:
+  `rust.unsafe_op_in_unsafe_fn = "deny"`, `clippy.all = "warn"`,
+  `clippy.pedantic` selectively, `rust.missing_docs = "deny"` for the two
+  library crates.
+- **Panic-free is enforced, not promised** (review finding): hooks-lib and
+  every example crate additionally deny `clippy::unwrap_used`,
+  `clippy::expect_used`, `clippy::panic`, `clippy::indexing_slicing`, and
+  `clippy::arithmetic_side_effects` is at least `warn`. The documented
+  contract: hooks-lib wrappers are panic-free; hook crates keep that
+  property only by passing these lints (checked by `mise run lint`).
+- `mise.toml` tasks: `fmt`, `lint` (clippy `-D warnings`, both workspaces,
+  host + wasm32v1-none targets), `test`, `build-wasm`, `build-examples`.
+  Target-specific caveats: `build-wasm` scopes to `-p hooks-core -p
+  hooks-lib` (hooks-build is a std CLI and must not be built for
+  wasm32v1-none), and clippy for the examples workspace uses `--lib`, not
+  `--all-targets` — wasm32v1-none has no `test` crate, so the implicit
+  test-profile target can never build (examples also set `[lib] test =
+  false`).
+- Tests: hooks-build unit tests on `wat`-authored fixtures (cleaner strips
+  exports; guard inserted at loop head byte-exactly; recursion detected;
+  float opcode rejected); hooks-core has a test asserting the whitelist
+  table and extern block stay in sync; examples built+checked in
+  `build-examples`.
+- `.gitignore`: `/target`, `/examples/target`, `/examples/**/out`, `out/`,
+  `*.wasm` outside fixtures, `.DS_Store`. Binary test fixtures live in
+  `crates/hooks-build/tests/fixtures/` and are exempted.
+
+## 9. Implementation plan (delegation map)
+
+| phase | content | executor |
+|---|---|---|
+| 0 | scaffolding: workspace, toolchain, fmt/lint, mise, .gitignore | Sonnet |
+| 1 | hooks-core (mechanical header translation; headers provided) | Sonnet |
+| 2 | hooks-lib (error, types, api wrappers, XFL, macros) | Sonnet |
+| 3 | hooks-build (CLI, cleaner, guard pass, validator, tests) | Sonnet (Opus if stuck on encoder subtleties) |
+| 4 | examples + end-to-end build via hooks-build | Sonnet |
+| — | design, per-phase spec, review gates, final integration | Fable |
+
+Each phase lands only after `mise run fmt && mise run lint && mise run test`
+pass and the phase output is reviewed against this document.
+
+## 10. Resolved questions
+
+Settled during the external design review (recommendations adopted):
+
+1. **Guard auto-insertion: default OFF.** Missing guards are hard errors
+   with precise locations; `--auto-guard` is opt-in (see 6.3, including the
+   compiler-generated-loop caveat that keeps the flag alive).
+2. **Module-shape validation broadened**: start section, passive segments,
+   data-count, imported memories/tables/globals, element-segment forms,
+   mutable globals, multiple memories are all explicitly ruled on (6.4).
+3. **XFL stays without `PartialEq`/`PartialOrd`**; explicit `bits_eq` if
+   representation equality is ever needed.
+4. **`call_indirect` is a v1 hard error** (keeps recursion detection and
+   reachability sound); table + element segments are dropped by the cleaner.
+5. **`hooks-build new` deferred** — copying `examples/accept-all` is the
+   v1 scaffold story.
+
+## 11. Design review record
+
+- Reviewer: Codex CLI, model **gpt-5.5**, reasoning effort high, read-only
+  (gpt-5.6 was requested first but is not available via the Codex CLI).
+- Verdict: rework — 12 findings (2 blockers, 7 major, 3 minor), all
+  incorporated:
+  size-limit hard error (6.4); `guard!` matches C `GUARD`/`GUARDM` ABI
+  including `+1` (5.4); post-mutation re-validation in `build` (6.3);
+  `call_indirect` hard error + sound recursion check (6.4); whole-module
+  index remap specification (6.2); precise GC roots and table/element
+  dropping (6.2); explicit module-shape rule set with xahaud cross-check
+  task (6.4); clippy-enforced panic-freedom (8); non-panicking host stubs
+  returning `NOT_IMPLEMENTED` (4); `macro.h`/`hookapi.h` constant scope
+  (4); private XFL field with raw-bits accessors (5.3); pointer-direction
+  discipline in wrappers (5.2).

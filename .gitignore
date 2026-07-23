@@ -1,0 +1,15 @@
+# Build artifacts
+/target
+/crates/**/target
+/examples/target
+/examples/**/target
+
+# hooks-build outputs
+out/
+*.wasm
+
+# Keep binary test fixtures
+!crates/hooks-build/tests/fixtures/**/*.wasm
+
+# OS / editor noise
+.DS_Store
