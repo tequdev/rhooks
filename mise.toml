@@ -3,7 +3,7 @@
 # which the rustup argv0 proxies resolve).
 rust = "1.89.0"
 
-# [env._]
+[env._]
 # mise's core rust tool (symlink install) does not register a bin dir on
 # PATH itself, so add the proxy directory declaratively here. With this,
 # every task below can call plain `cargo` — no per-task PATH surgery.
