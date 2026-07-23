@@ -148,6 +148,27 @@ unsafe extern "C" {
   a header comment records the upstream source
   (`Xahau/xahaud`, branch `release`, `hook/<file>.h`) so re-generation diffs
   are reviewable.
+- **The source headers are vendored, not just referenced**: all eight
+  `hook/*.h` files live verbatim in `crates/hooks-core/vendor/xahaud-hook/`
+  (own `VENDOR.md` + `SHA256SUMS`), synced by the same
+  `scripts/sync-vendor.sh` / weekly drift workflow as the guard checker
+  (6.5). **Parity tests** in hooks-core parse the vendored headers at test
+  time (C `#define`/enum extraction with a tiny shift-add expression
+  evaluator, and `extern.h` prototype parsing) and compare complete
+  name/value/signature sets against the Rust translation — so an upstream
+  header change first fails the drift workflow, and after re-syncing, the
+  parity tests fail until the Rust side is updated to match. The
+  translation cannot silently rot.
+- **The translation itself is generated**: `cargo xtask gen-core`
+  (crates/xtask) parses the vendored headers and emits all of hooks-core's
+  translated sources (`error.rs`, `tts.rs`, `sfcodes.rs`, `ls_flags.rs`,
+  `tx_flags.rs`, `consts.rs`, `api.rs` — everything except the hand-written
+  `lib.rs`), each carrying an `@generated` marker. `gen-core --check`
+  verifies the checked-in sources match regeneration (wired into CI), so
+  the full sync flow is: `scripts/sync-vendor.sh` → `cargo xtask gen-core`
+  → tests → commit. The xtask parser is deliberately independent from the
+  parity tests' parser — the parity tests are the generator's correctness
+  oracle, so they must not share code.
 
 ## 5. hooks-lib
 

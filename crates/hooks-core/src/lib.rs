@@ -5,7 +5,10 @@
 //! `error.h`, `sfcodes.h`, `tts.h`, `ls_flags.h`, `tx_flags.h`, and the
 //! constant-like defines of `hookapi.h`/`macro.h` (`consts.rs`).
 //!
-//! Upstream source: `Xahau/xahaud`, branch `release`, directory `hook/`.
+//! Upstream source: `Xahau/xahaud`, branch `release`, directory `hook/`,
+//! vendored verbatim at `crates/hooks-core/vendor/xahaud-hook/` (see that
+//! directory's `VENDOR.md`) and parity-tested against this translation in
+//! `tests/`.
 //!
 //! `#![no_std]`, zero dependencies, zero logic — this crate is a translation
 //! layer, not an ergonomic API; see `hooks-lib` for the idiomatic wrapper

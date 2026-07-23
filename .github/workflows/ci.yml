@@ -40,6 +40,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Generated hooks-core sources are up to date
+        run: cargo run -q -p xtask -- gen-core --check
+
       - name: Clippy (host, deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
