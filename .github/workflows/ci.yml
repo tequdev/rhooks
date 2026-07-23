@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (per rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Check formatting (root workspace)
+        run: cargo fmt --all --check
+
+      - name: Check formatting (examples workspace)
+        working-directory: examples
+        run: cargo fmt --all --check
+
+  build-test:
+    name: Lint, build & test (root workspace)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (per rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy (host, deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Clippy (wasm32v1-none, deny warnings)
+        run: cargo clippy -p hooks-core -p hooks-lib --target wasm32v1-none -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build no_std crates for wasm32v1-none
+        run: cargo build -p hooks-core -p hooks-lib --target wasm32v1-none --release
+
+  examples:
+    name: Build & check examples (end-to-end)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (per rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            examples
+
+      - name: Clippy (examples, wasm32v1-none, deny warnings)
+        # --lib instead of --all-targets: wasm32v1-none has no `test` crate,
+        # so the implicit test-profile target can never build for it.
+        working-directory: examples
+        run: cargo clippy --workspace --lib --target wasm32v1-none -- -D warnings
+
+      # Building each example through hooks-build and then `check`ing the
+      # produced binary doubles as the end-to-end test of the whole
+      # toolchain (cleaner, guard pass, validator) — no_std cdylib hooks
+      # have no runnable unit tests.
+      #
+      # accept-all and state-counter are guard-clean at the source level.
+      - name: accept-all
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/accept-all/Cargo.toml
+          cargo run -p hooks-build -- check examples/accept-all/out/accept_all.wasm
+
+      - name: state-counter
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/state-counter/Cargo.toml
+          cargo run -p hooks-build -- check examples/state-counter/out/state_counter.wasm
+
+      # firewall: [u8; 20] equality compiles to a compiler-generated
+      # byte-compare loop; maxiter 24 covers its worst case of 20 iterations.
+      - name: firewall
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/firewall/Cargo.toml --auto-guard --default-maxiter 24
+          cargo run -p hooks-build -- check examples/firewall/out/firewall.wasm
+
+      # emit-txn: zeroing the 320-byte prepare buffer compiles to a memset
+      # loop (8 bytes/iteration); maxiter 48 covers its ~40-iteration worst
+      # case.
+      - name: emit-txn
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml --auto-guard --default-maxiter 48
+          cargo run -p hooks-build -- check examples/emit-txn/out/emit_txn.wasm
+
+      - name: Upload example hook binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: example-hooks
+          path: examples/*/out/*.wasm
+          if-no-files-found: error
