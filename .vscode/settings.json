@@ -1,0 +1,11 @@
+{
+  // The repo contains two cargo workspaces (the root one and examples/);
+  // rust-analyzer only auto-discovers the root, so link both explicitly —
+  // without this, examples/*/src/lib.rs get no completion or diagnostics.
+  "rust-analyzer.linkedProjects": ["Cargo.toml", "examples/Cargo.toml"],
+  // Flycheck must not pass --all-targets: cargo then builds the examples'
+  // lib-test targets even though they set `[lib] test = false`, and a test
+  // harness links std, which collides with the no_std hook crates'
+  // panic handler (E0152 duplicate lang item).
+  "rust-analyzer.check.allTargets": false
+}

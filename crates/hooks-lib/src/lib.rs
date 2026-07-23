@@ -81,3 +81,22 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
     }
     core::arch::wasm32::unreachable()
 }
+
+/// Host-target panic handler for `no_std` hook crates, behind the
+/// **non-default** `host-panic-handler` feature.
+///
+/// A hook crate is a `no_std` cdylib, so even a host `cargo check` (what
+/// rust-analyzer runs for completion and diagnostics) demands a
+/// `#[panic_handler]` — but the wasm handler above is target-gated, and
+/// hooks-lib cannot provide one unconditionally on the host: any `std`
+/// consumer (like hooks-lib's own test harness) would then hit a duplicate
+/// lang item. Hook crates opt in via
+/// `hooks-lib = { ..., features = ["host-panic-handler"] }`, which makes
+/// host analysis work; the handler itself is never reached (host builds of
+/// hook crates are for analysis only, not execution).
+#[cfg(all(not(target_arch = "wasm32"), feature = "host-panic-handler"))]
+#[panic_handler]
+#[allow(clippy::empty_loop)] // analysis-only target; never executed
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    loop {}
+}

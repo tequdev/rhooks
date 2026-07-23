@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 test = false
 
 [dependencies]
-hooks-lib = { path = "../../crates/hooks-lib" }
+hooks-lib = { path = "../../crates/hooks-lib", features = ["host-panic-handler"] }
 
 [lints]
 workspace = true
