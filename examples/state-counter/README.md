@@ -5,9 +5,10 @@ little-endian count under a fixed, zero-padded 32-byte state key
 (defaulting to zero if absent), increments it, writes it back with
 `state_set`, and accepts with the new count as the return-code payload.
 
-The state key is built by hand from a short name (`b"counter"`) via a
-bounded loop carrying `guard!` — the one loop in this example's source, and
-the only one needed: it builds clean with no extra flags.
+The state key is built from a short name (`b"counter"`) with hooks-lib's
+`pad!` macro, which zero-pads it to 32 bytes **at compile time** (an inline
+`const` block): the padded key is baked into the binary, so no copy loop —
+and therefore no loop guard — exists at runtime.
 
 ## Build
 

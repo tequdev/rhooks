@@ -99,3 +99,66 @@ macro_rules! trace_float {
         $crate::api::trace::__macro_support::trace_float_maybe($msg, $value)
     };
 }
+
+/// Compile-time zero-padding helper backing [`pad!`](crate::pad).
+///
+/// Copies `src` into the start of a zeroed `[u8; N]`. The `pad!` macro wraps
+/// every call in an inline `const` block, so the `assert!` and the indexing
+/// below are compile-time checks — they can never become runtime panics.
+#[doc(hidden)]
+// In-bounds by the assert (`i < src.len() <= N`), and const-evaluated, so an
+// out-of-bounds access would be a compile error, not a panic.
+#[allow(clippy::indexing_slicing)]
+pub const fn padded_bytes<const N: usize>(src: &[u8]) -> [u8; N] {
+    assert!(
+        src.len() <= N,
+        "pad!: source is larger than the destination"
+    );
+
+    let mut output = [0u8; N];
+    let mut i = 0;
+
+    while i < src.len() {
+        output[i] = src[i];
+        i = i.wrapping_add(1);
+    }
+
+    output
+}
+
+/// Zero-pad a constant byte string to a fixed-size array, at compile time.
+///
+/// The array length is inferred from the surrounding context. The expansion
+/// is an inline `const` block, which has two consequences:
+///
+/// - the argument must be a constant expression (e.g. a byte-string
+///   literal), and a source longer than the destination is a **compile
+///   error**, never a runtime panic;
+/// - the padded array is baked into the binary at compile time — no copy or
+///   zeroing loop exists at runtime, so no loop guard is needed for it.
+///
+/// The canonical use is building fixed-size state keys and namespaces from
+/// short names.
+///
+/// # Examples
+/// ```
+/// use hooks_lib::pad;
+/// use hooks_lib::types::StateKey;
+///
+/// let padded: [u8; 10] = pad!(b"hello");
+/// assert_eq!(padded, [b'h', b'e', b'l', b'l', b'o', 0, 0, 0, 0, 0]);
+///
+/// const KEY: StateKey = pad!(b"counter");
+/// assert!(KEY.starts_with(b"counter"));
+/// ```
+///
+/// A source longer than the destination fails to compile:
+/// ```compile_fail
+/// let too_small: [u8; 4] = hooks_lib::pad!(b"hello");
+/// ```
+#[macro_export]
+macro_rules! pad {
+    ($value:expr) => {
+        const { $crate::padded_bytes($value) }
+    };
+}

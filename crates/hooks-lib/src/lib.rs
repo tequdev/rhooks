@@ -7,7 +7,7 @@
 //!   (`AccountId`, `Hash`, `Keylet`, ...).
 //! - [`xfl::XFL`] — the Xahau decimal floating-point type.
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
-//! - [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
+//! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
 //!   terse macros for common patterns (see `macros.rs`).
 //! - An optional panic handler (feature `panic-handler`, default-on) that
 //!   rolls the hook back instead of leaving an unhandled panic.
@@ -31,6 +31,11 @@ pub mod error;
 mod macros;
 pub mod types;
 pub mod xfl;
+
+// `pad!` expands to `$crate::padded_bytes(...)`; the helper lives in the
+// private `macros` module, so re-export it (hidden) at the crate root.
+#[doc(hidden)]
+pub use macros::padded_bytes;
 
 /// Direct re-export of `hooks-core`: raw Hook API declarations and every
 /// C-verbatim constant. See the crate doc comment for why this is a plain
