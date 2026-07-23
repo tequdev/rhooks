@@ -165,7 +165,7 @@ fn cmd_build(
         "--release",
         "--target",
         "wasm32v1-none",
-        "--message-format=json",
+        "--message-format=json-render-diagnostics",
     ]);
     if let Some(mp) = &manifest_path {
         cmd.arg("--manifest-path").arg(mp);
@@ -210,7 +210,7 @@ fn cmd_build(
 
     let status = child.wait().context("waiting for cargo build")?;
     if !status.success() {
-        bail!("cargo build failed (exit status: {status})");
+        bail!("cargo build failed ({status})");
     }
     let artifact = artifact.context(
         "cargo build did not produce a .wasm artifact; is this a `cdylib` crate for wasm32v1-none?",
