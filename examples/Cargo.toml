@@ -1,6 +1,17 @@
 [workspace]
 resolver = "3"
-members = ["accept-all", "firewall", "state-counter", "emit-txn"]
+members = [
+    "accept-all",
+    "firewall",
+    "state-counter",
+    "emit-txn",
+    "hook-params",
+    "errors",
+    "xfl-math",
+    "state-foreign",
+    "slot-ledger",
+    "guard-patterns",
+]
 
 [workspace.package]
 edition = "2024"

@@ -60,6 +60,27 @@ cargo run -p hooks-build -- check examples/firewall/out/firewall.wasm
 # output buffer, so no compiler-generated memset/memcpy loops exist.
 cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml
 cargo run -p hooks-build -- check examples/emit-txn/out/emit_txn.wasm
+
+# hook-params, errors, xfl-math, state-foreign, slot-ledger, and
+# guard-patterns are all guard-clean at the source level too (see each
+# example's own README for why) and build with no extra flags.
+cargo run -p hooks-build -- build --manifest-path examples/hook-params/Cargo.toml
+cargo run -p hooks-build -- check examples/hook-params/out/hook_params.wasm
+
+cargo run -p hooks-build -- build --manifest-path examples/errors/Cargo.toml
+cargo run -p hooks-build -- check examples/errors/out/errors.wasm
+
+cargo run -p hooks-build -- build --manifest-path examples/xfl-math/Cargo.toml
+cargo run -p hooks-build -- check examples/xfl-math/out/xfl_math.wasm
+
+cargo run -p hooks-build -- build --manifest-path examples/state-foreign/Cargo.toml
+cargo run -p hooks-build -- check examples/state-foreign/out/state_foreign.wasm
+
+cargo run -p hooks-build -- build --manifest-path examples/slot-ledger/Cargo.toml
+cargo run -p hooks-build -- check examples/slot-ledger/out/slot_ledger.wasm
+
+cargo run -p hooks-build -- build --manifest-path examples/guard-patterns/Cargo.toml
+cargo run -p hooks-build -- check examples/guard-patterns/out/guard_patterns.wasm
 """
 
 [tasks."e2e:node-up"]

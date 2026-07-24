@@ -12,11 +12,17 @@ release profile that must not leak into `hooks-core`/`hooks-lib`/
 | [`firewall`](firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
 | [`state-counter`](state-counter) | `state`/`state_set` round-trip, counter in hook state |
 | [`emit-txn`](emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
+| [`hook-params`](hook-params) | `hook_param`-configurable threshold, with a compiled-in default |
+| [`errors`](errors) | a meaningful `enum`-based rollback error-code system, matched to `HookReturnCode` |
+| [`xfl-math`](xfl-math) | reading `Amount` as XFL (`slot_float`/`sto_set`), `mulratio`, `Result`-based comparisons |
+| [`state-foreign`](state-foreign) | `state_foreign`: reading another (hook-parameter-configured) account's hook state |
+| [`slot-ledger`](slot-ledger) | `otxn_slot`/`slot_subfield`/`slot`/`slot_size`: transaction field access via slots |
+| [`guard-patterns`](guard-patterns) | `guard!`/`guard_m!` correctness, choosing `maxiter`, and the array-`==` memcmp-loop pitfall |
 
 ## Building
 
 ```sh
-mise run build-examples   # builds all four through hooks-build and checks the output
+mise run build-examples   # builds every example through hooks-build and checks the output
 ```
 
 This is also the toolchain's end-to-end test: each example is built via
@@ -91,7 +97,7 @@ price of keeping hook code free of `unsafe`.
 `hooks-build build` defaults to treating an unguarded `loop` as a hard
 error (see `docs/DESIGN.md` §6.3 and §10.1) — missing a `guard!` in your
 own code is a bug, not something to paper over. In practice, though, one
-of these four examples fails that check even though **no loop appears in
+of these examples fails that check even though **no loop appears in
 its Rust source**: `opt-level = "z"` on `wasm32v1-none` (which has no
 bulk-memory instructions) causes LLVM to lower some operations to calls
 into `compiler_builtins` functions that contain real, unguarded loops:
@@ -108,8 +114,14 @@ on a live node. The `build-examples` task therefore passes an explicit,
 reasoned `--default-maxiter 24` instead of the default — see the task in
 the root `mise.toml` and `firewall`'s README.
 
-`accept-all`, `state-counter`, and `emit-txn` build clean with no extra
-flags: the first two have no compiler-generated loops (no buffer
-copy/compare in them is large enough, at this optimization level, for
-LLVM to prefer an out-of-line loop over inline stores), and `emit-txn`
-avoids them via the static-buffer idiom above.
+Every other example — `accept-all`, `state-counter`, `emit-txn`,
+`hook-params`, `errors`, `xfl-math`, `state-foreign`, `slot-ledger`, and
+`guard-patterns` — builds clean with no extra flags: most have no
+buffer copy/compare large enough, at this optimization level, for LLVM to
+prefer an out-of-line loop over inline stores; `emit-txn` avoids one via
+the static-buffer idiom above; `slot-ledger` avoids one by checking
+`slot_size` before sizing its read buffer instead of always allocating
+room for the larger of the two `Amount` encodings; and `guard-patterns`'
+only loops are hand-written and already guarded in the source (see its own
+README for why, including an empirical check of what `guard_m!`'s `$n`
+does and doesn't protect against).
