@@ -118,6 +118,29 @@ fn defined_func_count(wasm: &[u8]) -> u32 {
     0
 }
 
+/// Whether any defined function body in `wasm` contains a `block` or `br`
+/// instruction. Used to confirm the `docs/DESIGN.md` §6.2b final-paragraph
+/// improvement: a callee with no `return` (or whose only `return` is the
+/// trailing instruction) is spliced bare, with no wrapper `block`/`br` at
+/// all — since the fixtures below contain no `block`/`br` of their own, any
+/// survivor would have to come from `emit_inlined`'s wrapper path.
+fn contains_block_or_br(wasm: &[u8]) -> bool {
+    for payload in wasmparser::Parser::new(0).parse_all(wasm) {
+        if let wasmparser::Payload::CodeSectionEntry(body) = payload.expect("valid wasm") {
+            let mut reader = body.get_operators_reader().expect("operators");
+            while !reader.eof() {
+                if matches!(
+                    reader.read().expect("operator"),
+                    wasmparser::Operator::Block { .. } | wasmparser::Operator::Br { .. }
+                ) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 // ---------------------------------------------------------------------
 // Fixture 1: a callee with params + a result, used at 2 call sites.
 // ---------------------------------------------------------------------
@@ -148,6 +171,13 @@ fn two_call_sites_duplicate_and_match() {
         report.notes.iter().any(|n| n.contains("2 call sites")),
         "expected a duplication note for the 2-call-site helper: {:?}",
         report.notes
+    );
+    // `$helper` has no `return` at all, so both inlined copies should be
+    // spliced bare (`docs/DESIGN.md` §6.2b final paragraph) — no wrapper
+    // `block`/`br` should appear even though the body is duplicated.
+    assert!(
+        !contains_block_or_br(&post),
+        "return-free callee should splice bare, even when duplicated across call sites"
     );
 }
 
@@ -288,7 +318,38 @@ const VOID_RESULT_CALLEE: &str = r#"
 
 #[test]
 fn void_result_callee_matches() {
-    assert_differential(VOID_RESULT_CALLEE, &[("hook", 5)]);
+    let (post, _report) = assert_differential(VOID_RESULT_CALLEE, &[("hook", 5)]);
+    assert!(
+        !contains_block_or_br(&post),
+        "return-free void callee should splice bare"
+    );
+}
+
+// ---------------------------------------------------------------------
+// Fixture 6b: a callee whose *only* `return` is the trailing instruction at
+// depth 0 — `docs/DESIGN.md` §6.2b's final paragraph says this should also
+// splice bare (drop the `return`, let the value fall through), same as a
+// return-free body.
+// ---------------------------------------------------------------------
+
+const TRAILING_RETURN_ONLY: &str = r#"
+(module
+  (import "env" "obs" (func $obs (param i32 i32) (result i32)))
+  (func $helper (param $x i32) (result i32)
+    (return (call $obs (local.get $x) (i32.const 9))))
+  (func $hook (param i32) (result i64)
+    (i64.extend_i32_s (call $helper (local.get 0))))
+  (export "hook" (func $hook)))
+"#;
+
+#[test]
+fn trailing_return_only_splices_bare() {
+    let (post, _report) = assert_differential(TRAILING_RETURN_ONLY, &[("hook", 3), ("hook", -1)]);
+    assert!(
+        !contains_block_or_br(&post),
+        "a callee whose only `return` is the trailing instruction should splice bare, with no \
+         wrapper `block`/`br` introduced"
+    );
 }
 
 // ---------------------------------------------------------------------

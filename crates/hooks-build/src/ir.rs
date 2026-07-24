@@ -529,6 +529,36 @@ pub(crate) fn find_call_cycle(m: &ParsedModule) -> Option<Vec<u32>> {
     None
 }
 
+/// Computes the maximum simultaneous `block`/`loop`/`if` nesting depth
+/// reached in a function body (0 if it contains no such construct at all).
+/// This matches the vendored upstream checker's own count (`Guard.h`
+/// `NESTING_LIMIT` / `GuardRuleDepth32` — see `docs/DESIGN.md` §6.2c/§6.4):
+/// depth starts at 0 at the function's top level and increments on every
+/// `block`/`loop`/`if` entered, decrementing on the matching `end` (`else`
+/// does not change depth — it stays inside the same `if` frame). Shared by
+/// the unnest pass (which reports before/after depth per function it
+/// rewrites) and the validator (which enforces the hard limit); the unnest
+/// pass keeps its own copy of this loop over an in-memory `Vec<Operator>`
+/// rather than a `FunctionBody` reader — the two must be kept in sync.
+pub(crate) fn max_nesting_depth(body: &wasmparser::FunctionBody) -> Result<u32> {
+    let mut depth: u32 = 0;
+    let mut max_depth: u32 = 0;
+    let mut reader = body.get_operators_reader().context("function body")?;
+    while !reader.eof() {
+        match reader.read().context("function body operator")? {
+            wasmparser::Operator::Block { .. }
+            | wasmparser::Operator::Loop { .. }
+            | wasmparser::Operator::If { .. } => {
+                depth += 1;
+                max_depth = max_depth.max(depth);
+            }
+            wasmparser::Operator::End => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    Ok(max_depth)
+}
+
 /// Finds a function type matching the given params/results exactly, or
 /// appends a new one. Returns its type index. Type indices are otherwise
 /// never remapped or reordered (only ever appended to), so this is the only

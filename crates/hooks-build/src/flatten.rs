@@ -333,18 +333,78 @@ pub fn flatten(wasm: &[u8]) -> Result<(Vec<u8>, FlattenReport)> {
     Ok((module.finish(), report))
 }
 
-/// Splices an already-fully-flattened callee's body into `out`, wrapped in
-/// a `block` of the callee's result type. `arg_locals[i]` is the fresh
-/// caller local holding callee parameter `i`; `extra_local_base` is the
-/// first fresh caller local holding callee's own (non-parameter) locals.
-/// Every `return` in the callee becomes a `br` to the wrapper block, at a
-/// depth computed by tracking `block`/`loop`/`if`/`end` nesting as the
-/// callee's body is streamed through — the wrapper block is the outermost
-/// frame of the spliced body, so a `return` at that top level (no further
-/// nested construct open) becomes `br 0`. Every other `br`/`br_if`/
-/// `br_table` targets a label internal to the callee's own original
-/// nesting and is left unchanged, since wrapping the whole body in one more
-/// block adds no *additional* enclosing scope for anything but `return`.
+/// Classifies a callee body's `return` shape, per `docs/DESIGN.md` §6.2b's
+/// final paragraph: whether inlining it needs the `block`-wrapper + `return`
+/// -> `br` rewrite at all, or can splice the body in bare.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReturnShape {
+    /// No `return` anywhere in the body: nothing to rewrite, splice bare.
+    NoReturn,
+    /// Exactly one `return`, and it is the very last instruction before the
+    /// body's own trailing `end`, at depth 0 (top level, not nested in any
+    /// `block`/`loop`/`if`): dropping it and falling through is equivalent,
+    /// so splice bare.
+    TrailingOnly,
+    /// Anything else (multiple returns, or a `return` that is nested or not
+    /// the final instruction): keep the `block`-wrapper + `br` rewrite.
+    NeedsWrapper,
+}
+
+/// Pre-scans a callee body to classify its [`ReturnShape`] (`docs/DESIGN.md`
+/// §6.2b final paragraph).
+fn classify_returns(body: &[wasmparser::Operator]) -> ReturnShape {
+    let mut depth: i32 = 0;
+    let mut count: usize = 0;
+    let mut trailing = false;
+    let n = body.len();
+    for (i, op) in body.iter().enumerate() {
+        match op {
+            wasmparser::Operator::Block { .. }
+            | wasmparser::Operator::Loop { .. }
+            | wasmparser::Operator::If { .. } => depth += 1,
+            wasmparser::Operator::End => depth -= 1,
+            wasmparser::Operator::Return => {
+                count += 1;
+                // Trailing iff this `return` sits right before the body's
+                // own final `end` (i.e. is the second-to-last operator) and
+                // is not nested in any open block/loop/if.
+                trailing = depth == 0 && i + 2 == n;
+            }
+            _ => {}
+        }
+    }
+    match count {
+        0 => ReturnShape::NoReturn,
+        1 if trailing => ReturnShape::TrailingOnly,
+        _ => ReturnShape::NeedsWrapper,
+    }
+}
+
+/// Splices an already-fully-flattened callee's body into `out`.
+/// `arg_locals[i]` is the fresh caller local holding callee parameter `i`;
+/// `extra_local_base` is the first fresh caller local holding callee's own
+/// (non-parameter) locals.
+///
+/// Per `docs/DESIGN.md` §6.2b's final paragraph, the callee's [`ReturnShape`]
+/// decides how the body is spliced:
+///
+/// - [`ReturnShape::NeedsWrapper`]: wrapped in a `block` of the callee's
+///   result type; every `return` becomes a `br` to that wrapper block, at a
+///   depth computed by tracking `block`/`loop`/`if`/`end` nesting as the
+///   callee's body is streamed through — the wrapper block is the outermost
+///   frame of the spliced body, so a `return` at that top level becomes
+///   `br 0`. Every other `br`/`br_if`/`br_table` targets a label internal to
+///   the callee's own original nesting and is left unchanged, since wrapping
+///   the whole body in one more block adds no *additional* enclosing scope
+///   for anything but `return`. The callee body's own trailing `end` closes
+///   this wrapper — no extra `end` is ever appended for it.
+/// - [`ReturnShape::NoReturn`] / [`ReturnShape::TrailingOnly`]: spliced bare,
+///   with no wrapper block at all. The callee body's own trailing `end` is
+///   always dropped in this case (there is no wrapper for it to close — left
+///   in place it would incorrectly close an *enclosing* caller construct
+///   instead). For `TrailingOnly`, the sole trailing `return` is also
+///   dropped: with nothing after it and no wrapper collecting a value,
+///   letting the computed result simply fall through is equivalent.
 fn emit_inlined<'a>(
     out: &mut Vec<wasmparser::Operator<'a>>,
     callee: &FlatFunc<'a>,
@@ -356,13 +416,6 @@ fn emit_inlined<'a>(
     for &local_index in arg_locals.iter().rev() {
         out.push(wasmparser::Operator::LocalSet { local_index });
     }
-
-    // (b) Splice the body, wrapped in a block of the callee's result type.
-    let blockty = match callee.result_type {
-        None => wasmparser::BlockType::Empty,
-        Some(t) => wasmparser::BlockType::Type(t),
-    };
-    out.push(wasmparser::Operator::Block { blockty });
 
     let param_count = callee.param_types.len() as u32;
     let remap_local = |local_index: u32| -> u32 {
@@ -378,51 +431,97 @@ fn emit_inlined<'a>(
         }
     };
 
-    let mut depth: u32 = 0;
-    for op in &callee.body {
-        match op {
-            // (d) `return` -> `br <depth>`.
-            wasmparser::Operator::Return => {
-                out.push(wasmparser::Operator::Br {
-                    relative_depth: depth,
-                });
+    match classify_returns(&callee.body) {
+        ReturnShape::NeedsWrapper => {
+            // (b) Splice the body, wrapped in a block of the callee's
+            // result type.
+            let blockty = match callee.result_type {
+                None => wasmparser::BlockType::Empty,
+                Some(t) => wasmparser::BlockType::Type(t),
+            };
+            out.push(wasmparser::Operator::Block { blockty });
+
+            let mut depth: u32 = 0;
+            for op in &callee.body {
+                match op {
+                    // (d) `return` -> `br <depth>`.
+                    wasmparser::Operator::Return => {
+                        out.push(wasmparser::Operator::Br {
+                            relative_depth: depth,
+                        });
+                    }
+                    // (c) Remap local references (params -> spill locals,
+                    // callee's own locals -> appended caller locals).
+                    wasmparser::Operator::LocalGet { local_index } => {
+                        out.push(wasmparser::Operator::LocalGet {
+                            local_index: remap_local(*local_index),
+                        });
+                    }
+                    wasmparser::Operator::LocalSet { local_index } => {
+                        out.push(wasmparser::Operator::LocalSet {
+                            local_index: remap_local(*local_index),
+                        });
+                    }
+                    wasmparser::Operator::LocalTee { local_index } => {
+                        out.push(wasmparser::Operator::LocalTee {
+                            local_index: remap_local(*local_index),
+                        });
+                    }
+                    wasmparser::Operator::Block { .. }
+                    | wasmparser::Operator::Loop { .. }
+                    | wasmparser::Operator::If { .. } => {
+                        depth += 1;
+                        out.push(op.clone());
+                    }
+                    wasmparser::Operator::End => {
+                        // The callee body's own trailing `end` (the one that
+                        // would otherwise close its function-level implicit
+                        // block) closes our synthetic wrapper `block`
+                        // instead — no extra `end` is ever appended for the
+                        // wrapper. Depth bottoms out at 0 exactly on that
+                        // final operator.
+                        depth = depth.saturating_sub(1);
+                        out.push(wasmparser::Operator::End);
+                    }
+                    // Everything else (arithmetic, `br`/`br_if`/`br_table`
+                    // internal to the callee's own nesting, `unreachable`,
+                    // calls to imports, ...) passes through unchanged.
+                    other => out.push(other.clone()),
+                }
             }
-            // (c) Remap local references (params -> spill locals, callee's
-            // own locals -> appended caller locals).
-            wasmparser::Operator::LocalGet { local_index } => {
-                out.push(wasmparser::Operator::LocalGet {
-                    local_index: remap_local(*local_index),
-                });
+        }
+        shape @ (ReturnShape::NoReturn | ReturnShape::TrailingOnly) => {
+            // No wrapper block at all: the callee's own trailing `end` is
+            // always dropped (nothing wraps it), and for `TrailingOnly` the
+            // sole trailing `return` is dropped too.
+            let n = callee.body.len();
+            let end_at = n.saturating_sub(1);
+            let drop_return_at =
+                (shape == ReturnShape::TrailingOnly).then(|| end_at.saturating_sub(1));
+
+            for (i, op) in callee.body.iter().enumerate() {
+                if i == end_at || Some(i) == drop_return_at {
+                    continue;
+                }
+                match op {
+                    wasmparser::Operator::LocalGet { local_index } => {
+                        out.push(wasmparser::Operator::LocalGet {
+                            local_index: remap_local(*local_index),
+                        });
+                    }
+                    wasmparser::Operator::LocalSet { local_index } => {
+                        out.push(wasmparser::Operator::LocalSet {
+                            local_index: remap_local(*local_index),
+                        });
+                    }
+                    wasmparser::Operator::LocalTee { local_index } => {
+                        out.push(wasmparser::Operator::LocalTee {
+                            local_index: remap_local(*local_index),
+                        });
+                    }
+                    other => out.push(other.clone()),
+                }
             }
-            wasmparser::Operator::LocalSet { local_index } => {
-                out.push(wasmparser::Operator::LocalSet {
-                    local_index: remap_local(*local_index),
-                });
-            }
-            wasmparser::Operator::LocalTee { local_index } => {
-                out.push(wasmparser::Operator::LocalTee {
-                    local_index: remap_local(*local_index),
-                });
-            }
-            wasmparser::Operator::Block { .. }
-            | wasmparser::Operator::Loop { .. }
-            | wasmparser::Operator::If { .. } => {
-                depth += 1;
-                out.push(op.clone());
-            }
-            wasmparser::Operator::End => {
-                // The callee body's own trailing `End` (the one that would
-                // otherwise close its function-level implicit block) closes
-                // our synthetic wrapper `block` instead — no extra `end` is
-                // ever appended for the wrapper. Depth bottoms out at 0
-                // exactly on that final operator.
-                depth = depth.saturating_sub(1);
-                out.push(wasmparser::Operator::End);
-            }
-            // Everything else (arithmetic, `br`/`br_if`/`br_table` internal
-            // to the callee's own nesting, `unreachable`, calls to imports,
-            // ...) passes through unchanged.
-            other => out.push(other.clone()),
         }
     }
 }

@@ -12,9 +12,14 @@
 //!    type section to exactly {import types} ∪ {entry type} — ensuring
 //!    `_g` is imported along the way. See `docs/DESIGN.md` §6.2b for why:
 //!    the vendored upstream checker requires both unconditionally (R1, R2).
-//! 3. [`guard::auto_guard`] — (API version 0 only, opt-in) verifies or
+//! 3. [`unnest::unnest`] — (API version 0 only) collapses the "error
+//!    ladder" of nested blocks LLVM emits for diverging early exits, which
+//!    would otherwise push nesting depth past the vendored checker's
+//!    32-level limit for any hook with more than a few checks. See
+//!    `docs/DESIGN.md` §6.2c.
+//! 4. [`guard::auto_guard`] — (API version 0 only, opt-in) verifies or
 //!    inserts the `_g` guard prologue at every `loop`.
-//! 4. [`validator::validate`] — the full SetHook-derived hard-error and
+//! 5. [`validator::validate`] — the full SetHook-derived hard-error and
 //!    warning rule set, run against the final bytes.
 //!
 //! `check` runs only stage 4 (+ the native guard checker), against
@@ -39,6 +44,7 @@ mod flatten;
 mod guard;
 mod guard_native;
 mod ir;
+mod unnest;
 mod validator;
 pub mod whitelist;
 
@@ -47,6 +53,7 @@ pub use fee::{FeeEstimate, estimate_fee};
 pub use flatten::{FlattenReport, flatten};
 pub use guard::auto_guard;
 pub use guard_native::{GuardVerdict, NativeGuardError, validate_guards_native};
+pub use unnest::{UnnestReport, unnest};
 pub use validator::{ValidationReport, validate};
 
 /// The Hook API version a module targets. Determines whether the guard
@@ -89,17 +96,19 @@ impl Default for Options {
 }
 
 /// Runs the full `build`/`clean` pipeline: clean, then (API version 0 only)
-/// flatten, then (if requested and applicable) the guard pass, then
-/// validate the final bytes. Returns the final bytes plus the validation
-/// report. `build`/`clean` never emit bytes that fail hard-error validation
-/// unless `opts.allow_oversize` downgrades the *size* rule specifically —
-/// every other hard error still aborts.
+/// flatten, then (API version 0 only) unnest, then (if requested and
+/// applicable) the guard pass, then validate the final bytes. Returns the
+/// final bytes plus the validation report. `build`/`clean` never emit bytes
+/// that fail hard-error validation unless `opts.allow_oversize` downgrades
+/// the *size* rule specifically — every other hard error still aborts.
 ///
-/// Pipeline order for API version 0 (`docs/DESIGN.md` §6.2b/§6.3): clean →
-/// flatten (ensures `_g` is imported, R1, and that the type section holds
-/// only import/entry types, R2) → auto-guard/guard-verify → Rust validator
-/// → the vendored upstream guard checker, which is the final gate — see
-/// [`verify`]. API version 1 skips flatten entirely (gas hooks have no such
+/// Pipeline order for API version 0 (`docs/DESIGN.md` §6.2b/§6.2c/§6.3):
+/// clean → flatten (ensures `_g` is imported, R1, and that the type section
+/// holds only import/entry types, R2) → unnest (collapses the LLVM error
+/// ladder so nesting depth stays under the vendored checker's 32-level
+/// limit) → auto-guard/guard-verify → Rust validator → the vendored
+/// upstream guard checker, which is the final gate — see [`verify`]. API
+/// version 1 skips flatten and unnest entirely (gas hooks have no such
 /// restriction).
 pub fn run_pipeline(wasm: &[u8], opts: &Options) -> anyhow::Result<(Vec<u8>, ValidationReport)> {
     let cleaned = cleaner::clean(wasm, opts)?;
@@ -112,10 +121,19 @@ pub fn run_pipeline(wasm: &[u8], opts: &Options) -> anyhow::Result<(Vec<u8>, Val
     } else {
         cleaned
     };
-    let guarded = if opts.auto_guard && opts.api_version == ApiVersion::V0 {
-        guard::auto_guard(&flattened, opts)?
+    let unnested = if opts.api_version == ApiVersion::V0 {
+        let (bytes, report) = unnest::unnest(&flattened)?;
+        for note in &report.notes {
+            eprintln!("note: {note}");
+        }
+        bytes
     } else {
         flattened
+    };
+    let guarded = if opts.auto_guard && opts.api_version == ApiVersion::V0 {
+        guard::auto_guard(&unnested, opts)?
+    } else {
+        unnested
     };
     let report = verify(&guarded, opts)?;
     Ok((guarded, report))

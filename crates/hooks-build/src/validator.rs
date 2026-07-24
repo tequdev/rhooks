@@ -18,6 +18,15 @@ pub const MAX_SIZE: usize = 65_535;
 /// warning.
 pub const SIZE_WARNING_THRESHOLD: usize = 56 * 1024;
 
+/// The maximum `block`/`loop`/`if` nesting depth a SetHook-legal
+/// api-version-0 module's function bodies may reach (`Guard.h`
+/// `NESTING_LIMIT` under `GuardRuleDepth32`; see `docs/DESIGN.md` §6.2c).
+pub const MAX_NESTING_DEPTH: u32 = 32;
+
+/// Nesting depths at or above this level trigger an "approaching the limit"
+/// warning (api-version 0 only).
+pub const NESTING_DEPTH_WARNING_THRESHOLD: u32 = 28;
+
 /// The result of a successful validation: any non-fatal warnings found.
 #[derive(Debug, Clone, Default)]
 pub struct ValidationReport {
@@ -32,6 +41,12 @@ pub struct ValidationReport {
     /// [`crate::verify`]/[`crate::run_pipeline`] — [`validate`] itself
     /// (the pure-Rust pass) never populates this field.
     pub guard_verdict: Option<crate::GuardVerdict>,
+    /// The maximum `block`/`loop`/`if` nesting depth reached by any defined
+    /// function in the module (0 if the module defines no such construct).
+    /// Computed for every api version so `build`/`check` can always print
+    /// it; only api-version 0 hard-errors/warns on it (`docs/DESIGN.md`
+    /// §6.2c/§6.4).
+    pub max_nesting_depth: u32,
 }
 
 /// Validates `wasm` against the full SetHook rule set. Returns `Ok` (with
@@ -337,6 +352,38 @@ pub fn validate(wasm: &[u8], opts: &Options) -> Result<ValidationReport> {
         }
     }
 
+    // --- Nesting depth: computed for every defined function, for every api
+    // version (so `build`/`check` can always print the module's overall
+    // max), but only api-version 0 hard-errors/warns on it — `Guard.h`
+    // `NESTING_LIMIT` under `GuardRuleDepth32` is specifically a guard-type
+    // (api-version 0) rule; see `docs/DESIGN.md` §6.2c/§6.4. ---
+    let mut max_overall_depth: u32 = 0;
+    for (i, body) in m.code.iter().enumerate() {
+        let func_idx = m.num_imported_funcs() + i as u32;
+        match ir::max_nesting_depth(body) {
+            Ok(depth) => {
+                max_overall_depth = max_overall_depth.max(depth);
+                if opts.api_version == ApiVersion::V0 {
+                    if depth > MAX_NESTING_DEPTH {
+                        errors.push(format!(
+                            "function {func_idx}: block/loop/if nesting depth is {depth}, \
+                             exceeding the {MAX_NESTING_DEPTH}-level limit (`Guard.h` \
+                             `NESTING_LIMIT` under `GuardRuleDepth32`)"
+                        ));
+                    } else if depth >= NESTING_DEPTH_WARNING_THRESHOLD {
+                        warnings.push(format!(
+                            "function {func_idx}: block/loop/if nesting depth is {depth}, \
+                             approaching the {MAX_NESTING_DEPTH}-level limit"
+                        ));
+                    }
+                }
+            }
+            Err(e) => errors.push(format!(
+                "function {func_idx}: failed to compute nesting depth: {e}"
+            )),
+        }
+    }
+
     // --- Warning: more than one mutable defined global (beyond the single
     // shadow-stack-pointer pattern). ---
     let mutable_defined_globals = m.globals.iter().filter(|g| g.ty.mutable).count();
@@ -354,6 +401,7 @@ pub fn validate(wasm: &[u8], opts: &Options) -> Result<ValidationReport> {
         warnings,
         oversize_allowed,
         guard_verdict: None,
+        max_nesting_depth: max_overall_depth,
     })
 }
 

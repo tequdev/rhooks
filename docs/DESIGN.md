@@ -400,8 +400,49 @@ one accordingly). Multiple call sites duplicate the body — a size cost that
 is acceptable and reported. `_g` is ensured present as an import for
 api-version 0 (added if absent, never GC'd) per R1.
 
-The guard pass (6.3) runs **after** flattening, so loops that arrive in
-`hook()` by inlining (memset/bcmp loops) get guards like any other loop.
+Inlining wraps a call site in a `block` only when the callee body actually
+contains a non-trailing `return` (the block exists solely as the rewritten
+`br` target); a trailing `return` is dropped and falls through, and
+return-free bodies are spliced bare.
+
+### 6.2c Unnest pass (ladder flattening) — api-version 0
+
+`Guard.h` rejects modules whose block nesting exceeds **32 levels**
+(`NESTING_LIMIT`, 16 before `GuardRuleDepth32`) during its worst-case
+analysis. LLVM's stackifier lays out every diverging early-exit
+(`rollback!`-style) as a tail after the end of a dedicated `block` wrapping
+the whole remaining body — so nesting grows linearly with the number of
+error paths (the "error ladder"), and a hook with a few dozen checks would
+exceed the limit regardless of guards.
+
+The unnest pass runs after flatten and exploits the fact that those tails
+are **self-contained and diverging** (push constants, `call rollback`,
+`unreachable` — consuming nothing from the outer stack):
+
+1. **Diverging-tail duplication**: a `br_if` targeting a block whose
+   continuation is such a tail is rewritten to `if` + the tail spliced
+   inline (an unconditional `br` gets the tail spliced directly). The tail
+   is verified self-contained by symbolic stack simulation (starts empty,
+   never underflows, only constants / `local.get` / import calls / `drop`,
+   ends in `unreachable`); only empty-blocktype blocks qualify.
+2. **Unreferenced-block unwrapping**: any empty-blocktype block no longer
+   targeted by any branch is removed, with branch-depth immediates inside
+   it fixed up. This also erases flatten wrapper blocks whose `return`
+   rewrites never materialized.
+3. Iterate to fixpoint (ladders unwrap outermost-inward).
+
+The local `if` costs one level only inside a short error arm, while each
+removed ladder block spanned the entire function — net max-depth drops from
+O(error paths) to O(real control structure). The duplicated tails cost a
+few bytes per branch site. Correctness is held by the same wasmi
+differential harness as flatten (identical results and host-call
+sequences pre/post pass). The validator (6.4) additionally computes max
+nesting depth, hard-erroring above 32 for api-version 0 (mirroring
+`GuardRuleDepth32`) and warning at ≥ 28; `build` prints the final depth.
+
+The guard pass (6.3) runs **after** flattening and unnesting, so loops that
+arrive in `hook()` by inlining (memset/bcmp loops) get guards like any
+other loop.
 Correctness of the inliner is tested differentially: fixture modules are
 executed pre- and post-flatten in a wasm interpreter (dev-dependency) with
 recorded host stubs, asserting identical results and host-call sequences —
@@ -496,6 +537,8 @@ against xahaud source plus a known-good C-built hook fixture):
   post-mutation re-verification in `build`).
 - For api-version 0: missing `_g` import (6.2b R1), and any type-section
   entry that is not an import's type or the entry-point type (6.2b R2).
+- For api-version 0: block nesting depth > 32 (`Guard.h` `NESTING_LIMIT`
+  under `GuardRuleDepth32`; warning from depth 28 — see 6.2c).
 - Binary > 65,535 bytes. (`build` refuses to emit; `--allow-oversize`
   writes the artifact anyway for size-debugging, clearly marked INVALID.)
 

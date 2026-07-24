@@ -145,6 +145,7 @@ fn print_report(report: &ValidationReport) {
             verdict.hook_cost, verdict.cbak_cost
         );
     }
+    println!("max nesting depth: {}", report.max_nesting_depth);
 }
 
 fn print_size_and_fee(bytes: &[u8]) {
