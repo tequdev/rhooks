@@ -9,18 +9,24 @@ written in the source, so no `guard!` is needed there.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/firewall/Cargo.toml \
-  --auto-guard --default-maxiter 24
+cargo run -p hooks-build -- build --manifest-path examples/firewall/Cargo.toml
 ```
 
-`--auto-guard` **is** required here even though the source has no loop:
-`sender == blocked` (`[u8; 20]` equality) compiles to a compiler-generated
-byte-compare loop under `opt-level = "z"` on `wasm32v1-none` (no
-bulk-memory instructions to do it inline). `--default-maxiter 24` is used
-instead of the `--auto-guard` default of 16 because the loop's true worst
-case is 20 iterations (one per `AccountId` byte) — 16 would build
-successfully but risk a runtime `GUARD_VIOLATION` on a real node. See
-`examples/README.md`'s "On `--auto-guard`" section for the full story.
+No extra flags needed. Earlier versions of this example compared the two
+`AccountId`s with `sender == blocked`, which compiles to a compiler-generated
+byte-compare loop (`bcmp`) under `opt-level = "z"` on `wasm32v1-none` (no
+bulk-memory instructions to do it inline) and required
+`--auto-guard --default-maxiter 24` (24, not the `--auto-guard` default of
+16, because the loop's true worst case is 20 iterations — one per
+`AccountId` byte; getting that number wrong builds fine but risks a runtime
+`GUARD_VIOLATION` on a real node). This example now compares with
+[`hooks_lib::buf_eq_20`](../../crates/hooks-lib/src/buf_eq.rs), which is
+loop-free by construction (every byte index is a source-level literal), so
+the compiled output has no loop to guard in the first place — see
+`hooks_lib::buf_eq`'s module docs for why a generic `buf_eq<const N: usize>`
+isn't offered instead. See `examples/README.md`'s "On `--auto-guard`"
+section for the general story (still relevant to other compiler-generated
+loop shapes, like `memcpy`/`memset`).
 
 ## Configuring the blacklist
 
