@@ -5,7 +5,7 @@
 //! no compiler-generated loop appears in the compiled output either (see
 //! `hooks_lib::buf_eq` docs).
 //!
-//! Build: `hooks-build build --manifest-path examples/firewall/Cargo.toml`
+//! Build: `hooks-build build --manifest-path examples/05_firewall/Cargo.toml`
 
 #![no_std]
 

@@ -19,7 +19,7 @@ a `hooks-lib` release.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml
+cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
 ```
 
 No extra flags needed — this example is deliberately structured so no

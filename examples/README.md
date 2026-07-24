@@ -6,17 +6,32 @@ workspace, because these crates are `no_std` `cdylib`s with a Hook-specific
 release profile that must not leak into `hooks-core`/`hooks-lib`/
 `hooks-build`, and they don't build for host targets.
 
-| example | demonstrates |
-|---|---|
-| [`accept-all`](accept-all) | minimal hook: `accept` everything (starter template) |
-| [`firewall`](firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
-| [`state-counter`](state-counter) | `state`/`state_set` round-trip, counter in hook state |
-| [`emit-txn`](emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
+Directories are numbered in **suggested reading order** — start at
+`01_accept-all` and work down; each one builds on ideas from the examples
+before it (state, then params, then errors, then a real filter, then
+guards, then XFL, then slots, then foreign state, then emission). The
+`example` column below is each crate's actual package name (unchanged by
+the numbering — Cargo package names can't start with a digit, so only the
+directory is prefixed) and matches what its own README, `Cargo.toml`, and
+`use` statements call it.
+
+| # | example | demonstrates |
+|---|---|---|
+| 01 | [`accept-all`](01_accept-all) | minimal hook: `accept` everything (starter template) |
+| 02 | [`state-counter`](02_state-counter) | `state`/`state_set` round-trip, counter in hook state |
+| 03 | [`hook-params`](03_hook-params) | `hook_param`-configurable threshold, with a compiled-in default |
+| 04 | [`errors`](04_errors) | a meaningful `hook_errors!`-based rollback error-code system, matched to `HookReturnCode` |
+| 05 | [`firewall`](05_firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
+| 06 | [`guard-patterns`](06_guard-patterns) | `guard!`/`guard_m!` correctness, choosing `maxiter`, and the array-`==` memcmp-loop pitfall |
+| 07 | [`xfl-math`](07_xfl-math) | reading `Amount` as XFL (`slot_float`/`sto_set`), `mulratio`, `Result`-based comparisons |
+| 08 | [`slot-ledger`](08_slot-ledger) | `otxn_slot`/`slot_subfield`/`slot`/`slot_size`: transaction field access via slots |
+| 09 | [`state-foreign`](09_state-foreign) | `state_foreign`: reading another (hook-parameter-configured) account's hook state |
+| 10 | [`emit-txn`](10_emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
 
 ## Building
 
 ```sh
-mise run build-examples   # builds all four through hooks-build and checks the output
+mise run build-examples   # builds every example through hooks-build and checks the output
 ```
 
 This is also the toolchain's end-to-end test: each example is built via
@@ -26,11 +41,11 @@ resulting `out/<name>.wasm` is re-validated with `hooks-build check`.
 Each example can also be built individually, e.g.:
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/state-counter/Cargo.toml
+cargo run -p hooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
 ```
 
-See each example's own README for its exact command (some need
-`--auto-guard`; see below).
+See each example's own README for its exact command — none currently need
+`--auto-guard` (see below for why, and when it would still be needed).
 
 ## Source style rules
 
@@ -125,12 +140,18 @@ node. Two source-level idioms avoid the compiler-generated loop (and the
   compiler-generated `memset`/`memcpy` loops the same way, for the
   initialization/copy case `buf_eq` doesn't cover.
 
-None of the four examples need `--auto-guard` any more: `accept-all` and
+None of the ten examples need `--auto-guard` any more: `accept-all` and
 `state-counter` never had a compiler-generated loop to begin with (no
 buffer copy/compare in them is large enough, at this optimization level,
 for LLVM to prefer an out-of-line loop over inline stores); `emit-txn`
 avoids one via the static-buffer idiom below; `firewall` avoids one via
-`buf_eq_20` above. `--auto-guard` remains available in `hooks-build` for
-cases neither idiom covers — size `--default-maxiter` from the loop's true
-worst-case iteration count (found via disassembly), never trust the
-default.
+`buf_eq_20` above; `hook-params`, `errors`, `xfl-math`, and `state-foreign`
+have no buffer copy/compare large enough either; `slot-ledger` avoids one
+by checking `slot_size` before sizing its read buffer instead of always
+allocating room for the larger of the two `Amount` encodings; and
+`guard-patterns`' only loops are hand-written and already guarded in the
+source (see its own README for why, including an empirical check of what
+`guard_m!`'s `$n` does and doesn't protect against). `--auto-guard` remains
+available in `hooks-build` for cases none of these idioms cover — size
+`--default-maxiter` from the loop's true worst-case iteration count (found
+via disassembly), never trust the default.

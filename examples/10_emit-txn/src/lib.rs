@@ -4,7 +4,7 @@
 //! build the entire wire-format transaction ourselves. Also exports a
 //! `cbak` callback for when the emitted transaction settles.
 //!
-//! Build: `hooks-build build --manifest-path examples/emit-txn/Cargo.toml`
+//! Build: `hooks-build build --manifest-path examples/10_emit-txn/Cargo.toml`
 //!
 //! ## Why not `prepare()`
 //!

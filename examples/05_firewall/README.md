@@ -9,7 +9,7 @@ written in the source, so no `guard!` is needed there.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/firewall/Cargo.toml
+cargo run -p hooks-build -- build --manifest-path examples/05_firewall/Cargo.toml
 ```
 
 No extra flags needed. Earlier versions of this example compared the two

@@ -13,7 +13,7 @@ and therefore no loop guard — exists at runtime.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/state-counter/Cargo.toml
+cargo run -p hooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
 ```
 
 No extra flags needed — this example is guard-clean without `--auto-guard`.

@@ -1,11 +1,13 @@
-// e2e: examples/05_firewall against a standalone Xahau node.
+// e2e: examples/06_guard-patterns against a standalone Xahau node.
 //
-// `hook()` reads the otxn sender, reads a 20-byte blocked AccountId from the
-// `BL` HookParameter (raw bytes, no extra encoding - `hook_param` copies the
-// HookParameterValue bytes as-is), and rolls back with
-// `rollback!(b"firewall: blocked account", FirewallError::BlockedAccount)`
-// (code 2, from the `hook_errors!`-defined `FirewallError` enum) on a
-// match; accepts otherwise. HookOn is Payment.
+// `hook()` reads the otxn sender and a 20-byte blocked AccountId from the
+// `BL` HookParameter (same idiom as `firewall`), rolling back with
+// `GuardPatternsError::BlockedAccount` (code 2) on a match; accepts
+// otherwise with `"guard-patterns: accepted"` and an accept code that is
+// a non-meaningful sum of two demonstration loops (see the source) - not
+// asserted here beyond "present", since its value depends on the test
+// wallets' generated AccountIds. HookOn is Invoke (this hook only reads
+// `sfAccount`, present on every transaction type).
 import {
   ExecutionUtility,
   Xrpld,
@@ -31,24 +33,24 @@ import {
 // uses internally for the same enum).
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-firewall'
-// hooks-build's printed worst case for firewall.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 714
+const namespace = 'rhooks-e2e-guard-patterns'
+// hooks-build's printed worst case for guard_patterns.wasm (`mise run build-examples`).
+const WORST_CASE_INSTRUCTIONS = 1335
 
 function accountIdHex(classicAddress: string): string {
   return Buffer.from(decodeAccountID(classicAddress)).toString('hex').toUpperCase()
 }
 
-describe('firewall', () => {
+describe('guard-patterns', () => {
   let testContext: XrplIntegrationTestContext
 
   beforeAll(async () => {
     testContext = await setupClient(serverUrl)
 
     const hook = {
-      CreateCode: readHookBinaryHexFromNS('firewall', 'wasm'),
+      CreateCode: readHookBinaryHexFromNS('guard_patterns', 'wasm'),
       Flags: HookFlags.hsfOverride,
-      HookOn: calculateHookOn(['Payment']),
+      HookOn: calculateHookOn(['Invoke']),
       HookNamespace: hexNamespace(namespace),
       HookApiVersion: 0,
       HookParameters: [
@@ -75,26 +77,24 @@ describe('firewall', () => {
     await teardownClient(testContext)
   })
 
-  it('rejects a Payment from the blocked account', async () => {
+  it('rejects an Invoke from the blocked account', async () => {
     const response = Xrpld.submit(testContext.client, {
       tx: {
-        TransactionType: 'Payment',
+        TransactionType: 'Invoke',
         Account: testContext.bob.classicAddress,
         Destination: testContext.hook1.classicAddress,
-        Amount: '1',
       },
       wallet: testContext.bob,
     })
-    await expect(response).rejects.toThrow('firewall: blocked account')
+    await expect(response).rejects.toThrow('guard-patterns: blocked account')
   })
 
-  it('accepts a Payment from a non-blocked account', async () => {
+  it('accepts an Invoke from a non-blocked account', async () => {
     const response = await Xrpld.submit(testContext.client, {
       tx: {
-        TransactionType: 'Payment',
+        TransactionType: 'Invoke',
         Account: testContext.alice.classicAddress,
         Destination: testContext.hook1.classicAddress,
-        Amount: '1',
       },
       wallet: testContext.alice,
     })
@@ -106,14 +106,7 @@ describe('firewall', () => {
     )
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
-    // HookReturnCode is a 64-bit int field, serialized as a *hex* string
-    // over RPC (same convention as HookInstructionCount below) even
-    // though the toolkit's `iHookExecution` type declares it as `number`
-    // - only matters here because the asserted codes are single-digit,
-    // which read identically whether parsed as decimal or hex (see
-    // slot-ledger.test.ts for a case where it doesn't).
-    expect(Number(execution.HookReturnCode)).toBe(0)
-    expect(execution.HookReturnString).toBe('')
+    expect(execution.HookReturnString).toBe('guard-patterns: accepted')
     // HookInstructionCount is a *hex* string over RPC (confirmed by direct
     // inspection - e.g. "d" = 13).
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(

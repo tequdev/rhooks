@@ -1,7 +1,7 @@
 //! `state-counter` — maintains a persistent counter in Hook state,
 //! incrementing it by one on every invocation.
 //!
-//! Build: `hooks-build build --manifest-path examples/state-counter/Cargo.toml`
+//! Build: `hooks-build build --manifest-path examples/02_state-counter/Cargo.toml`
 
 #![no_std]
 

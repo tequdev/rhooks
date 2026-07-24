@@ -1,7 +1,12 @@
-// e2e: examples/01_accept-all against a standalone Xahau node.
+// e2e: examples/08_slot-ledger against a standalone Xahau node.
 //
-// `hook()` unconditionally calls `accept!()`, which expands to
-// `accept(&[], 0)` (crates/hooks-lib/src/macros.rs) - no message, code 0.
+// `hook()` navigates the originating Payment through the Slot API
+// (`otxn_slot` -> `slot_subfield` -> `slot_exact`) to read `sfDestination`
+// and `sfAmount`, rolling back with a `SlotLedgerError` code (see
+// examples/08_slot-ledger/README.md) if either lookup fails or `Amount`
+// isn't native; accepts otherwise with a marker accept code (the sum of
+// both fields' first bytes - not meaningful hook logic, see the source).
+// HookOn is Payment.
 import {
   ExecutionUtility,
   Xrpld,
@@ -22,20 +27,20 @@ import { calculateHookOn, type TransactionMetadata } from 'xahau'
 // uses internally for the same enum).
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-accept-all'
-// hooks-build's printed worst case for accept_all.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 14
+const namespace = 'rhooks-e2e-slot-ledger'
+// hooks-build's printed worst case for slot_ledger.wasm (`mise run build-examples`).
+const WORST_CASE_INSTRUCTIONS = 193
 
-describe('accept-all', () => {
+describe('slot-ledger', () => {
   let testContext: XrplIntegrationTestContext
 
   beforeAll(async () => {
     testContext = await setupClient(serverUrl)
 
     const hook: iHook = {
-      CreateCode: readHookBinaryHexFromNS('accept_all', 'wasm'),
+      CreateCode: readHookBinaryHexFromNS('slot_ledger', 'wasm'),
       Flags: HookFlags.hsfOverride,
-      HookOn: calculateHookOn(['Invoke']),
+      HookOn: calculateHookOn(['Payment']),
       HookNamespace: hexNamespace(namespace),
       HookApiVersion: 0,
     }
@@ -54,12 +59,13 @@ describe('accept-all', () => {
     await teardownClient(testContext)
   })
 
-  it('accepts an Invoke with an empty return string and code 0', async () => {
+  it('reads Destination and a native Amount via the Slot API and accepts', async () => {
     const response = await Xrpld.submit(testContext.client, {
       tx: {
-        TransactionType: 'Invoke',
+        TransactionType: 'Payment',
         Account: testContext.alice.classicAddress,
         Destination: testContext.hook1.classicAddress,
+        Amount: '1',
       },
       wallet: testContext.alice,
     })
@@ -72,15 +78,22 @@ describe('accept-all', () => {
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
     // HookReturnCode is a 64-bit int field, serialized as a *hex* string
-    // over RPC (same convention as HookInstructionCount below) even
-    // though the toolkit's `iHookExecution` type declares it as `number`
-    // - only matters here because the asserted codes are single-digit,
-    // which read identically whether parsed as decimal or hex (see
-    // slot-ledger.test.ts for a case where it doesn't).
-    expect(Number(execution.HookReturnCode)).toBe(0)
-    expect(execution.HookReturnString).toBe('')
-    // HookInstructionCount is a *hex* string over RPC (confirmed by direct
-    // inspection - e.g. "d" = 13).
+    // over RPC (confirmed by direct inspection: this hook's marker accept
+    // code came back as "ad" = 173 decimal) despite the toolkit's
+    // `iHookExecution` type declaring it as `number` (hence the `String`
+    // cast below) - every other test in this suite only ever asserts
+    // single-digit codes (0, 1, 2, ...), which read identically whether
+    // parsed as decimal or hex, so this is the first assertion in the
+    // suite to actually depend on getting the base right. Parse as hex
+    // here, same as HookInstructionCount below.
+    expect(
+      parseInt(String(execution.HookReturnCode), 16),
+    ).toBeGreaterThanOrEqual(0)
+    expect(execution.HookReturnString).toBe(
+      'slot-ledger: read Destination and native Amount',
+    )
+    // HookInstructionCount is also a hex string over RPC (confirmed by
+    // direct inspection - e.g. "d" = 13).
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_INSTRUCTIONS,
     )
