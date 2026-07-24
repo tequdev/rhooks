@@ -106,13 +106,16 @@ node. Two source-level idioms avoid the compiler-generated loop (and the
 `--auto-guard` footgun) entirely, and are preferred wherever they apply:
 
 - **Fixed-size buffer equality**: use `hooks_lib::buf_eq_8`/`_20`/`_32`/
-  `_33`/`_34`/`_48` (see `crates/hooks-lib/src/buf_eq.rs`) instead of `==`.
-  Every byte index in these functions is a source-level literal, so the
+  `_33`/`_34`/`_40`/`_48`/`_64` (see `crates/hooks-lib/src/buf_eq.rs`) instead
+  of `==`. Each function compares its buffer as a fixed sequence of
+  word-sized (`u64`, with a narrower tail word where the size isn't a
+  multiple of 8) chunks built from source-level literal byte indices, so the
   comparison is genuinely straight-line code — there is nothing for LLVM to
   lower into a loop. `firewall` used to need
   `--auto-guard --default-maxiter 24` for exactly this reason (its
   `sender == blocked` account comparison); switching to `buf_eq_20` removed
-  the loop (and the flag) entirely.
+  the loop (and the flag) entirely, and the word-at-a-time comparison
+  further dropped `firewall`'s worst-case instruction count from 419 to 122.
 - **Statics for templates and large buffers** (below): removes
   compiler-generated `memset`/`memcpy` loops the same way, for the
   initialization/copy case `buf_eq` doesn't cover.
