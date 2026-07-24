@@ -10,7 +10,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook_errors, rollback};
+use hooks_lib::{accept, hook, hook_errors, rollback};
 
 /// Name of the Hook parameter carrying the 20-byte blocked `AccountId`.
 const BL_PARAM: &[u8] = b"BL";
@@ -28,8 +28,8 @@ hook_errors! {
 
 /// Hook entry point. Rolls back if the originating transaction's sender is
 /// the blacklisted account; accepts otherwise.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     let mut sender: AccountId = [0u8; ACC_ID_LEN];
     match otxn_field(&mut sender, sfAccount) {
         Ok(n) if n == ACC_ID_LEN => {}

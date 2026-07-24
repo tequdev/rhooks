@@ -9,7 +9,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook_errors, rollback};
+use hooks_lib::{accept, hook, hook_errors, rollback};
 
 /// Name of the Hook parameter carrying the minimum-amount threshold, as 8
 /// raw bytes, big-endian `u64` drops (see the README for the exact hex
@@ -50,8 +50,8 @@ fn min_drops() -> u64 {
 /// Hook entry point. Reads the originating transaction's native `Amount`,
 /// compares it against the configured (or default) minimum, and rolls back
 /// if it falls short.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     // Only native (XRP/XAH) amounts are 8 bytes on the wire; a 48-byte IOU
     // amount would fail this length check and fall into the `Err` arm
     // below. This example deliberately doesn't handle IOU amounts — see

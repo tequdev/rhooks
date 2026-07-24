@@ -6,7 +6,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook_errors, pad, rollback};
+use hooks_lib::{accept, hook, hook_errors, pad, rollback};
 
 /// The 32-byte state key: the entry name, zero-padded at compile time.
 /// `pad!` expands in an inline `const` block, so no copy loop (and hence no
@@ -24,8 +24,8 @@ hook_errors! {
 /// Hook entry point. Reads the current counter (defaulting to zero if
 /// absent or of unexpected size), increments it, writes it back, and
 /// accepts with the new count as the return-code payload.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     let mut raw = [0u8; 8];
     let count = match state(&mut raw, &STATE_KEY) {
         Ok(n) if n == raw.len() => u64::from_le_bytes(raw),

@@ -11,7 +11,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook_errors, rollback};
+use hooks_lib::{accept, hook, hook_errors, rollback};
 
 hook_errors! {
     /// `slot-ledger` rollback codes.
@@ -41,8 +41,8 @@ hook_errors! {
 /// originating transaction via slot navigation; accepts if both are
 /// present and `Amount` is a native (8-byte) amount, rolling back
 /// otherwise.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     // `slot_into = 0` auto-assigns a slot number; the return value is that
     // assigned number, used as the `parent_slot` for every subfield lookup
     // below.

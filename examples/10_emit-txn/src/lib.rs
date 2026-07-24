@@ -36,13 +36,9 @@
 //! `hooks-lib` release.
 
 #![no_std]
-// Required by `txn_template!`: it expands `${concat(set_, $field)}` into
-// this crate, and that unstable syntax must be feature-gated here too, not
-// just in hooks-lib where the macro is defined.
-#![feature(macro_metavar_expr_concat)]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook_errors, rollback, txn_template};
+use hooks_lib::{accept, cbak, hook, hook_errors, rollback, txn_template};
 
 txn_template! {
     /// This hook's Payment template: `TransactionType` through
@@ -96,8 +92,8 @@ hook_errors! {
 
 /// Hook entry point: emits a 1-drop Payment back to the originating
 /// transaction's sender.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     if etxn_reserve(1).is_err() {
         rollback!(
             b"emit-txn: etxn_reserve failed",
@@ -145,7 +141,7 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
 }
 
 /// Callback invoked when the emitted transaction settles. Always accepts.
-#[unsafe(no_mangle)]
-pub extern "C" fn cbak(_reserved: u32) -> i64 {
+#[cbak]
+fn my_cbak() -> i64 {
     accept!()
 }

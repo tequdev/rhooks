@@ -11,7 +11,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook_errors, rollback};
+use hooks_lib::{accept, hook, hook_errors, rollback};
 
 /// The percentage this hook computes from the transaction `Amount`: 1%,
 /// expressed as `mulratio`'s `(num, den)` ratio.
@@ -45,8 +45,8 @@ hook_errors! {
 }
 
 /// Hook entry point.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     // Load the originating transaction into a slot, then navigate to its
     // `Amount` field's own slot. `slot_subfield`'s `new_slot = 0` means
     // "auto-assign a slot number" — same convention as `otxn_slot`.
