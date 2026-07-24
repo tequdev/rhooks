@@ -1,6 +1,9 @@
 //! `firewall` — rolls the transaction back if its sender matches a
 //! blacklisted account supplied via the `BL` Hook parameter; accepts
-//! otherwise. Straight-line code: no loops, so no `guard!` is needed.
+//! otherwise. Straight-line code: no loops, so no `guard!` is needed — and
+//! the account comparison uses `hooks_lib::buf_eq_20` rather than `==`, so
+//! no compiler-generated loop appears in the compiled output either (see
+//! `hooks_lib::buf_eq` docs).
 //!
 //! Build: `hooks-build build --manifest-path examples/firewall/Cargo.toml`
 
@@ -29,7 +32,11 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
         _ => accept!(),
     }
 
-    if sender == blocked {
+    // `buf_eq_20` (not `sender == blocked`): array `==` compiles to a
+    // compiler-generated, unguarded `bcmp`-style loop on `wasm32v1-none` at
+    // `opt-level = "z"` — see `hooks_lib::buf_eq` docs and
+    // `docs/DESIGN.md` §6.3.
+    if buf_eq_20(&sender, &blocked) {
         rollback!(b"firewall: blocked account", -1);
     }
 
