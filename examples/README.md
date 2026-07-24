@@ -90,26 +90,39 @@ price of keeping hook code free of `unsafe`.
 
 `hooks-build build` defaults to treating an unguarded `loop` as a hard
 error (see `docs/DESIGN.md` §6.3 and §10.1) — missing a `guard!` in your
-own code is a bug, not something to paper over. In practice, though, one
-of these four examples fails that check even though **no loop appears in
-its Rust source**: `opt-level = "z"` on `wasm32v1-none` (which has no
-bulk-memory instructions) causes LLVM to lower some operations to calls
-into `compiler_builtins` functions that contain real, unguarded loops:
+own code is a bug, not something to paper over. The trap is that
+`opt-level = "z"` on `wasm32v1-none` (which has no bulk-memory
+instructions) can cause LLVM to lower some operations to calls into
+`compiler_builtins` functions that contain real, unguarded loops **even
+though no loop appears in the Rust source at all** — array/slice equality
+(`[u8; N] == [u8; N]`) lowers to a `bcmp`-style byte-compare loop, and large
+buffer zero-inits/copies lower to `memset`/`memcpy`-style loops.
 
-- `firewall`'s `sender == blocked` (`[u8; 20]` equality) compiles to a
-  byte-by-byte compare loop, so it needs `--auto-guard`.
+`--auto-guard` (with a carefully sized `--default-maxiter`) is one way to
+handle this, but it is a footgun: the CLI only validates guard *shape*, not
+that `maxiter` covers the loop's true runtime bound, so an under-sized
+`maxiter` builds clean and then fails with `GUARD_VIOLATION` on a live
+node. Two source-level idioms avoid the compiler-generated loop (and the
+`--auto-guard` footgun) entirely, and are preferred wherever they apply:
 
-Critically, the `--auto-guard` default of `--default-maxiter 16` is **not
-safe** for it: the account-compare loop can run up to 20 iterations (one
-per `AccountId` byte). An auto-inserted guard whose `maxiter` is smaller
-than the loop's true worst case builds fine (`hooks-build` only checks
-module *shape*, not runtime behavior) but risks a real `GUARD_VIOLATION`
-on a live node. The `build-examples` task therefore passes an explicit,
-reasoned `--default-maxiter 24` instead of the default — see the task in
-the root `mise.toml` and `firewall`'s README.
+- **Fixed-size buffer equality**: use `hooks_lib::buf_eq_8`/`_20`/`_32`/
+  `_33`/`_34`/`_48` (see `crates/hooks-lib/src/buf_eq.rs`) instead of `==`.
+  Every byte index in these functions is a source-level literal, so the
+  comparison is genuinely straight-line code — there is nothing for LLVM to
+  lower into a loop. `firewall` used to need
+  `--auto-guard --default-maxiter 24` for exactly this reason (its
+  `sender == blocked` account comparison); switching to `buf_eq_20` removed
+  the loop (and the flag) entirely.
+- **Statics for templates and large buffers** (below): removes
+  compiler-generated `memset`/`memcpy` loops the same way, for the
+  initialization/copy case `buf_eq` doesn't cover.
 
-`accept-all`, `state-counter`, and `emit-txn` build clean with no extra
-flags: the first two have no compiler-generated loops (no buffer
-copy/compare in them is large enough, at this optimization level, for
-LLVM to prefer an out-of-line loop over inline stores), and `emit-txn`
-avoids them via the static-buffer idiom above.
+None of the four examples need `--auto-guard` any more: `accept-all` and
+`state-counter` never had a compiler-generated loop to begin with (no
+buffer copy/compare in them is large enough, at this optimization level,
+for LLVM to prefer an out-of-line loop over inline stores); `emit-txn`
+avoids one via the static-buffer idiom below; `firewall` avoids one via
+`buf_eq_20` above. `--auto-guard` remains available in `hooks-build` for
+cases neither idiom covers — size `--default-maxiter` from the loop's true
+worst-case iteration count (found via disassembly), never trust the
+default.
