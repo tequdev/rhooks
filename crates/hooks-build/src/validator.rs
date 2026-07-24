@@ -47,6 +47,11 @@ pub struct ValidationReport {
     /// it; only api-version 0 hard-errors/warns on it (`docs/DESIGN.md`
     /// §6.2c/§6.4).
     pub max_nesting_depth: u32,
+    /// Before/after statistics for a `--optimize` (`wasm-opt -Oz`) run, if
+    /// one was requested. Only ever set by
+    /// [`crate::run_pipeline`] — [`validate`] itself never populates this
+    /// field.
+    pub optimize_report: Option<crate::OptimizeReport>,
 }
 
 /// Validates `wasm` against the full SetHook rule set. Returns `Ok` (with
@@ -402,6 +407,7 @@ pub fn validate(wasm: &[u8], opts: &Options) -> Result<ValidationReport> {
         oversize_allowed,
         guard_verdict: None,
         max_nesting_depth: max_overall_depth,
+        optimize_report: None,
     })
 }
 

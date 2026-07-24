@@ -46,6 +46,11 @@ enum Cmd {
         /// limit (clearly marked invalid).
         #[arg(long)]
         allow_oversize: bool,
+        /// Run `wasm-opt -Oz` (requires a system `wasm-opt` executable; see
+        /// `brew install binaryen`) between the cleaner and the flatten
+        /// pass. Every later stage still re-validates the result in full.
+        #[arg(long)]
+        optimize: bool,
     },
     /// Cleans and validates an already-built wasm file, without invoking
     /// cargo.
@@ -69,6 +74,11 @@ enum Cmd {
         /// limit (clearly marked invalid).
         #[arg(long)]
         allow_oversize: bool,
+        /// Run `wasm-opt -Oz` (requires a system `wasm-opt` executable; see
+        /// `brew install binaryen`) between the cleaner and the flatten
+        /// pass. Every later stage still re-validates the result in full.
+        #[arg(long)]
+        optimize: bool,
     },
     /// Validates a wasm file against the full SetHook rule set, without
     /// modifying it. Works on any wasm, including C-built hooks.
@@ -100,12 +110,14 @@ fn main() -> Result<()> {
             default_maxiter,
             out,
             allow_oversize,
+            optimize,
         } => {
             let opts = Options {
                 api_version: api_version_from(api_version),
                 auto_guard,
                 default_maxiter,
                 allow_oversize,
+                optimize,
             };
             cmd_build(manifest_path, package, out, &opts)
         }
@@ -116,12 +128,14 @@ fn main() -> Result<()> {
             auto_guard,
             default_maxiter,
             allow_oversize,
+            optimize,
         } => {
             let opts = Options {
                 api_version: api_version_from(api_version),
                 auto_guard,
                 default_maxiter,
                 allow_oversize,
+                optimize,
             };
             cmd_clean(&input, out, &opts)
         }
@@ -156,6 +170,46 @@ fn print_size_and_fee(bytes: &[u8]) {
         fee.drops,
         fee.xah_string()
     );
+}
+
+/// Prints the `--optimize` before/after comparison: `docs/DESIGN.md` M7 (see
+/// `hooks_build::OptimizeReport`).
+///
+/// `arithmetic_side_effects` is allowed locally: `before_bytes`/`after_bytes`
+/// are both SetHook wasm sizes (bounded by the 65,535-byte SetHook limit —
+/// nowhere near `i64` overflow), so this is display-only bookkeeping, not a
+/// guest-facing failure mode (see the crate-level rationale in
+/// `hooks-build/src/lib.rs`).
+#[allow(clippy::arithmetic_side_effects)]
+fn print_optimize_summary(summary: &hooks_build::OptimizeReport) {
+    let delta_bytes = summary.after_bytes as i64 - summary.before_bytes as i64;
+    let pct = if summary.before_bytes == 0 {
+        0.0
+    } else {
+        (delta_bytes as f64 / summary.before_bytes as f64) * 100.0
+    };
+    println!("--optimize (wasm-opt -Oz):");
+    println!(
+        "  size: {} -> {} bytes ({delta_bytes:+} bytes, {pct:+.1}%)",
+        summary.before_bytes, summary.after_bytes
+    );
+    println!(
+        "  estimated SetHook fee: {} -> {} drops ({} -> {} XAH)",
+        summary.before_fee.drops,
+        summary.after_fee.drops,
+        summary.before_fee.xah_string(),
+        summary.after_fee.xah_string()
+    );
+    match (summary.before_guard, summary.after_guard) {
+        (Some(before), Some(after)) => println!(
+            "  guard worst-case instructions: hook {} -> {}, cbak {} -> {}",
+            before.hook_cost, after.hook_cost, before.cbak_cost, after.cbak_cost
+        ),
+        _ => println!(
+            "  guard worst-case instructions: unavailable (api-version 1, or the guard \
+             checker could not run on one of the two shapes)"
+        ),
+    }
 }
 
 fn cmd_build(
@@ -249,6 +303,9 @@ fn cmd_clean(input: &Path, out: Option<PathBuf>, opts: &Options) -> Result<()> {
 fn run_and_write(wasm: &[u8], out_path: &Path, opts: &Options) -> Result<()> {
     let (output, report) = hooks_build::run_pipeline(wasm, opts)?;
     print_report(&report);
+    if let Some(summary) = &report.optimize_report {
+        print_optimize_summary(summary);
+    }
     if let Some(parent) = out_path.parent()
         && !parent.as_os_str().is_empty()
     {
