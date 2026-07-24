@@ -24,8 +24,14 @@ pub const CURRENCY_CODE_LEN: usize = 20;
 pub const NATIVE_AMOUNT_LEN: usize = 8;
 /// Length in bytes of an [`IouAmount`].
 pub const IOU_AMOUNT_LEN: usize = 48;
-/// Length in bytes of [`EmitDetails`].
-pub const EMIT_DETAILS_LEN: usize = 105;
+/// Maximum length in bytes of a serialized `EmitDetails` object
+/// (`etxn_details` output): 138 bytes when this hook's wasm module exports
+/// a `cbak` callback, 116 bytes otherwise (see xahaud's
+/// `HookAPI::etxn_details`, `src/xrpld/app/hook/detail/HookAPI.cpp`).
+/// `etxn_details` is a caller-buffer/returned-length API (like
+/// [`crate::api::hook_ctx::hook_param`]) — size a buffer to this constant
+/// and trust the returned length; do not assume it is always fully written.
+pub const EMIT_DETAILS_MAX_LEN: usize = 138;
 
 /// A 20-byte AccountID.
 pub type AccountId = [u8; ACC_ID_LEN];
@@ -47,5 +53,3 @@ pub type CurrencyCode = [u8; CURRENCY_CODE_LEN];
 pub type NativeAmount = [u8; NATIVE_AMOUNT_LEN];
 /// A 48-byte serialized IOU amount.
 pub type IouAmount = [u8; IOU_AMOUNT_LEN];
-/// A 105-byte serialized emit details structure (`etxn_details` output).
-pub type EmitDetails = [u8; EMIT_DETAILS_LEN];

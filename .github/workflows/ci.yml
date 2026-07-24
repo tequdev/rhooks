@@ -102,12 +102,13 @@ jobs:
           cargo run -p hooks-build -- build --manifest-path examples/firewall/Cargo.toml --auto-guard --default-maxiter 24
           cargo run -p hooks-build -- check examples/firewall/out/firewall.wasm
 
-      # emit-txn: zeroing the 320-byte prepare buffer compiles to a memset
-      # loop (8 bytes/iteration); maxiter 48 covers its ~40-iteration worst
-      # case.
+      # emit-txn: guard-clean with no flags — its own txn_template!-declared
+      # Payment (the whole emitted transaction, byte-exact, no `prepare()`
+      # involved) lives in a data segment (`static`) and doubles as its own
+      # output buffer, so no compiler-generated memset/memcpy loops exist.
       - name: emit-txn
         run: |
-          cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml --auto-guard --default-maxiter 48
+          cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml
           cargo run -p hooks-build -- check examples/emit-txn/out/emit_txn.wasm
 
       - name: Upload example hook binaries

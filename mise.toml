@@ -3,6 +3,12 @@
 # which the rustup argv0 proxies resolve).
 rust = "1.89.0"
 
+[env]
+# The [tools] rust pin above exports RUSTUP_TOOLCHAIN=1.89.0, which would
+# override rust-toolchain.toml's nightly channel; [env] is applied after
+# [tools], so this wins and the rustup proxies below resolve the nightly.
+RUSTUP_TOOLCHAIN = "nightly-2026-07-20"
+
 [env._]
 # mise's core rust tool (symlink install) does not register a bin dir on
 # PATH itself, so add the proxy directory declaratively here. With this,
@@ -47,10 +53,10 @@ cargo run -p hooks-build -- check examples/state-counter/out/state_counter.wasm
 cargo run -p hooks-build -- build --manifest-path examples/firewall/Cargo.toml --auto-guard --default-maxiter 24
 cargo run -p hooks-build -- check examples/firewall/out/firewall.wasm
 
-# emit-txn: zeroing the 320-byte `prepared` buffer compiles to a
-# compiler_builtins-style memset loop (8 bytes/iteration). --auto-guard is
-# required; maxiter=48 safely covers its true worst case of ~40
-# iterations, not just the --auto-guard default of 16.
-cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml --auto-guard --default-maxiter 48
+# emit-txn: guard-clean with no flags — its own txn_template!-declared
+# Payment (the whole emitted transaction, byte-exact, no `prepare()`
+# involved) lives in a data segment (`static`) and doubles as its own
+# output buffer, so no compiler-generated memset/memcpy loops exist.
+cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml
 cargo run -p hooks-build -- check examples/emit-txn/out/emit_txn.wasm
 """

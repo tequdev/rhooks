@@ -11,7 +11,7 @@ release profile that must not leak into `hooks-core`/`hooks-lib`/
 | [`accept-all`](accept-all) | minimal hook: `accept` everything (starter template) |
 | [`firewall`](firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
 | [`state-counter`](state-counter) | `state`/`state_set` round-trip, counter in hook state |
-| [`emit-txn`](emit-txn) | `etxn_reserve` + `prepare`/`emit` a Payment, with a `cbak` |
+| [`emit-txn`](emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
 
 ## Building
 
@@ -56,34 +56,60 @@ root workspace's panic-free set) and by review:
   `warnings` group). Use `.wrapping_add()`/`.checked_add()`/etc. instead
   of bare operators wherever a runtime value is involved.
 
+## Statics for templates and large buffers
+
+Constant byte templates and large output buffers should be `static`s, not
+stack locals (see `emit-txn` for the worked example):
+
+- a stack-local array literal is materialized at runtime by a chain of
+  store instructions (code bytes + worst-case instruction count), while a
+  `static` template becomes a wasm **data segment** costing exactly its
+  own bytes;
+- a stack `[0u8; N]` for large `N` compiles to a `compiler_builtins`
+  memset loop (an unguarded loop you never wrote), while a zero-initialized
+  `static` lands in linear-memory **BSS** — zero bytes of data segment,
+  zero code, because wasm memory is zero-initialized by definition.
+
+Use `hooks_lib::static_cell::HookStatic` (in the prelude) rather than a
+raw `static mut`: `HookStatic::new(...)` is `const` (so the data placement
+above still applies), and `take()` hands out the buffer's one exclusive
+`&'static mut` safely — the second `take()` returns `None`, so aliasing is
+structurally impossible and no `unsafe` appears in hook code. Exclusivity
+is sound because hooks execute single-threaded and every invocation runs
+in a freshly instantiated wasm instance.
+
+Converting `emit-txn` to this idiom removed its only compiler-generated
+loops entirely (no `--auto-guard` needed) and cut its worst-case
+instruction count by an order of magnitude (6798 → ~350 as of the current
+toolchain; exact numbers drift a little between compiler versions — the
+`hooks-build build` output prints the authoritative figures). The
+take-once flag costs a few dozen bytes over a raw `static mut` — the
+price of keeping hook code free of `unsafe`.
+
 ## On `--auto-guard`
 
 `hooks-build build` defaults to treating an unguarded `loop` as a hard
 error (see `docs/DESIGN.md` §6.3 and §10.1) — missing a `guard!` in your
-own code is a bug, not something to paper over. In practice, though, two
-of these four examples fail that check even though **no loop appears in
-their Rust source**: `opt-level = "z"` on `wasm32v1-none` (which has no
+own code is a bug, not something to paper over. In practice, though, one
+of these four examples fails that check even though **no loop appears in
+its Rust source**: `opt-level = "z"` on `wasm32v1-none` (which has no
 bulk-memory instructions) causes LLVM to lower some operations to calls
 into `compiler_builtins` functions that contain real, unguarded loops:
 
 - `firewall`'s `sender == blocked` (`[u8; 20]` equality) compiles to a
-  byte-by-byte compare loop.
-- `emit-txn`'s zero-initialization of its 320-byte `prepared` buffer
-  compiles to an 8-bytes-per-iteration `memset`-style loop.
+  byte-by-byte compare loop, so it needs `--auto-guard`.
 
-Both need `--auto-guard`. Critically, the `--auto-guard` default of
-`--default-maxiter 16` is **not safe** for either: the account-compare
-loop can run up to 20 iterations (one per `AccountId` byte) and the
-`memset` loop can run up to ~40 (`320 / 8`, plus small head/tail loops).
-An auto-inserted guard whose `maxiter` is smaller than the loop's true
-worst case builds fine (`hooks-build` only checks module *shape*, not
-runtime behavior) but risks a real `GUARD_VIOLATION` on a live node. The
-`build-examples` task therefore passes an explicit, reasoned
-`--default-maxiter` for each (24 and 48 respectively) instead of the
-default — see the task in the root `mise.toml` for the exact commands and
-reasoning, and each example's own README.
+Critically, the `--auto-guard` default of `--default-maxiter 16` is **not
+safe** for it: the account-compare loop can run up to 20 iterations (one
+per `AccountId` byte). An auto-inserted guard whose `maxiter` is smaller
+than the loop's true worst case builds fine (`hooks-build` only checks
+module *shape*, not runtime behavior) but risks a real `GUARD_VIOLATION`
+on a live node. The `build-examples` task therefore passes an explicit,
+reasoned `--default-maxiter 24` instead of the default — see the task in
+the root `mise.toml` and `firewall`'s README.
 
-`accept-all` and `state-counter` have no such compiler-generated loops (no
-buffer copy/compare in them is large enough, at this optimization level,
-for LLVM to prefer an out-of-line loop over inline stores) and build clean
-with no extra flags.
+`accept-all`, `state-counter`, and `emit-txn` build clean with no extra
+flags: the first two have no compiler-generated loops (no buffer
+copy/compare in them is large enough, at this optimization level, for
+LLVM to prefer an out-of-line loop over inline stores), and `emit-txn`
+avoids them via the static-buffer idiom above.

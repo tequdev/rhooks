@@ -106,9 +106,7 @@ macro_rules! trace_float {
 /// every call in an inline `const` block, so the `assert!` and the indexing
 /// below are compile-time checks — they can never become runtime panics.
 #[doc(hidden)]
-// In-bounds by the assert (`i < src.len() <= N`), and const-evaluated, so an
-// out-of-bounds access would be a compile error, not a panic.
-#[allow(clippy::indexing_slicing)]
+#[allow(clippy::indexing_slicing)] // in-bounds by the assert, const-evaluated only
 pub const fn padded_bytes<const N: usize>(src: &[u8]) -> [u8; N] {
     assert!(
         src.len() <= N,

@@ -25,10 +25,15 @@
 //! keeps that path a single, direct alias with no extra module indirection.
 
 #![no_std]
+// Nightly only: lets `txn_template!` synthesize `set_<field>` setter names
+// (`${concat(set_, $field)}`) instead of naming setters after the bare field.
+#![feature(macro_metavar_expr_concat)]
 
 pub mod api;
 pub mod error;
 mod macros;
+pub mod static_cell;
+pub mod txn;
 pub mod types;
 pub mod xfl;
 
@@ -54,6 +59,7 @@ pub use hooks_core as raw;
 pub mod prelude {
     pub use crate::api::*;
     pub use crate::error::{HookError, Result};
+    pub use crate::static_cell::HookStatic;
     pub use crate::types::*;
     pub use crate::xfl::XFL;
     pub use hooks_core::{consts::*, ls_flags::*, sfcodes::*, tts::*, tx_flags::*};

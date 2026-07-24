@@ -33,11 +33,11 @@ mise run test         # cargo test --workspace
 | [`accept-all`](examples/accept-all) | minimal hook: `accept` everything (starter template) |
 | [`firewall`](examples/firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
 | [`state-counter`](examples/state-counter) | `state`/`state_set` round-trip, counter in hook state |
-| [`emit-txn`](examples/emit-txn) | `etxn_reserve` + `prepare`/`emit` a Payment, with a `cbak` |
+| [`emit-txn`](examples/emit-txn) | `etxn_reserve` + a user-declared `txn_template!` Payment, with a `cbak` |
 
 ```sh
 mise run build-examples   # builds all four through hooks-build and checks the output
 ```
 
 See [`examples/README.md`](examples/README.md) for details, including why
-two of the four need `--auto-guard`.
+one of the four (`firewall`) needs `--auto-guard`.
