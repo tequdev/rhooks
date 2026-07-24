@@ -8,6 +8,8 @@ pub mod api;
 pub mod consts;
 /// Generates `crates/hooks-core/src/error.rs` from `error.h`.
 pub mod error;
+/// Generates `crates/hooks-core/src/host.rs`: the `HookHost` trait + `Guest`.
+pub mod host;
 /// Generates `crates/hooks-core/src/ls_flags.rs` from `ls_flags.h`.
 pub mod ls_flags;
 /// Generates `crates/hooks-core/src/sfcodes.rs` from `sfcodes.h`.

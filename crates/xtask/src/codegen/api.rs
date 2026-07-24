@@ -1,9 +1,11 @@
-//! Generates `crates/hooks-core/src/api.rs` from `extern.h`.
+//! Generates `crates/hooks-core/src/api.rs` from `extern.h`'s
+//! [`FunctionSpec`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
 
 use super::with_generated_marker;
-use crate::parse::{ExternFn, c_type_to_rust, scan_extern_fns};
+use crate::ir::FunctionSpec;
+use crate::parse::c_type_to_rust;
 
 const MODULE_DOC: &str = "\
 //! Raw Hook API function declarations.
@@ -23,24 +25,11 @@ const MODULE_DOC: &str = "\
 //! returns `0`, i.e. \"guard check passed\"). None of the stubs panic.
 ";
 
-/// The original `extern.h` prototype text, as it appears in the doc comment
-/// provenance line (`/// C: \`<this>\` (extern.h)`) — built from the C
-/// (not Rust-mapped) types so the doc genuinely quotes the header.
-fn c_prototype_text(f: &ExternFn) -> String {
-    let params = f
-        .params
-        .iter()
-        .map(|(ty, name)| format!("{ty} {name}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("{} {}({params})", f.ret_c_ty, f.name)
-}
-
-fn rust_signature(f: &ExternFn) -> Result<(String, String)> {
-    let ret_ty = c_type_to_rust(&f.ret_c_ty)?;
+fn rust_signature(f: &FunctionSpec) -> Result<(String, String)> {
+    let ret_ty = c_type_to_rust(&f.ret_c_type)?;
     let mut params = Vec::with_capacity(f.params.len());
-    for (ty, name) in &f.params {
-        params.push(format!("{name}: {}", c_type_to_rust(ty)?));
+    for p in &f.params {
+        params.push(format!("{}: {}", p.name, c_type_to_rust(&p.c_type)?));
     }
     Ok((params.join(", "), ret_ty.to_string()))
 }
@@ -50,21 +39,16 @@ fn rust_signature(f: &ExternFn) -> Result<(String, String)> {
 /// (`#[allow(clippy::too_many_arguments)]`) on every declaration with 7 or
 /// more parameters (`sto_emplace` through `util_keylet`) — verified against
 /// every one of `extern.h`'s 75 prototypes.
-fn needs_too_many_arguments_allow(f: &ExternFn) -> bool {
+fn needs_too_many_arguments_allow(f: &FunctionSpec) -> bool {
     f.params.len() >= 7
 }
 
-/// Renders `api.rs`'s full contents from `extern.h`'s source text.
-pub fn generate(extern_h: &str) -> Result<String> {
-    let fns = scan_extern_fns(extern_h)?;
-
+/// Renders `api.rs`'s full contents from `extern.h`'s parsed [`FunctionSpec`]s.
+pub fn generate(fns: &[FunctionSpec]) -> Result<String> {
     let mut wasm_block = String::new();
-    for f in &fns {
+    for f in fns {
         let (params, ret_ty) = rust_signature(f)?;
-        wasm_block.push_str(&format!(
-            "    /// C: `{}` (extern.h)\n",
-            c_prototype_text(f)
-        ));
+        wasm_block.push_str(&format!("    /// C: `{}` (extern.h)\n", f.doc));
         if needs_too_many_arguments_allow(f) {
             wasm_block.push_str("    #[allow(clippy::too_many_arguments)]\n");
         }
@@ -75,17 +59,14 @@ pub fn generate(extern_h: &str) -> Result<String> {
     wasm_block.push('\n');
 
     let mut stubs = String::new();
-    for f in &fns {
+    for f in fns {
         let (params, ret_ty) = rust_signature(f)?;
         let body = if f.name == "_g" {
             "0"
         } else {
             "NOT_IMPLEMENTED"
         };
-        stubs.push_str(&format!(
-            "    /// C: `{}` (extern.h) — host stub\n",
-            c_prototype_text(f)
-        ));
+        stubs.push_str(&format!("    /// C: `{}` (extern.h) — host stub\n", f.doc));
         stubs.push_str(&format!(
             "    pub unsafe fn {}({params}) -> {ret_ty} {{\n        {body}\n    }}\n\n",
             f.name

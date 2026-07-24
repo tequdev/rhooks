@@ -5,10 +5,16 @@
 //!   raw negative-`i64` Hook API error codes.
 //! - [`types`] — fixed-size buffer aliases for protocol-fixed shapes
 //!   (`AccountId`, `Hash`, `Keylet`, ...).
+//! - [`buf_eq`] — loop-free, panic-free equality checks for those fixed-size
+//!   buffers (use instead of `==`, which can compile to an unguarded
+//!   `compiler_builtins` `bcmp` loop).
 //! - [`xfl::XFL`] — the Xahau decimal floating-point type.
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
 //! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
 //!   terse macros for common patterns (see `macros.rs`).
+//! - [`hook_errors!`] / [`exit_on_err!`] — define a `#[repr(i64)]` user error
+//!   enum and convert `Result<T, YourEnum>` into a `rollback!` at the hook's
+//!   boundary (see `errors.rs`).
 //! - An optional panic handler (feature `panic-handler`, default-on) that
 //!   rolls the hook back instead of leaving an unhandled panic.
 //!
@@ -30,7 +36,9 @@
 #![feature(macro_metavar_expr_concat)]
 
 pub mod api;
+pub mod buf_eq;
 pub mod error;
+mod errors;
 mod macros;
 pub mod static_cell;
 pub mod txn;
@@ -58,6 +66,7 @@ pub use hooks_core as raw;
 /// prelude-imported name and a hooks-lib wrapper.
 pub mod prelude {
     pub use crate::api::*;
+    pub use crate::buf_eq::*;
     pub use crate::error::{HookError, Result};
     pub use crate::static_cell::HookStatic;
     pub use crate::types::*;
