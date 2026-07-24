@@ -1,7 +1,7 @@
 //! Information about the executing hook itself: its account, hash, and
 //! parameters.
 
-use crate::error::{Result, res};
+use crate::error::{HookError, Result, res};
 use crate::types::{ACC_ID_LEN, AccountId, HASH_LEN, Hash};
 
 /// The AccountID this hook is installed on, written into `out`. Returns the
@@ -55,6 +55,32 @@ pub fn hook_param(out: &mut [u8], name: &[u8]) -> Result<usize> {
     .map(|v| v as usize)
 }
 
+/// Read this hook's own parameter `name`, requiring it to be exactly `N`
+/// bytes. A parameter longer than `N` already fails as
+/// [`crate::error::HookError::TooSmall`] from the underlying host call
+/// (`out`'s capacity is exactly `N`); a parameter shorter than `N` is caught
+/// here and mapped to the same variant — see `state_exact` (`state.rs`) for
+/// the identical pattern and rationale. No loop, no panic.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::hook_ctx::hook_param_exact;
+/// use hooks_lib::error::HookError;
+///
+/// assert_eq!(hook_param_exact::<4>(b"x"), Err(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn hook_param_exact<const N: usize>(name: &[u8]) -> Result<[u8; N]> {
+    let mut out = [0u8; N];
+    let written = hook_param(&mut out, name)?;
+    if written == N {
+        Ok(out)
+    } else {
+        Err(HookError::TooSmall)
+    }
+}
+
 /// Set a parameter named `name` to `value` on the hook identified by
 /// `hook_hash`. Returns the number of bytes written.
 #[inline(always)]
@@ -89,5 +115,6 @@ mod tests {
             hook_param_set(b"v", b"x", &[0u8; 32]),
             Err(HookError::NotImplemented)
         );
+        assert_eq!(hook_param_exact::<4>(b"x"), Err(HookError::NotImplemented));
     }
 }

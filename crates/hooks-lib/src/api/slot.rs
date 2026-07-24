@@ -6,7 +6,7 @@
 //! (`slot_count`, `slot_size`) consistently return `Result<u32>` in this
 //! module.
 
-use crate::error::{Result, res};
+use crate::error::{HookError, Result, res};
 
 /// Serialize the object in `slot_no` into `out`. Returns the number of
 /// bytes written.
@@ -23,6 +23,32 @@ pub fn slot(out: &mut [u8], slot_no: u32) -> Result<usize> {
 #[inline(always)]
 pub fn slot_u64(slot_no: u32) -> Result<u64> {
     res(unsafe { hooks_core::slot(0, 0, slot_no) }).map(|v| v as u64)
+}
+
+/// Serialize the object in `slot_no`, requiring the serialization to be
+/// exactly `N` bytes. A serialization longer than `N` already fails as
+/// [`crate::error::HookError::TooSmall`] from the underlying host call
+/// (`out`'s capacity is exactly `N`); a serialization shorter than `N` is
+/// caught here and mapped to the same variant — see `state_exact`
+/// (`state.rs`) for the identical pattern and rationale. No loop, no panic.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::slot::slot_exact;
+/// use hooks_lib::error::HookError;
+///
+/// assert_eq!(slot_exact::<20>(1), Err(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn slot_exact<const N: usize>(slot_no: u32) -> Result<[u8; N]> {
+    let mut out = [0u8; N];
+    let written = slot(&mut out, slot_no)?;
+    if written == N {
+        Ok(out)
+    } else {
+        Err(HookError::TooSmall)
+    }
 }
 
 /// Free `slot_no`, making it available for reuse.
@@ -96,6 +122,7 @@ mod tests {
         let mut out = [0u8; 32];
         assert_eq!(slot(&mut out, 1), Err(HookError::NotImplemented));
         assert_eq!(slot_u64(1), Err(HookError::NotImplemented));
+        assert_eq!(slot_exact::<20>(1), Err(HookError::NotImplemented));
         assert_eq!(slot_clear(1), Err(HookError::NotImplemented));
         assert_eq!(slot_count(1), Err(HookError::NotImplemented));
         assert_eq!(slot_set(&out, 0), Err(HookError::NotImplemented));

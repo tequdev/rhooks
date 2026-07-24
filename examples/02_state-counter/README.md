@@ -13,7 +13,16 @@ and therefore no loop guard — exists at runtime.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/state-counter/Cargo.toml
+cargo run -p hooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
 ```
 
 No extra flags needed — this example is guard-clean without `--auto-guard`.
+
+## Error codes
+
+`StateCounterError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`rollback!` code for each failure this hook can exit with:
+
+| variant | code | meaning |
+|---|---|---|
+| `StateSetFailed` | 1 | `state_set` failed to persist the incremented counter |

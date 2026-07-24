@@ -1,9 +1,10 @@
-//! Generates `crates/hooks-core/src/tx_flags.rs` from `tx_flags.h`.
+//! Generates `crates/hooks-core/src/tx_flags.rs` from `tx_flags.h`'s parsed
+//! [`ConstGroup`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
 
 use super::{push_const, with_generated_marker};
-use crate::parse::scan_enum_groups;
+use crate::ir::ConstGroup;
 use crate::render::{is_bare_identifier, render_flag_value};
 
 const MODULE_DOC: &str = "\
@@ -38,20 +39,20 @@ fn group_comment(enum_name: &str) -> String {
     }
 }
 
-/// Renders `tx_flags.rs`'s full contents from `tx_flags.h`'s source text.
-pub fn generate(tx_flags_h: &str) -> Result<String> {
-    let groups = scan_enum_groups(tx_flags_h)?;
+/// Renders `tx_flags.rs`'s full contents from `tx_flags.h`'s parsed
+/// [`ConstGroup`]s.
+pub fn generate(groups: &[ConstGroup]) -> Result<String> {
     let mut body = String::from("\nuse crate::ls_flags;\n");
-    for group in &groups {
+    for group in groups {
         body.push('\n');
         body.push_str(&group_comment(&group.name));
         body.push('\n');
-        for member in &group.members {
-            let value = render_flag_value(&member.value, "ls_flags")?;
-            let doc = if is_bare_identifier(&member.value) {
+        for member in &group.items {
+            let value = render_flag_value(&member.c_expr, "ls_flags")?;
+            let doc = if is_bare_identifier(&member.c_expr) {
                 format!(
                     "C: `{}` (tx_flags.h, `enum {}`) = `{}`",
-                    member.name, group.name, member.value
+                    member.name, group.name, member.c_expr
                 )
             } else {
                 format!("C: `{}` (tx_flags.h, `enum {}`)", member.name, group.name)

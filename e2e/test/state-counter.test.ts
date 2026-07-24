@@ -1,4 +1,4 @@
-// e2e: examples/state-counter against a standalone Xahau node.
+// e2e: examples/02_state-counter against a standalone Xahau node.
 //
 // `hook()` reads an 8-byte LE u64 counter from state key
 // `pad!(b"counter")` (crates/hooks-lib STATE_KEY_LEN = 32: the 7 ASCII
@@ -95,13 +95,16 @@ describe('state-counter', () => {
     const hookExecutions = await invoke()
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
-    // HookReturnCode is a 64-bit int field, serialized as a decimal string
-    // over RPC (like other int64/uint64 ledger fields) even though the
-    // toolkit's `iHookExecution` type declares it as `number`.
+    // HookReturnCode is a 64-bit int field, serialized as a *hex* string
+    // over RPC (same convention as HookInstructionCount below) even
+    // though the toolkit's `iHookExecution` type declares it as `number`
+    // - only matters here because the asserted codes are single-digit,
+    // which read identically whether parsed as decimal or hex (see
+    // slot-ledger.test.ts for a case where it doesn't).
     expect(Number(execution.HookReturnCode)).toBe(1)
     expect(execution.HookReturnString).toBe('state-counter: incremented')
     // HookInstructionCount is a *hex* string over RPC (confirmed by direct
-    // inspection - e.g. "d" = 13), unlike HookReturnCode's decimal string.
+    // inspection - e.g. "d" = 13).
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_INSTRUCTIONS,
     )

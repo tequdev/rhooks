@@ -1,7 +1,7 @@
 //! `accept-all` — the minimal starter Hook: traces a short message, then
 //! unconditionally accepts the originating transaction.
 //!
-//! Build: `hooks-build build --manifest-path examples/accept-all/Cargo.toml`
+//! Build: `hooks-build build --manifest-path examples/01_accept-all/Cargo.toml`
 
 #![no_std]
 

@@ -1,9 +1,10 @@
-//! Generates `crates/hooks-core/src/sfcodes.rs` from `sfcodes.h`.
+//! Generates `crates/hooks-core/src/sfcodes.rs` from `sfcodes.h`'s parsed
+//! [`ConstSpec`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
 
 use super::{push_const, with_generated_marker};
-use crate::parse::scan_defines;
+use crate::ir::ConstSpec;
 use crate::render::render_shift_add;
 
 const MODULE_DOC: &str = "\
@@ -16,12 +17,12 @@ const MODULE_DOC: &str = "\
 //! mirrored verbatim from the header (325 fields).
 ";
 
-/// Renders `sfcodes.rs`'s full contents from `sfcodes.h`'s source text.
-pub fn generate(sfcodes_h: &str) -> Result<String> {
-    let defines = scan_defines(sfcodes_h);
+/// Renders `sfcodes.rs`'s full contents from `sfcodes.h`'s parsed
+/// [`ConstSpec`]s.
+pub fn generate(sfcodes: &[ConstSpec]) -> Result<String> {
     let mut body = String::from("\n");
-    for d in &defines {
-        let value = render_shift_add(&d.value)?;
+    for d in sfcodes {
+        let value = render_shift_add(&d.c_expr)?;
         let doc = vec![format!("C: `{}` (sfcodes.h)", d.name)];
         push_const(&mut body, &doc, &d.name, "u32", &value);
     }

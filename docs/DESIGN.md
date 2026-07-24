@@ -84,10 +84,16 @@ rhooks/
 │   └── xtask/                # std, bin CLI: header → hooks-core codegen
 └── examples/
     ├── Cargo.toml            # SEPARATE workspace (no_std cdylibs)
-    ├── accept-all/
-    ├── firewall/
-    ├── state-counter/
-    └── emit-txn/
+    ├── 01_accept-all/        # numbered = suggested reading order
+    ├── 02_state-counter/     # (package names are unprefixed - Cargo
+    ├── 03_hook-params/       # package names can't start with a digit)
+    ├── 04_errors/
+    ├── 05_firewall/
+    ├── 06_guard-patterns/
+    ├── 07_xfl-math/
+    ├── 08_slot-ledger/
+    ├── 09_state-foreign/
+    └── 10_emit-txn/
 ```
 
 - Root workspace members: `crates/*` only. `examples/` is its own workspace:
@@ -427,15 +433,30 @@ const-evaluated checks (all failures are named E0080 compile errors):
 
 Because detection is by *value*, it is robust to how the constant is
 spelled (qualified paths, aliases). `prepare_for_emit(&mut self) ->
-Result<usize>` is generated unconditionally, resolving the six offsets by
-const lookup in the same table (`ledger_seq()+1`→FLS, FLS+4→LLS,
+Result<Prepared<'_, Self>>` is generated unconditionally, resolving the six
+offsets by const lookup in the same table (`ledger_seq()+1`→FLS, FLS+4→LLS,
 `hook_account()`→account, `etxn_details` into the region — its returned
 length fixes the real blob length — then `etxn_fee_base` over the actual
-blob→fee). Setters are generated uniformly for every settable field;
-docs note that the host-filled ones are overwritten by
-`prepare_for_emit`. Transaction *shape* remains entirely user-declared —
-new fields or txn types never require a hooks-lib change; only the fixed
-emit plumbing is canned. The `const fn new()` template always reserves
+blob→fee). `Prepared<'a, T>` (`hooks_lib::txn::Prepared`) is a typestate
+wrapper — `{ inner: &'a mut T, len: usize }` — that is the *only* way to
+reach an emit-sized slice (`Prepared::as_bytes`) or emit it
+(`Prepared::emit`, wrapping `api::etxn::emit_buf`): the unprepared template
+type has no `as_bytes`/`emit` method at all, so code cannot emit a buffer
+whose FLS/LLS/Account/EmitDetails/Fee were never actually filled — that
+mistake is now a compile error (`E0599`, no method found), not a runtime
+footgun. `Prepared` borrows rather than owns `Self` (generated structs
+usually live behind `HookStatic::take`'s `&'static mut T`, so an owning
+typestate would need a needless `mem::replace` dance) and `Deref`/
+`DerefMut`s to `Self`, so setters remain callable after preparing too (e.g.
+adjust a field and call `prepare_for_emit` again). Setters are generated
+uniformly for every settable field regardless of role — value-based
+required-field detection cannot be reflected in which setters *exist*, only
+in what a separate typestate lets you do with them — so setter existence
+is unchanged; only the FLS/LLS/Account/EmitDetails/Fee values themselves
+are inaccessible for emission until `prepare_for_emit` runs. Transaction
+*shape* remains entirely user-declared — new fields or txn types never
+require a hooks-lib change; only the fixed emit plumbing is canned. The
+`const fn new()` template always reserves
 the full `EMIT_DETAILS_MAX_LEN = 138` bytes of capacity for the
 emit-details region regardless of whether the module exports `cbak`, but
 those reserved zero bytes cost nothing in the emitted binary — the
@@ -786,15 +807,25 @@ panic = "abort"
 strip = "symbols"
 ```
 
-| example | demonstrates |
-|---|---|
-| `accept-all` | minimal hook: `accept` everything (starter template) |
-| `firewall` | read `otxn_field(sfAccount)` + hook param blacklist → `rollback` |
-| `state-counter` | `state`/`state_set` round-trip, counter in hook state |
-| `emit-txn` | `etxn_reserve` + a user-declared `txn_template!` Payment + `cbak` |
+Directory names are numbered in suggested reading order (`01_`..`10_`);
+package names themselves are not (Cargo package names can't start with a
+digit) — see `examples/README.md`.
+
+| # | example | demonstrates |
+|---|---|---|
+| 01 | `accept-all` | minimal hook: `accept` everything (starter template) |
+| 02 | `state-counter` | `state`/`state_set` round-trip, counter in hook state |
+| 03 | `hook-params` | `hook_param`-configurable threshold, with a compiled-in default |
+| 04 | `errors` | a meaningful `hook_errors!`-based rollback error-code system |
+| 05 | `firewall` | read `otxn_field(sfAccount)` + hook param blacklist → `rollback` |
+| 06 | `guard-patterns` | `guard!`/`guard_m!` correctness and the array-`==` memcmp-loop pitfall |
+| 07 | `xfl-math` | reading `Amount` as XFL, `mulratio`, `Result`-based comparisons |
+| 08 | `slot-ledger` | transaction field access via the Slot API |
+| 09 | `state-foreign` | `state_foreign`: reading another account's hook state |
+| 10 | `emit-txn` | `etxn_reserve` + a user-declared `txn_template!` Payment + `cbak` |
 
 Each README shows the exact build command:
-`hooks-build build --manifest-path examples/state-counter/Cargo.toml`
+`hooks-build build --manifest-path examples/02_state-counter/Cargo.toml`
 (or via mise task `mise run build-examples`, which builds all examples and
 `check`s the outputs — this doubles as the end-to-end test).
 
@@ -863,7 +894,7 @@ Settled during the external design review (recommendations adopted):
    representation equality is ever needed.
 4. **`call_indirect` is a v1 hard error** (keeps recursion detection and
    reachability sound); table + element segments are dropped by the cleaner.
-5. **`hooks-build new` deferred** — copying `examples/accept-all` is the
+5. **`hooks-build new` deferred** — copying `examples/01_accept-all` is the
    v1 scaffold story.
 
 ## 11. Design review record
