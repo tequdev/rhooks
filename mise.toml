@@ -62,6 +62,16 @@ cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml
 cargo run -p hooks-build -- check examples/emit-txn/out/emit_txn.wasm
 """
 
+[tasks.spec-bindings]
+description = "Demo: build firewall with its hook-spec.toml, then generate TypeScript bindings from the resulting spec.json into e2e/generated (docs/SPEC-SIDECAR.md)"
+run = """
+set -e
+cargo run -p hooks-build -- build --manifest-path examples/firewall/Cargo.toml --auto-guard --default-maxiter 24
+cargo run -p hooks-build -- bindings-ts examples/firewall/out/firewall.spec.json --out e2e/generated
+pnpm --dir e2e install
+pnpm --dir e2e exec tsc --noEmit
+"""
+
 [tasks."e2e:node-up"]
 description = "Start a standalone Xahau node for e2e tests (xrpld-netgen; amd64 image, runs under emulation on Apple Silicon)"
 run = "xrpld-netgen up:standalone --protocol xahau --version $XAHAUD_VERSION"

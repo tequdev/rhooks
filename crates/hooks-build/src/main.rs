@@ -79,6 +79,15 @@ enum Cmd {
         #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=1))]
         api_version: u8,
     },
+    /// Generates a TypeScript bindings module from a `spec.json` sidecar
+    /// (`docs/SPEC-SIDECAR.md`).
+    BindingsTs {
+        /// Path to the `<name>.spec.json` produced by `build`.
+        spec: PathBuf,
+        /// Directory to write the generated `<name>.ts` into.
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn api_version_from(v: u8) -> ApiVersion {
@@ -132,6 +141,7 @@ fn main() -> Result<()> {
             };
             cmd_check(&file, &opts)
         }
+        Cmd::BindingsTs { spec, out } => cmd_bindings_ts(&spec, &out),
     }
 }
 
@@ -234,7 +244,39 @@ fn cmd_build(
         .context("build artifact has no file name")?;
     let out_path = out_dir.join(file_name);
 
-    run_and_write(&wasm, &out_path, opts)
+    let (output, report) = run_and_write(&wasm, &out_path, opts)?;
+
+    // Sidecar spec.json (docs/SPEC-SIDECAR.md): always written for `build`,
+    // merging `hook-spec.toml` (if present next to the manifest) with the
+    // build facts just produced. Never gated on `hook-spec.toml` existing —
+    // a minimal build-only spec is still useful (size/sha256/instruction
+    // cost tracking).
+    let manifest_dir = manifest_path
+        .as_deref()
+        .and_then(Path::parent)
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let crate_name = out_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .context("output wasm has no file stem")?;
+    let wasm_file_name = out_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .context("output wasm has no file name")?;
+    let input = hooks_build::spec::read_input(&manifest_dir)?;
+    let build_info = hooks_build::spec::build_info(
+        wasm_file_name,
+        &output,
+        opts.api_version,
+        report.guard_verdict,
+    );
+    let spec = hooks_build::spec::merge(input, build_info);
+    let spec_path = hooks_build::spec::write(&spec, &out_dir, crate_name)?;
+    println!("wrote {}", spec_path.display());
+
+    Ok(())
 }
 
 fn cmd_clean(input: &Path, out: Option<PathBuf>, opts: &Options) -> Result<()> {
@@ -243,10 +285,18 @@ fn cmd_clean(input: &Path, out: Option<PathBuf>, opts: &Options) -> Result<()> {
         let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
         input.with_file_name(format!("{stem}.clean.wasm"))
     });
-    run_and_write(&wasm, &out_path, opts)
+    run_and_write(&wasm, &out_path, opts)?;
+    Ok(())
 }
 
-fn run_and_write(wasm: &[u8], out_path: &Path, opts: &Options) -> Result<()> {
+/// Runs the pipeline, writes the output wasm, and prints size/fee. Returns
+/// the output bytes and validation report so callers (`cmd_build`) can build
+/// the spec.json sidecar without re-running the pipeline.
+fn run_and_write(
+    wasm: &[u8],
+    out_path: &Path,
+    opts: &Options,
+) -> Result<(Vec<u8>, ValidationReport)> {
     let (output, report) = hooks_build::run_pipeline(wasm, opts)?;
     print_report(&report);
     if let Some(parent) = out_path.parent()
@@ -264,7 +314,7 @@ fn run_and_write(wasm: &[u8], out_path: &Path, opts: &Options) -> Result<()> {
     if report.oversize_allowed {
         println!("WARNING: output marked INVALID (oversize)");
     }
-    Ok(())
+    Ok((output, report))
 }
 
 fn cmd_check(file: &Path, opts: &Options) -> Result<()> {
@@ -284,6 +334,33 @@ fn cmd_check(file: &Path, opts: &Options) -> Result<()> {
             std::process::exit(1);
         }
     }
+}
+
+fn cmd_bindings_ts(spec_path: &Path, out_dir: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(spec_path)
+        .with_context(|| format!("reading {}", spec_path.display()))?;
+    let spec: hooks_build::spec::HookSpec = serde_json::from_str(&text)
+        .with_context(|| format!("parsing {} as a hook spec.json", spec_path.display()))?;
+    let ts = hooks_build::generate_ts(&spec);
+
+    let name = spec
+        .hook
+        .as_ref()
+        .map(|h| h.name.clone())
+        .or_else(|| {
+            spec.build
+                .wasm_file
+                .strip_suffix(".wasm")
+                .map(str::to_string)
+        })
+        .context("spec.json has neither `hook.name` nor a `.wasm`-suffixed `build.wasm_file`")?;
+
+    std::fs::create_dir_all(out_dir)
+        .with_context(|| format!("creating output directory {}", out_dir.display()))?;
+    let out_path = out_dir.join(format!("{name}.ts"));
+    std::fs::write(&out_path, ts).with_context(|| format!("writing {}", out_path.display()))?;
+    println!("wrote {}", out_path.display());
+    Ok(())
 }
 
 fn default_out_dir(manifest_path: Option<&Path>) -> PathBuf {

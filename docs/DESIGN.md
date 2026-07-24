@@ -742,6 +742,23 @@ then judges); `wasmparser`/`wasm-encoder` byte-exactness (C8) is unchanged.
 Behavioral reference tests compare verdicts on known-good/known-bad
 fixtures, including the built examples.
 
+### 6.6 Interface spec sidecar & TypeScript bindings
+
+`hooks-build build` also always writes `out/<name>.spec.json`: an optional
+hand-authored `hook-spec.toml` (hook name/description, `HookParameters`,
+hook-state key schema, expected `TransactionType`s, invocation notes),
+merged with build facts (wasm file/size/sha256, `HookApiVersion`, the
+vendored guard checker's `hook_cost`/`cbak_cost`, `hooks-build`'s own
+version) gathered during that same build. Never emitted as a wasm custom
+section (the cleaner, 6.2, strips those unconditionally — a spec has no
+business costing the installing account anything at 5000 drops/byte); it is
+a sidecar file for tooling that runs outside the hook. `hooks-build
+bindings-ts <spec.json> --out <dir>` turns one into a small TypeScript
+module (hex-encoded parameter-name constants, pre-computed state-key hex,
+a `HookParameters`-array builder) meant to replace hand-written hex in
+`@transia/hooks-toolkit`-based e2e tests. Full schema, examples, and the
+`mise run spec-bindings` demo: `docs/SPEC-SIDECAR.md`.
+
 ## 7. examples/
 
 Own workspace; every crate:

@@ -1,0 +1,40 @@
+{
+  "spec_version": 1,
+  "hook": {
+    "name": "firewall",
+    "description": "Rolls the transaction back if its sender matches a blacklisted account."
+  },
+  "params": [
+    {
+      "name": "BL",
+      "bytes": 20,
+      "description": "20-byte blocked AccountId."
+    }
+  ],
+  "state": [
+    {
+      "key_name": "counter",
+      "key_derivation": "ascii_padded",
+      "key": "counter",
+      "value_type": "u64",
+      "value_bytes": 8,
+      "description": "Monotonic invocation counter."
+    }
+  ],
+  "transaction_types": [
+    "Payment"
+  ],
+  "invoke": {
+    "hook_on": "Payment",
+    "notes": "Installed with HookOn restricted to Payment; no cbak."
+  },
+  "build": {
+    "wasm_file": "firewall.wasm",
+    "size_bytes": 1234,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "hook_api_version": 0,
+    "hook_cost": 714,
+    "cbak_cost": 0,
+    "sdk_version": "0.1.0"
+  }
+}

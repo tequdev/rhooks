@@ -27,3 +27,13 @@ successfully but risk a runtime `GUARD_VIOLATION` on a real node. See
 Set a `BL` Hook parameter (20 raw bytes, the blocked `AccountId`) when
 installing this Hook via `SetHook`. Deployment/SetHook tooling is out of
 scope for this repo (see `docs/DESIGN.md` §1 non-goals).
+
+## Interface spec sidecar & TypeScript bindings
+
+This example ships a hand-authored `hook-spec.toml` documenting its
+interface (the `BL` parameter, expected `TransactionType`s, invocation
+notes). `hooks-build build` merges it with the build output into
+`out/firewall.spec.json` automatically. `mise run spec-bindings` builds this
+example and generates a TypeScript module from that spec.json into
+`e2e/generated/firewall.ts` — see `docs/SPEC-SIDECAR.md` for the full
+schema and what the generated bindings look like.

@@ -39,16 +39,19 @@
 //! remain denied, as inherited from the workspace.
 #![allow(clippy::arithmetic_side_effects)]
 
+mod bindings_ts;
 mod cleaner;
 mod fee;
 mod flatten;
 mod guard;
 mod guard_native;
 mod ir;
+pub mod spec;
 mod unnest;
 mod validator;
 pub mod whitelist;
 
+pub use bindings_ts::generate_ts;
 pub use cleaner::clean;
 pub use fee::{FeeEstimate, estimate_fee};
 pub use flatten::{FlattenReport, flatten};
