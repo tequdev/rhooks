@@ -5,6 +5,8 @@
 //!   raw negative-`i64` Hook API error codes.
 //! - [`types`] — fixed-size buffer aliases for protocol-fixed shapes
 //!   (`AccountId`, `Hash`, `Keylet`, ...).
+//! - [`convert::ToBytes`]/[`convert::FromBytes`] — boundary conversion
+//!   traits for encoding/decoding fixed-size values to/from byte buffers.
 //! - [`xfl::XFL`] — the Xahau decimal floating-point type.
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
 //! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
@@ -30,6 +32,7 @@
 #![feature(macro_metavar_expr_concat)]
 
 pub mod api;
+pub mod convert;
 pub mod error;
 mod macros;
 pub mod static_cell;
@@ -58,6 +61,7 @@ pub use hooks_core as raw;
 /// prelude-imported name and a hooks-lib wrapper.
 pub mod prelude {
     pub use crate::api::*;
+    pub use crate::convert::{FromBytes, ToBytes};
     pub use crate::error::{HookError, Result};
     pub use crate::static_cell::HookStatic;
     pub use crate::types::*;
