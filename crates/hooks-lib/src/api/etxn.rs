@@ -52,27 +52,45 @@ pub fn etxn_generation() -> u32 {
     unsafe { hooks_core::etxn_generation() as u32 }
 }
 
+/// A fresh nonce for use in an emitted transaction, written into `out`.
+/// Returns the number of bytes written. [`etxn_nonce_buf`] is the fixed-size
+/// convenience twin.
+#[inline(always)]
+pub fn etxn_nonce(out: &mut [u8]) -> Result<usize> {
+    res(unsafe { hooks_core::etxn_nonce(out.as_mut_ptr() as u32, out.len() as u32) })
+        .map(|v| v as usize)
+}
+
 /// A fresh nonce for use in an emitted transaction.
 #[inline(always)]
-pub fn etxn_nonce() -> Result<Nonce> {
+pub fn etxn_nonce_buf() -> Result<Nonce> {
     let mut buf: Nonce = [0u8; NONCE_LEN];
-    res(unsafe { hooks_core::etxn_nonce(buf.as_mut_ptr() as u32, buf.len() as u32) })?;
+    let _ = etxn_nonce(&mut buf)?;
     Ok(buf)
+}
+
+/// Emit `tx_blob` as a new transaction, writing the emitted transaction's
+/// hash into `out`. Requires a prior [`etxn_reserve`] call. Returns the
+/// number of bytes written. [`emit_buf`] is the fixed-size convenience twin.
+#[inline(always)]
+pub fn emit(out: &mut [u8], tx_blob: &[u8]) -> Result<usize> {
+    res(unsafe {
+        hooks_core::emit(
+            out.as_mut_ptr() as u32,
+            out.len() as u32,
+            tx_blob.as_ptr() as u32,
+            tx_blob.len() as u32,
+        )
+    })
+    .map(|v| v as usize)
 }
 
 /// Emit `tx_blob` as a new transaction. Requires a prior [`etxn_reserve`]
 /// call. Returns the emitted transaction's hash.
 #[inline(always)]
-pub fn emit(tx_blob: &[u8]) -> Result<Hash> {
+pub fn emit_buf(tx_blob: &[u8]) -> Result<Hash> {
     let mut buf: Hash = [0u8; HASH_LEN];
-    res(unsafe {
-        hooks_core::emit(
-            buf.as_mut_ptr() as u32,
-            buf.len() as u32,
-            tx_blob.as_ptr() as u32,
-            tx_blob.len() as u32,
-        )
-    })?;
+    let _ = emit(&mut buf, tx_blob)?;
     Ok(buf)
 }
 
@@ -105,9 +123,15 @@ mod tests {
         assert_eq!(etxn_fee_base(&[0u8; 4]), Err(HookError::NotImplemented));
         assert_eq!(etxn_reserve(1), Err(HookError::NotImplemented));
         assert_eq!(etxn_generation(), hooks_core::NOT_IMPLEMENTED as u32);
-        assert_eq!(etxn_nonce(), Err(HookError::NotImplemented));
-        assert_eq!(emit(&[0u8; 4]), Err(HookError::NotImplemented));
+        assert_eq!(etxn_nonce_buf(), Err(HookError::NotImplemented));
+        assert_eq!(emit_buf(&[0u8; 4]), Err(HookError::NotImplemented));
         let mut out = [0u8; 8];
+        let mut nonce_out = [0u8; 32];
+        assert_eq!(etxn_nonce(&mut nonce_out), Err(HookError::NotImplemented));
+        assert_eq!(
+            emit(&mut nonce_out, &[0u8; 4]),
+            Err(HookError::NotImplemented)
+        );
         assert_eq!(prepare(&mut out, &[0u8; 4]), Err(HookError::NotImplemented));
     }
 }

@@ -108,7 +108,7 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
         None => rollback!(b"emit-txn: prepare_for_emit returned an invalid length", -1),
     };
 
-    match emit(tx_blob) {
+    match emit_buf(tx_blob) {
         Ok(_hash) => accept!(b"emit-txn: emitted", 0),
         Err(_) => rollback!(b"emit-txn: emit failed", -1),
     }

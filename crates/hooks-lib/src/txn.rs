@@ -1161,8 +1161,9 @@ macro_rules! __txn_template_step {
                         $crate::raw::sfcodes::sfAccount,
                         0usize,
                     );
-                    let __acct = $crate::api::hook_ctx::hook_account()?;
-                    self.bytes[OFF..OFF.wrapping_add($crate::types::ACC_ID_LEN)].copy_from_slice(&__acct);
+                    $crate::api::hook_ctx::hook_account(
+                        &mut self.bytes[OFF..OFF.wrapping_add($crate::types::ACC_ID_LEN)],
+                    )?;
                 }
                 const ED_OFF: usize = $ed_off;
                 let __edlen = $crate::api::etxn::etxn_details(

@@ -231,15 +231,27 @@ Non-negative returns are payload (usually "bytes written"); negative maps to
 #[inline(always)]
 pub fn state(out: &mut [u8], key: &[u8]) -> Result<usize>;
 #[inline(always)]
-pub fn hook_account() -> Result<AccountId>;   // fixed-size convenience
+pub fn hook_account(out: &mut [u8]) -> Result<usize>;
+#[inline(always)]
+pub fn hook_account_buf() -> Result<AccountId>;   // fixed-size convenience
 ```
 
 - Every wrapper is `#[inline(always)]` (extra internal functions are both a
   size cost and a validation risk — C7).
 - Buffers that have a protocol-fixed size get typed convenience wrappers
   returning arrays (`AccountId = [u8; 20]`, `Hash = [u8; 32]`,
-  `Keylet = [u8; 34]`, `Nonce = [u8; 32]`, …). Emit details are
-  variable-length — 116 bytes, or 138 when the module exports `cbak`
+  `Keylet = [u8; 34]`, `Nonce = [u8; 32]`, …). The caller-buffer form keeps
+  the standard name (`hook_account(out: &mut [u8], ...) -> Result<usize>`,
+  matching the raw Hook API's write_ptr/write_len shape and the crate's
+  other caller-buffer functions like `state`); the array-returning
+  convenience is the same name with a `_buf` postfix
+  (`hook_account_buf() -> Result<AccountId>`), for callers who just want
+  the value. Writing directly into an existing buffer (e.g. a region of a
+  larger template) uses the standard form; the host's own
+  TOO_SMALL/OUT_OF_BOUNDS handling applies to whatever slice is passed. The
+  `_buf` form delegates to the standard form so each raw call site exists
+  once. Emit details are variable-length — 116 bytes, or 138 when the
+  module exports `cbak`
   (verified against `HookAPI::etxn_details` in xahaud) — so there is no
   fixed `EmitDetails` array alias, only `EMIT_DETAILS_MAX_LEN = 138` and a
   caller-buffer `etxn_details(out: &mut [u8]) -> Result<usize>` wrapper.

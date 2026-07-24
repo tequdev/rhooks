@@ -21,18 +21,27 @@ pub fn util_raddr(out: &mut [u8], accid: &[u8]) -> Result<usize> {
     .map(|v| v as usize)
 }
 
-/// Convert a base58 r-address (`r_address`) to its AccountID form.
+/// Convert a base58 r-address (`r_address`) to its AccountID form, written
+/// into `out`. Returns the number of bytes written. [`util_accid_buf`] is
+/// the fixed-size convenience twin.
 #[inline(always)]
-pub fn util_accid(r_address: &[u8]) -> Result<AccountId> {
-    let mut buf: AccountId = [0u8; ACC_ID_LEN];
+pub fn util_accid(out: &mut [u8], r_address: &[u8]) -> Result<usize> {
     res(unsafe {
         hooks_core::util_accid(
-            buf.as_mut_ptr() as u32,
-            buf.len() as u32,
+            out.as_mut_ptr() as u32,
+            out.len() as u32,
             r_address.as_ptr() as u32,
             r_address.len() as u32,
         )
-    })?;
+    })
+    .map(|v| v as usize)
+}
+
+/// Convert a base58 r-address (`r_address`) to its AccountID form.
+#[inline(always)]
+pub fn util_accid_buf(r_address: &[u8]) -> Result<AccountId> {
+    let mut buf: AccountId = [0u8; ACC_ID_LEN];
+    let _ = util_accid(&mut buf, r_address)?;
     Ok(buf)
 }
 
@@ -52,19 +61,58 @@ pub fn util_verify(data: &[u8], signature: &[u8], public_key: &[u8]) -> Result<b
     .map(|v| v != 0)
 }
 
-/// SHA-512-Half of `data`.
+/// SHA-512-Half of `data`, written into `out`. Returns the number of bytes
+/// written. [`util_sha512h_buf`] is the fixed-size convenience twin.
 #[inline(always)]
-pub fn util_sha512h(data: &[u8]) -> Result<Hash> {
-    let mut buf: Hash = [0u8; HASH_LEN];
+pub fn util_sha512h(out: &mut [u8], data: &[u8]) -> Result<usize> {
     res(unsafe {
         hooks_core::util_sha512h(
-            buf.as_mut_ptr() as u32,
-            buf.len() as u32,
+            out.as_mut_ptr() as u32,
+            out.len() as u32,
             data.as_ptr() as u32,
             data.len() as u32,
         )
-    })?;
+    })
+    .map(|v| v as usize)
+}
+
+/// SHA-512-Half of `data`.
+#[inline(always)]
+pub fn util_sha512h_buf(data: &[u8]) -> Result<Hash> {
+    let mut buf: Hash = [0u8; HASH_LEN];
+    let _ = util_sha512h(&mut buf, data)?;
     Ok(buf)
+}
+
+/// Compute a Keylet of `keylet_type` from up to six `u32` components
+/// (`a`..`f`), written into `out`. Returns the number of bytes written.
+/// [`util_keylet_buf`] is the fixed-size convenience twin.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+pub fn util_keylet(
+    out: &mut [u8],
+    keylet_type: u32,
+    a: u32,
+    b: u32,
+    c: u32,
+    d: u32,
+    e: u32,
+    f: u32,
+) -> Result<usize> {
+    res(unsafe {
+        hooks_core::util_keylet(
+            out.as_mut_ptr() as u32,
+            out.len() as u32,
+            keylet_type,
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+        )
+    })
+    .map(|v| v as usize)
 }
 
 /// Compute a Keylet of `keylet_type` from up to six `u32` components
@@ -72,7 +120,7 @@ pub fn util_sha512h(data: &[u8]) -> Result<Hash> {
 /// given keylet type — see `hooks_core::KEYLET_*`).
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-pub fn util_keylet(
+pub fn util_keylet_buf(
     keylet_type: u32,
     a: u32,
     b: u32,
@@ -82,19 +130,7 @@ pub fn util_keylet(
     f: u32,
 ) -> Result<Keylet> {
     let mut buf: Keylet = [0u8; KEYLET_LEN];
-    res(unsafe {
-        hooks_core::util_keylet(
-            buf.as_mut_ptr() as u32,
-            buf.len() as u32,
-            keylet_type,
-            a,
-            b,
-            c,
-            d,
-            e,
-            f,
-        )
-    })?;
+    let _ = util_keylet(&mut buf, keylet_type, a, b, c, d, e, f)?;
     Ok(buf)
 }
 
@@ -110,14 +146,29 @@ mod tests {
             util_raddr(&mut out, &[0u8; 20]),
             Err(HookError::NotImplemented)
         );
-        assert_eq!(util_accid(b"raddress"), Err(HookError::NotImplemented));
+        assert_eq!(util_accid_buf(b"raddress"), Err(HookError::NotImplemented));
         assert_eq!(
             util_verify(b"data", b"sig", b"pubkey"),
             Err(HookError::NotImplemented)
         );
-        assert_eq!(util_sha512h(b"data"), Err(HookError::NotImplemented));
+        assert_eq!(util_sha512h_buf(b"data"), Err(HookError::NotImplemented));
         assert_eq!(
-            util_keylet(1, 0, 0, 0, 0, 0, 0),
+            util_keylet_buf(1, 0, 0, 0, 0, 0, 0),
+            Err(HookError::NotImplemented)
+        );
+        let mut accid_out = [0u8; 20];
+        assert_eq!(
+            util_accid(&mut accid_out, b"raddress"),
+            Err(HookError::NotImplemented)
+        );
+        let mut hash_out = [0u8; 32];
+        assert_eq!(
+            util_sha512h(&mut hash_out, b"data"),
+            Err(HookError::NotImplemented)
+        );
+        let mut keylet_out = [0u8; 34];
+        assert_eq!(
+            util_keylet(&mut keylet_out, 1, 0, 0, 0, 0, 0, 0),
             Err(HookError::NotImplemented)
         );
     }

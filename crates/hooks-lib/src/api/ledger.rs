@@ -26,38 +26,64 @@ pub fn ledger_last_time() -> u64 {
     unsafe { hooks_core::ledger_last_time() as u64 }
 }
 
+/// The hash of the previous (parent) ledger, written into `out`. Returns the
+/// number of bytes written. [`ledger_last_hash_buf`] is the fixed-size
+/// convenience twin.
+#[inline(always)]
+pub fn ledger_last_hash(out: &mut [u8]) -> Result<usize> {
+    res(unsafe { hooks_core::ledger_last_hash(out.as_mut_ptr() as u32, out.len() as u32) })
+        .map(|v| v as usize)
+}
+
 /// The hash of the previous (parent) ledger.
 #[inline(always)]
-pub fn ledger_last_hash() -> Result<Hash> {
+pub fn ledger_last_hash_buf() -> Result<Hash> {
     let mut buf: Hash = [0u8; HASH_LEN];
-    res(unsafe { hooks_core::ledger_last_hash(buf.as_mut_ptr() as u32, buf.len() as u32) })?;
+    let _ = ledger_last_hash(&mut buf)?;
     Ok(buf)
+}
+
+/// A ledger-derived nonce value, written into `out`. Returns the number of
+/// bytes written. [`ledger_nonce_buf`] is the fixed-size convenience twin.
+#[inline(always)]
+pub fn ledger_nonce(out: &mut [u8]) -> Result<usize> {
+    res(unsafe { hooks_core::ledger_nonce(out.as_mut_ptr() as u32, out.len() as u32) })
+        .map(|v| v as usize)
 }
 
 /// A ledger-derived nonce value (distinct from [`crate::api::etxn::etxn_nonce`],
 /// which is per-emission).
 #[inline(always)]
-pub fn ledger_nonce() -> Result<Nonce> {
+pub fn ledger_nonce_buf() -> Result<Nonce> {
     let mut buf: Nonce = [0u8; NONCE_LEN];
-    res(unsafe { hooks_core::ledger_nonce(buf.as_mut_ptr() as u32, buf.len() as u32) })?;
+    let _ = ledger_nonce(&mut buf)?;
     Ok(buf)
 }
 
-/// Compute a Keylet from a low/high bound pair (as used by range-style
-/// ledger entries).
+/// Compute a Keylet from a low/high bound pair, written into `out`. Returns
+/// the number of bytes written. [`ledger_keylet_buf`] is the fixed-size
+/// convenience twin.
 #[inline(always)]
-pub fn ledger_keylet(low: &[u8], high: &[u8]) -> Result<Keylet> {
-    let mut buf: Keylet = [0u8; KEYLET_LEN];
+pub fn ledger_keylet(out: &mut [u8], low: &[u8], high: &[u8]) -> Result<usize> {
     res(unsafe {
         hooks_core::ledger_keylet(
-            buf.as_mut_ptr() as u32,
-            buf.len() as u32,
+            out.as_mut_ptr() as u32,
+            out.len() as u32,
             low.as_ptr() as u32,
             low.len() as u32,
             high.as_ptr() as u32,
             high.len() as u32,
         )
-    })?;
+    })
+    .map(|v| v as usize)
+}
+
+/// Compute a Keylet from a low/high bound pair (as used by range-style
+/// ledger entries).
+#[inline(always)]
+pub fn ledger_keylet_buf(low: &[u8], high: &[u8]) -> Result<Keylet> {
+    let mut buf: Keylet = [0u8; KEYLET_LEN];
+    let _ = ledger_keylet(&mut buf, low, high)?;
     Ok(buf)
 }
 
@@ -71,10 +97,17 @@ mod tests {
         assert_eq!(fee_base(), hooks_core::NOT_IMPLEMENTED as u64);
         assert_eq!(ledger_seq(), hooks_core::NOT_IMPLEMENTED as u32);
         assert_eq!(ledger_last_time(), hooks_core::NOT_IMPLEMENTED as u64);
-        assert_eq!(ledger_last_hash(), Err(HookError::NotImplemented));
-        assert_eq!(ledger_nonce(), Err(HookError::NotImplemented));
+        assert_eq!(ledger_last_hash_buf(), Err(HookError::NotImplemented));
+        assert_eq!(ledger_nonce_buf(), Err(HookError::NotImplemented));
         assert_eq!(
-            ledger_keylet(&[0u8; 34], &[0u8; 34]),
+            ledger_keylet_buf(&[0u8; 34], &[0u8; 34]),
+            Err(HookError::NotImplemented)
+        );
+        let mut out = [0u8; 34];
+        assert_eq!(ledger_last_hash(&mut out), Err(HookError::NotImplemented));
+        assert_eq!(ledger_nonce(&mut out), Err(HookError::NotImplemented));
+        assert_eq!(
+            ledger_keylet(&mut out, &[0u8; 34], &[0u8; 34]),
             Err(HookError::NotImplemented)
         );
     }

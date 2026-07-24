@@ -4,21 +4,39 @@
 use crate::error::{Result, res};
 use crate::types::{ACC_ID_LEN, AccountId, HASH_LEN, Hash};
 
+/// The AccountID this hook is installed on, written into `out`. Returns the
+/// number of bytes written. [`hook_account_buf`] is the fixed-size
+/// convenience twin.
+#[inline(always)]
+pub fn hook_account(out: &mut [u8]) -> Result<usize> {
+    res(unsafe { hooks_core::hook_account(out.as_mut_ptr() as u32, out.len() as u32) })
+        .map(|v| v as usize)
+}
+
 /// The AccountID this hook is installed on.
 #[inline(always)]
-pub fn hook_account() -> Result<AccountId> {
+pub fn hook_account_buf() -> Result<AccountId> {
     let mut buf: AccountId = [0u8; ACC_ID_LEN];
-    res(unsafe { hooks_core::hook_account(buf.as_mut_ptr() as u32, buf.len() as u32) })?;
+    let _ = hook_account(&mut buf)?;
     Ok(buf)
+}
+
+/// The hash of the hook definition at chain position `hook_no`, written into
+/// `out`. Returns the number of bytes written. [`hook_hash_buf`] is the
+/// fixed-size convenience twin.
+#[inline(always)]
+pub fn hook_hash(out: &mut [u8], hook_no: i32) -> Result<usize> {
+    res(unsafe { hooks_core::hook_hash(out.as_mut_ptr() as u32, out.len() as u32, hook_no) })
+        .map(|v| v as usize)
 }
 
 /// The hash of the hook definition at chain position `hook_no` on this
 /// hook's account (negative indices address relative to the current hook,
 /// per Hook API convention).
 #[inline(always)]
-pub fn hook_hash(hook_no: i32) -> Result<Hash> {
+pub fn hook_hash_buf(hook_no: i32) -> Result<Hash> {
     let mut buf: Hash = [0u8; HASH_LEN];
-    res(unsafe { hooks_core::hook_hash(buf.as_mut_ptr() as u32, buf.len() as u32, hook_no) })?;
+    let _ = hook_hash(&mut buf, hook_no)?;
     Ok(buf)
 }
 
@@ -61,9 +79,11 @@ mod tests {
 
     #[test]
     fn smoke_not_implemented_on_host() {
-        assert_eq!(hook_account(), Err(HookError::NotImplemented));
-        assert_eq!(hook_hash(0), Err(HookError::NotImplemented));
+        assert_eq!(hook_account_buf(), Err(HookError::NotImplemented));
+        assert_eq!(hook_hash_buf(0), Err(HookError::NotImplemented));
         let mut out = [0u8; 32];
+        assert_eq!(hook_account(&mut out), Err(HookError::NotImplemented));
+        assert_eq!(hook_hash(&mut out, 0), Err(HookError::NotImplemented));
         assert_eq!(hook_param(&mut out, b"x"), Err(HookError::NotImplemented));
         assert_eq!(
             hook_param_set(b"v", b"x", &[0u8; 32]),

@@ -27,14 +27,23 @@ pub fn otxn_generation() -> u32 {
     unsafe { hooks_core::otxn_generation() as u32 }
 }
 
+/// The ID (hash) of the originating transaction, written into `out`.
+/// Returns the number of bytes written. [`otxn_id_buf`] is the fixed-size
+/// convenience twin.
+#[inline(always)]
+pub fn otxn_id(out: &mut [u8], flags: u32) -> Result<usize> {
+    res(unsafe { hooks_core::otxn_id(out.as_mut_ptr() as u32, out.len() as u32, flags) })
+        .map(|v| v as usize)
+}
+
 /// The ID (hash) of the originating transaction. `flags = 0` prefers the
 /// emit-failure transaction ID where applicable; other flag values are
 /// passed through verbatim (undocumented beyond that in the upstream Hook
 /// API reference, so exposed as a plain `u32` rather than an invented enum).
 #[inline(always)]
-pub fn otxn_id(flags: u32) -> Result<Hash> {
+pub fn otxn_id_buf(flags: u32) -> Result<Hash> {
     let mut buf: Hash = [0u8; HASH_LEN];
-    res(unsafe { hooks_core::otxn_id(buf.as_mut_ptr() as u32, buf.len() as u32, flags) })?;
+    let _ = otxn_id(&mut buf, flags)?;
     Ok(buf)
 }
 
@@ -77,8 +86,9 @@ mod tests {
         assert_eq!(otxn_generation(), hooks_core::NOT_IMPLEMENTED as u32);
         assert_eq!(otxn_type(), hooks_core::NOT_IMPLEMENTED as u16);
         assert_eq!(otxn_slot(0), Err(HookError::NotImplemented));
-        assert_eq!(otxn_id(0), Err(HookError::NotImplemented));
+        assert_eq!(otxn_id_buf(0), Err(HookError::NotImplemented));
         let mut buf = [0u8; 32];
+        assert_eq!(otxn_id(&mut buf, 0), Err(HookError::NotImplemented));
         assert_eq!(otxn_field(&mut buf, 0), Err(HookError::NotImplemented));
         assert_eq!(otxn_param(&mut buf, b"x"), Err(HookError::NotImplemented));
     }
