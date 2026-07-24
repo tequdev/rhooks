@@ -1,11 +1,12 @@
-// e2e: examples/05_firewall against a standalone Xahau node.
+// e2e: examples/07_xfl-math against a standalone Xahau node.
 //
-// `hook()` reads the otxn sender, reads a 20-byte blocked AccountId from the
-// `BL` HookParameter (raw bytes, no extra encoding - `hook_param` copies the
-// HookParameterValue bytes as-is), and rolls back with
-// `rollback!(b"firewall: blocked account", FirewallError::BlockedAccount)`
-// (code 2, from the `hook_errors!`-defined `FirewallError` enum) on a
-// match; accepts otherwise. HookOn is Payment.
+// `hook()` reads the originating Payment's `Amount` as an XFL (via
+// `otxn_slot`/`slot_subfield`/`XFL::from_slot` - native amounts decode as
+// their XAH value, not raw drops), computes 1% of it with `mulratio`, and
+// rolls back with `XflMathError::BelowMinimum` (code 7) if that share is
+// below the fixed `0.000001` (1e-6) XAH minimum - i.e. if the Amount is
+// below 100 drops (1% of 100 drops = 1 drop = 0.000001 XAH exactly);
+// accepts otherwise. HookOn is Payment.
 import {
   ExecutionUtility,
   Xrpld,
@@ -20,46 +21,29 @@ import {
   type XrplIntegrationTestContext,
   type iHook,
 } from '@transia/hooks-toolkit'
-import {
-  calculateHookOn,
-  convertStringToHex,
-  decodeAccountID,
-  type TransactionMetadata,
-} from 'xahau'
+import { calculateHookOn, type TransactionMetadata } from 'xahau'
 // HookFlags isn't re-exported from the package root in xahau@4.x - only
 // reachable via this deep import (same path hooks-toolkit's own source
 // uses internally for the same enum).
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-firewall'
-// hooks-build's printed worst case for firewall.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 714
+const namespace = 'rhooks-e2e-xfl-math'
+// hooks-build's printed worst case for xfl_math.wasm (`mise run build-examples`).
+const WORST_CASE_INSTRUCTIONS = 162
 
-function accountIdHex(classicAddress: string): string {
-  return Buffer.from(decodeAccountID(classicAddress)).toString('hex').toUpperCase()
-}
-
-describe('firewall', () => {
+describe('xfl-math', () => {
   let testContext: XrplIntegrationTestContext
 
   beforeAll(async () => {
     testContext = await setupClient(serverUrl)
 
-    const hook = {
-      CreateCode: readHookBinaryHexFromNS('firewall', 'wasm'),
+    const hook: iHook = {
+      CreateCode: readHookBinaryHexFromNS('xfl_math', 'wasm'),
       Flags: HookFlags.hsfOverride,
       HookOn: calculateHookOn(['Payment']),
       HookNamespace: hexNamespace(namespace),
       HookApiVersion: 0,
-      HookParameters: [
-        {
-          HookParameter: {
-            HookParameterName: convertStringToHex('BL'),
-            HookParameterValue: accountIdHex(testContext.bob.classicAddress),
-          },
-        },
-      ],
-    } as iHook
+    }
     await setHooksV3({
       client: testContext.client,
       seed: testContext.hook1.seed,
@@ -75,26 +59,26 @@ describe('firewall', () => {
     await teardownClient(testContext)
   })
 
-  it('rejects a Payment from the blocked account', async () => {
+  it('rejects a Payment whose computed 1% share falls below the minimum', async () => {
     const response = Xrpld.submit(testContext.client, {
       tx: {
         TransactionType: 'Payment',
-        Account: testContext.bob.classicAddress,
+        Account: testContext.alice.classicAddress,
         Destination: testContext.hook1.classicAddress,
-        Amount: '1',
+        Amount: '50', // 1% of 50 drops < 0.000001 XAH
       },
-      wallet: testContext.bob,
+      wallet: testContext.alice,
     })
-    await expect(response).rejects.toThrow('firewall: blocked account')
+    await expect(response).rejects.toThrow('xfl-math: computed share below minimum')
   })
 
-  it('accepts a Payment from a non-blocked account', async () => {
+  it('accepts a Payment whose computed 1% share meets the minimum', async () => {
     const response = await Xrpld.submit(testContext.client, {
       tx: {
         TransactionType: 'Payment',
         Account: testContext.alice.classicAddress,
         Destination: testContext.hook1.classicAddress,
-        Amount: '1',
+        Amount: '1000000', // 1 XAH; 1% share is 0.01 XAH, well above the minimum
       },
       wallet: testContext.alice,
     })
