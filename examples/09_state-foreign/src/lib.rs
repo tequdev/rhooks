@@ -8,7 +8,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook_errors, pad, rollback};
+use hooks_lib::{accept, hook, hook_errors, pad, rollback};
 
 /// Name of the Hook parameter carrying the 20-byte `AccountId` this hook
 /// reads its gate flag from.
@@ -43,8 +43,8 @@ hook_errors! {
 /// foreign account — `state_foreign`'s `namespace = None` means "this
 /// hook's own", same as for a local `state` call) and accepts only if that
 /// entry exists and its first byte is nonzero.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     let target = match hook_param_exact::<ACC_ID_LEN>(ACCT_PARAM) {
         Ok(t) => t,
         Err(_) => rollback!(

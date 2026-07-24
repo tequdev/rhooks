@@ -9,7 +9,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook_errors, rollback};
+use hooks_lib::{accept, hook, hook_errors, rollback};
 
 /// Reject a transaction whose `SourceTag` is this value — a stand-in for
 /// "known-bad" tag used by some other system integrating with this hook.
@@ -69,8 +69,8 @@ impl RejectReason {
 /// Hook entry point. Runs a small chain of policy checks, rolling back with
 /// a distinct, documented code the first time one fails; accepts if every
 /// check passes.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     if otxn_field_exact::<ACC_ID_LEN>(sfAccount).is_err() {
         RejectReason::BadAccountField.rollback();
     }

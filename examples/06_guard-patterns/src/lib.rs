@@ -9,7 +9,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, guard, guard_m, hook_errors, rollback};
+use hooks_lib::{accept, guard, guard_m, hook, hook_errors, rollback};
 
 /// Name of the Hook parameter carrying the 20-byte blocked `AccountId`
 /// (same idiom as `firewall`'s `BL` parameter).
@@ -86,9 +86,9 @@ fn accounts_equal(a: &AccountId, b: &AccountId) -> bool {
 /// single call site — not from manually cramming code onto one line; it's
 /// done directly here only so the collision is visible without a second
 /// macro layer standing between the reader and `line!()`'s actual behavior.
-#[unsafe(no_mangle)]
+#[hook]
 #[rustfmt::skip] // see the doc comment above: staying on one physical line is the point
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+fn my_hook() -> i64 {
     let sender: AccountId = match otxn_field_exact::<ACC_ID_LEN>(sfAccount) {
         Ok(s) => s,
         Err(_) => rollback!(
