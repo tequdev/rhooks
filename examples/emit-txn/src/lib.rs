@@ -89,11 +89,8 @@ hook_errors! {
         /// `Payment::prepare_for_emit` failed to fill in the host-supplied
         /// fields.
         PrepareFailed = 5,
-        /// `prepare_for_emit` returned a length outside the template's
-        /// buffer.
-        InvalidPreparedLength = 6,
         /// `emit_buf` failed to submit the prepared transaction.
-        EmitFailed = 7,
+        EmitFailed = 6,
     }
 }
 
@@ -133,23 +130,15 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
     }
     txn.set_destination(&dest);
 
-    let len = match txn.prepare_for_emit() {
-        Ok(n) => n,
+    let prepared = match txn.prepare_for_emit() {
+        Ok(p) => p,
         Err(_) => rollback!(
             b"emit-txn: prepare_for_emit failed",
             EmitTxnError::PrepareFailed
         ),
     };
 
-    let tx_blob = match txn.bytes().get(..len) {
-        Some(b) => b,
-        None => rollback!(
-            b"emit-txn: prepare_for_emit returned an invalid length",
-            EmitTxnError::InvalidPreparedLength
-        ),
-    };
-
-    match emit_buf(tx_blob) {
+    match prepared.emit() {
         Ok(_hash) => accept!(b"emit-txn: emitted", 0),
         Err(_) => rollback!(b"emit-txn: emit failed", EmitTxnError::EmitFailed),
     }
