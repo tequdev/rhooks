@@ -3,8 +3,8 @@
 //! This is the crate Hook developers import directly. It provides:
 //! - [`error::HookError`] / [`error::Result`] — a typed error model over the
 //!   raw negative-`i64` Hook API error codes.
-//! - [`types`] — fixed-size buffer aliases for protocol-fixed shapes
-//!   (`AccountId`, `Hash`, `Keylet`, ...).
+//! - [`types`] — fixed-size, `#[repr(transparent)]` newtypes for
+//!   protocol-fixed shapes (`AccountId`, `Hash`, `Keylet`, ...).
 //! - [`convert::ToBytes`]/[`convert::FromBytes`] — boundary conversion
 //!   traits for encoding/decoding fixed-size values to/from byte buffers.
 //! - [`state`] — a typed layer over hook state (`state_get`,

@@ -10,8 +10,10 @@ use hooks_lib::{accept, pad, rollback};
 
 /// The 32-byte state key: the entry name, zero-padded at compile time.
 /// `pad!` expands in an inline `const` block, so no copy loop (and hence no
-/// loop guard) exists at runtime.
-const STATE_KEY: StateKey = pad!(b"counter");
+/// loop guard) exists at runtime. `StateKey` is a `#[repr(transparent)]`
+/// newtype over `[u8; 32]` (see `hooks_lib::types`), so its public tuple
+/// field wraps `pad!`'s plain-array output at zero cost.
+const STATE_KEY: StateKey = StateKey(pad!(b"counter"));
 
 /// Hook entry point. Reads the current counter (defaulting to zero if
 /// absent or of unexpected size), increments it, writes it back, and
@@ -19,14 +21,14 @@ const STATE_KEY: StateKey = pad!(b"counter");
 #[unsafe(no_mangle)]
 pub extern "C" fn hook(_reserved: u32) -> i64 {
     let mut raw = [0u8; 8];
-    let count = match state(&mut raw, &STATE_KEY) {
+    let count = match state(&mut raw, STATE_KEY.as_ref()) {
         Ok(n) if n == raw.len() => u64::from_le_bytes(raw),
         // No existing entry (or a value of unexpected size): start at zero.
         _ => 0,
     };
 
     let next = count.wrapping_add(1);
-    if state_set(&next.to_le_bytes(), &STATE_KEY).is_err() {
+    if state_set(&next.to_le_bytes(), STATE_KEY.as_ref()).is_err() {
         rollback!(b"state-counter: state_set failed", -1);
     }
 

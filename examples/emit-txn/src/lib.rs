@@ -82,8 +82,8 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
         rollback!(b"emit-txn: etxn_reserve failed", -1);
     }
 
-    let mut dest: AccountId = [0u8; ACC_ID_LEN];
-    match otxn_field(&mut dest, sfAccount) {
+    let mut dest = AccountId([0u8; ACC_ID_LEN]);
+    match otxn_field(dest.as_mut(), sfAccount) {
         Ok(n) if n == ACC_ID_LEN => {}
         _ => rollback!(b"emit-txn: could not read otxn sender", -1),
     }

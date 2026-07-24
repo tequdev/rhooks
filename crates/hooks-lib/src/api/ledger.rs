@@ -38,8 +38,8 @@ pub fn ledger_last_hash(out: &mut [u8]) -> Result<usize> {
 /// The hash of the previous (parent) ledger.
 #[inline(always)]
 pub fn ledger_last_hash_buf() -> Result<Hash> {
-    let mut buf: Hash = [0u8; HASH_LEN];
-    let _ = ledger_last_hash(&mut buf)?;
+    let mut buf = Hash([0u8; HASH_LEN]);
+    let _ = ledger_last_hash(buf.as_mut())?;
     Ok(buf)
 }
 
@@ -55,8 +55,8 @@ pub fn ledger_nonce(out: &mut [u8]) -> Result<usize> {
 /// which is per-emission).
 #[inline(always)]
 pub fn ledger_nonce_buf() -> Result<Nonce> {
-    let mut buf: Nonce = [0u8; NONCE_LEN];
-    let _ = ledger_nonce(&mut buf)?;
+    let mut buf = Nonce([0u8; NONCE_LEN]);
+    let _ = ledger_nonce(buf.as_mut())?;
     Ok(buf)
 }
 
@@ -82,8 +82,8 @@ pub fn ledger_keylet(out: &mut [u8], low: &[u8], high: &[u8]) -> Result<usize> {
 /// ledger entries).
 #[inline(always)]
 pub fn ledger_keylet_buf(low: &[u8], high: &[u8]) -> Result<Keylet> {
-    let mut buf: Keylet = [0u8; KEYLET_LEN];
-    let _ = ledger_keylet(&mut buf, low, high)?;
+    let mut buf = Keylet([0u8; KEYLET_LEN]);
+    let _ = ledger_keylet(buf.as_mut(), low, high)?;
     Ok(buf)
 }
 

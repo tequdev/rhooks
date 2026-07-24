@@ -40,8 +40,8 @@ pub fn util_accid(out: &mut [u8], r_address: &[u8]) -> Result<usize> {
 /// Convert a base58 r-address (`r_address`) to its AccountID form.
 #[inline(always)]
 pub fn util_accid_buf(r_address: &[u8]) -> Result<AccountId> {
-    let mut buf: AccountId = [0u8; ACC_ID_LEN];
-    let _ = util_accid(&mut buf, r_address)?;
+    let mut buf = AccountId([0u8; ACC_ID_LEN]);
+    let _ = util_accid(buf.as_mut(), r_address)?;
     Ok(buf)
 }
 
@@ -79,8 +79,8 @@ pub fn util_sha512h(out: &mut [u8], data: &[u8]) -> Result<usize> {
 /// SHA-512-Half of `data`.
 #[inline(always)]
 pub fn util_sha512h_buf(data: &[u8]) -> Result<Hash> {
-    let mut buf: Hash = [0u8; HASH_LEN];
-    let _ = util_sha512h(&mut buf, data)?;
+    let mut buf = Hash([0u8; HASH_LEN]);
+    let _ = util_sha512h(buf.as_mut(), data)?;
     Ok(buf)
 }
 
@@ -129,8 +129,8 @@ pub fn util_keylet_buf(
     e: u32,
     f: u32,
 ) -> Result<Keylet> {
-    let mut buf: Keylet = [0u8; KEYLET_LEN];
-    let _ = util_keylet(&mut buf, keylet_type, a, b, c, d, e, f)?;
+    let mut buf = Keylet([0u8; KEYLET_LEN]);
+    let _ = util_keylet(buf.as_mut(), keylet_type, a, b, c, d, e, f)?;
     Ok(buf)
 }
 

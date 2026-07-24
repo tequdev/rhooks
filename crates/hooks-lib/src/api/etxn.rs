@@ -64,8 +64,8 @@ pub fn etxn_nonce(out: &mut [u8]) -> Result<usize> {
 /// A fresh nonce for use in an emitted transaction.
 #[inline(always)]
 pub fn etxn_nonce_buf() -> Result<Nonce> {
-    let mut buf: Nonce = [0u8; NONCE_LEN];
-    let _ = etxn_nonce(&mut buf)?;
+    let mut buf = Nonce([0u8; NONCE_LEN]);
+    let _ = etxn_nonce(buf.as_mut())?;
     Ok(buf)
 }
 
@@ -89,8 +89,8 @@ pub fn emit(out: &mut [u8], tx_blob: &[u8]) -> Result<usize> {
 /// call. Returns the emitted transaction's hash.
 #[inline(always)]
 pub fn emit_buf(tx_blob: &[u8]) -> Result<Hash> {
-    let mut buf: Hash = [0u8; HASH_LEN];
-    let _ = emit(&mut buf, tx_blob)?;
+    let mut buf = Hash([0u8; HASH_LEN]);
+    let _ = emit(buf.as_mut(), tx_blob)?;
     Ok(buf)
 }
 

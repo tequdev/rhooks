@@ -251,7 +251,7 @@ pub mod codec {
         let dst = bytes
             .get_mut(offset..end)
             .ok_or(HookError::InvalidArgument)?;
-        dst.copy_from_slice(value);
+        dst.copy_from_slice(value.as_ref());
         Ok(())
     }
 
@@ -428,7 +428,7 @@ pub mod codec {
         #[test]
         fn write_account_id_writes_at_offset() {
             let mut buf = [0u8; 22];
-            let id: AccountId = [0xAB; ACC_ID_LEN];
+            let id = AccountId([0xAB; ACC_ID_LEN]);
             write_account_id(&mut buf, 2, &id).expect("in bounds");
             assert_eq!(&buf[..2], &[0, 0]);
             assert_eq!(&buf[2..], &id[..]);
@@ -659,7 +659,7 @@ pub mod codec {
 /// let mut tpl = Example::new();
 /// tpl.set_flags(0);
 /// tpl.set_amount(1).expect("1 drop is in range");
-/// tpl.set_destination(&[0xAB; ACC_ID_LEN]);
+/// tpl.set_destination(&AccountId([0xAB; ACC_ID_LEN]));
 /// let _ = tpl.emit_details_region();
 /// assert_eq!(tpl.bytes().len(), Example::LEN);
 /// // All six required fields plus `emit_details` are declared, so
@@ -954,7 +954,7 @@ macro_rules! __txn_template_step {
                     const OFF: usize = ($($prev)*)
                         .wrapping_add($crate::txn::codec::field_header($sfcode).1)
                         .wrapping_add(1);
-                    self.bytes[OFF..OFF.wrapping_add($crate::types::ACC_ID_LEN)].copy_from_slice(value);
+                    self.bytes[OFF..OFF.wrapping_add($crate::types::ACC_ID_LEN)].copy_from_slice(value.as_ref());
                 }
             ],
             emit_region = [$($emit_region)*],
@@ -1393,10 +1393,10 @@ mod tests {
     fn destination_setter_writes_at_the_same_offset_as_before() {
         let reference = TestPayment::new();
         let mut tpl = TestPayment::new();
-        let dest: AccountId = [0xAB; ACC_ID_LEN];
+        let dest = AccountId([0xAB; ACC_ID_LEN]);
         tpl.set_destination(&dest);
 
-        assert_eq!(&tpl.bytes()[79..99], &dest);
+        assert_eq!(&tpl.bytes()[79..99], dest.as_ref());
         // Nothing outside the Destination value range changed.
         assert_eq!(&tpl.bytes()[..79], &reference.bytes()[..79]);
         assert_eq!(&tpl.bytes()[99..], &reference.bytes()[99..]);
@@ -1405,9 +1405,9 @@ mod tests {
     #[test]
     fn account_setter_writes_at_the_same_offset_as_before() {
         let mut tpl = TestPayment::new();
-        let acct: AccountId = [0xCD; ACC_ID_LEN];
+        let acct = AccountId([0xCD; ACC_ID_LEN]);
         tpl.set_account(&acct);
-        assert_eq!(&tpl.bytes()[57..77], &acct);
+        assert_eq!(&tpl.bytes()[57..77], acct.as_ref());
     }
 
     #[test]
@@ -1473,7 +1473,7 @@ mod tests {
         tpl.set_first_ledger_sequence(0);
         tpl.set_last_ledger_sequence(0);
         tpl.set_fee(0).expect("0 drops is in range");
-        tpl.set_account(&[0u8; ACC_ID_LEN]);
+        tpl.set_account(&AccountId([0u8; ACC_ID_LEN]));
         let _ = tpl.emit_details_region();
         assert_eq!(tpl.bytes().len(), QualifiedPathAccount::LEN);
         assert_eq!(

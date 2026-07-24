@@ -16,8 +16,8 @@ pub fn hook_account(out: &mut [u8]) -> Result<usize> {
 /// The AccountID this hook is installed on.
 #[inline(always)]
 pub fn hook_account_buf() -> Result<AccountId> {
-    let mut buf: AccountId = [0u8; ACC_ID_LEN];
-    let _ = hook_account(&mut buf)?;
+    let mut buf = AccountId([0u8; ACC_ID_LEN]);
+    let _ = hook_account(buf.as_mut())?;
     Ok(buf)
 }
 
@@ -35,8 +35,8 @@ pub fn hook_hash(out: &mut [u8], hook_no: i32) -> Result<usize> {
 /// per Hook API convention).
 #[inline(always)]
 pub fn hook_hash_buf(hook_no: i32) -> Result<Hash> {
-    let mut buf: Hash = [0u8; HASH_LEN];
-    let _ = hook_hash(&mut buf, hook_no)?;
+    let mut buf = Hash([0u8; HASH_LEN]);
+    let _ = hook_hash(buf.as_mut(), hook_no)?;
     Ok(buf)
 }
 

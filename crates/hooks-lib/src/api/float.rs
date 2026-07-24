@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn float_sto_rejects_mixed_options() {
         let mut out = [0u8; 48];
-        let currency: CurrencyCode = [0u8; 20];
+        let currency = CurrencyCode([0u8; 20]);
         let one = XFL::one();
         assert_eq!(
             float_sto(&mut out, Some(&currency), None, one, 0),

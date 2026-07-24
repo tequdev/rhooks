@@ -51,8 +51,8 @@ pub fn otxn_id(out: &mut [u8], flags: u32) -> Result<usize> {
 /// API reference, so exposed as a plain `u32` rather than an invented enum).
 #[inline(always)]
 pub fn otxn_id_buf(flags: u32) -> Result<Hash> {
-    let mut buf: Hash = [0u8; HASH_LEN];
-    let _ = otxn_id(&mut buf, flags)?;
+    let mut buf = Hash([0u8; HASH_LEN]);
+    let _ = otxn_id(buf.as_mut(), flags)?;
     Ok(buf)
 }
 
