@@ -98,17 +98,12 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
     }
     txn.set_destination(&dest);
 
-    let len = match txn.prepare_for_emit() {
-        Ok(n) => n,
+    let prepared = match txn.prepare_for_emit() {
+        Ok(p) => p,
         Err(_) => rollback!(b"emit-txn: prepare_for_emit failed", -1),
     };
 
-    let tx_blob = match txn.bytes().get(..len) {
-        Some(b) => b,
-        None => rollback!(b"emit-txn: prepare_for_emit returned an invalid length", -1),
-    };
-
-    match emit_buf(tx_blob) {
+    match prepared.emit() {
         Ok(_hash) => accept!(b"emit-txn: emitted", 0),
         Err(_) => rollback!(b"emit-txn: emit failed", -1),
     }
