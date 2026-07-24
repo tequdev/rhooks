@@ -3,8 +3,9 @@
 // `hook()` reads the otxn sender, reads a 20-byte blocked AccountId from the
 // `BL` HookParameter (raw bytes, no extra encoding - `hook_param` copies the
 // HookParameterValue bytes as-is), and rolls back with
-// `rollback!(b"firewall: blocked account", -1)` on a match; accepts
-// otherwise. HookOn is Payment.
+// `rollback!(b"firewall: blocked account", FirewallError::BlockedAccount)`
+// (code 2, from the `hook_errors!`-defined `FirewallError` enum) on a
+// match; accepts otherwise. HookOn is Payment.
 import {
   ExecutionUtility,
   Xrpld,

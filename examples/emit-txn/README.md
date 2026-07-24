@@ -41,3 +41,18 @@ one exclusive `&'static mut` safely — no `unsafe` in the hook — with
 exclusivity guaranteed by a take-once flag (sound because hooks are
 single-threaded and every invocation runs in a fresh wasm instance; see
 `hooks_lib::static_cell`).
+
+## Error codes
+
+`EmitTxnError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`rollback!` code for each failure this hook can exit with:
+
+| variant | code | meaning |
+|---|---|---|
+| `ReserveFailed` | 1 | `etxn_reserve(1)` failed to reserve an emission slot |
+| `CouldNotReadSender` | 2 | `otxn_field(sfAccount)` did not return a 20-byte `AccountId` |
+| `BufferAlreadyTaken` | 3 | the static `Payment` buffer had already been `take()`n |
+| `SetAmountFailed` | 4 | `Payment::set_amount` failed to set the 1-drop amount field |
+| `PrepareFailed` | 5 | `Payment::prepare_for_emit` failed to fill in the host-supplied fields |
+| `InvalidPreparedLength` | 6 | `prepare_for_emit` returned a length outside the template's buffer |
+| `EmitFailed` | 7 | `emit_buf` failed to submit the prepared transaction |
