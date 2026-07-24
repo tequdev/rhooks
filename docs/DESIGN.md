@@ -82,10 +82,16 @@ rhooks/
 │   └── hooks-build/          # std, bin+lib CLI (clap, wasmparser, wasm-encoder)
 └── examples/
     ├── Cargo.toml            # SEPARATE workspace (no_std cdylibs)
-    ├── accept-all/
-    ├── firewall/
-    ├── state-counter/
-    └── emit-txn/
+    ├── 01_accept-all/        # numbered = suggested reading order
+    ├── 02_state-counter/     # (package names are unprefixed - Cargo
+    ├── 03_hook-params/       # package names can't start with a digit)
+    ├── 04_errors/
+    ├── 05_firewall/
+    ├── 06_guard-patterns/
+    ├── 07_xfl-math/
+    ├── 08_slot-ledger/
+    ├── 09_state-foreign/
+    └── 10_emit-txn/
 ```
 
 - Root workspace members: `crates/*` only. `examples/` is its own workspace:
@@ -773,15 +779,25 @@ panic = "abort"
 strip = "symbols"
 ```
 
-| example | demonstrates |
-|---|---|
-| `accept-all` | minimal hook: `accept` everything (starter template) |
-| `firewall` | read `otxn_field(sfAccount)` + hook param blacklist → `rollback` |
-| `state-counter` | `state`/`state_set` round-trip, counter in hook state |
-| `emit-txn` | `etxn_reserve` + a user-declared `txn_template!` Payment + `cbak` |
+Directory names are numbered in suggested reading order (`01_`..`10_`);
+package names themselves are not (Cargo package names can't start with a
+digit) — see `examples/README.md`.
+
+| # | example | demonstrates |
+|---|---|---|
+| 01 | `accept-all` | minimal hook: `accept` everything (starter template) |
+| 02 | `state-counter` | `state`/`state_set` round-trip, counter in hook state |
+| 03 | `hook-params` | `hook_param`-configurable threshold, with a compiled-in default |
+| 04 | `errors` | a meaningful `hook_errors!`-based rollback error-code system |
+| 05 | `firewall` | read `otxn_field(sfAccount)` + hook param blacklist → `rollback` |
+| 06 | `guard-patterns` | `guard!`/`guard_m!` correctness and the array-`==` memcmp-loop pitfall |
+| 07 | `xfl-math` | reading `Amount` as XFL, `mulratio`, `Result`-based comparisons |
+| 08 | `slot-ledger` | transaction field access via the Slot API |
+| 09 | `state-foreign` | `state_foreign`: reading another account's hook state |
+| 10 | `emit-txn` | `etxn_reserve` + a user-declared `txn_template!` Payment + `cbak` |
 
 Each README shows the exact build command:
-`hooks-build build --manifest-path examples/state-counter/Cargo.toml`
+`hooks-build build --manifest-path examples/02_state-counter/Cargo.toml`
 (or via mise task `mise run build-examples`, which builds all examples and
 `check`s the outputs — this doubles as the end-to-end test).
 
@@ -850,7 +866,7 @@ Settled during the external design review (recommendations adopted):
    representation equality is ever needed.
 4. **`call_indirect` is a v1 hard error** (keeps recursion detection and
    reachability sound); table + element segments are dropped by the cleaner.
-5. **`hooks-build new` deferred** — copying `examples/accept-all` is the
+5. **`hooks-build new` deferred** — copying `examples/01_accept-all` is the
    v1 scaffold story.
 
 ## 11. Design review record

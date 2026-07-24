@@ -30,7 +30,7 @@
 //! `emit_details` — see [`txn_template!`]'s grammar section) makes the
 //! macro generate `prepare_for_emit()` itself, replicating xahaud's C
 //! `PREPARE_TXN()`/`PREPARE_PAYMENT_SIMPLE` semantics exactly — see
-//! `examples/emit-txn` for the worked example.
+//! `examples/10_emit-txn` for the worked example.
 
 /// Generic, panic-free STObject field-header and value-encoding primitives.
 ///
