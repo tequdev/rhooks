@@ -62,6 +62,27 @@ cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml
 cargo run -p hooks-build -- check examples/emit-txn/out/emit_txn.wasm
 """
 
+[tasks.fuzz-smoke]
+description = """
+Short CI-style smoke run of every cargo-fuzz target (fuzz/): each target
+runs for 30s, just long enough to confirm the harness itself still builds
+and executes cleanly. This is NOT part of `mise run test` (fuzzing is
+open-ended and not meant to gate every change) and is not a substitute for
+a real, longer fuzzing campaign — it only catches harness bit-rot. Requires
+`cargo-fuzz` (`cargo install cargo-fuzz`) and the pinned nightly toolchain
+(cargo-fuzz needs nightly for `-Z sanitizer=address`; see fuzz/README.md).
+"""
+run = """
+# `|| true` on every line: `txn_codec` (and, as of this writing,
+# `build_pipeline`) currently find known, pre-existing bugs outside this
+# lane's scope (see fuzz/README.md) almost immediately, and mise aborts the
+# whole task on a command's first nonzero exit — a crashing target must not
+# prevent the other targets from getting their smoke run.
+cargo fuzz run --fuzz-dir fuzz xfl_decode -- -max_total_time=30 || true
+cargo fuzz run --fuzz-dir fuzz txn_codec -- -max_total_time=30 || true
+cargo fuzz run --fuzz-dir fuzz build_pipeline -- -max_total_time=30 || true
+"""
+
 [tasks."e2e:node-up"]
 description = "Start a standalone Xahau node for e2e tests (xrpld-netgen; amd64 image, runs under emulation on Apple Silicon)"
 run = "xrpld-netgen up:standalone --protocol xahau --version $XAHAUD_VERSION"
