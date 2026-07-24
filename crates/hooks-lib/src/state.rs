@@ -4,6 +4,25 @@
 //! [`crate::convert::FromBytes`] traits, plus the
 //! [`state_keys!`](crate::state_keys) macro for declaring a state-key enum.
 //!
+//! # This layer vs. `crate::api::state`'s single-value helpers
+//!
+//! [`mod@crate::api::state`] also has its own `state_u32`/`state_i64`/
+//! `state_xfl`/`state_update_u64`/... family: small, fixed-shape
+//! convenience wrappers over [`crate::api::state::state_exact`] for exactly
+//! the primitive Rust integer/[`crate::xfl::XFL`] cases, each one a
+//! standalone function with no key-type story of its own — the caller still
+//! passes a raw `&[u8]` key. This module's [`state_get`]/[`state_set_typed`]/
+//! [`state_update_typed`] instead work for *any* type implementing
+//! [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`] (every
+//! `hooks_lib::types` newtype already does, and so does any hook-defined
+//! type that implements the traits itself), and are meant to be paired with
+//! [`state_keys!`](crate::state_keys) so the key itself is a typed enum
+//! variant rather than a hand-built byte buffer. Reach for
+//! `crate::api::state`'s helpers for a one-off primitive read/write; reach
+//! for this module when a hook has more than a couple of distinct state
+//! entries and wants the key space and value decoding both checked at
+//! compile time.
+//!
 //! # Why `Ok(None)` for a missing entry
 //!
 //! [`crate::error::HookError::DoesntExist`] (`state`'s `-5`, "no entry for

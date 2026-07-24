@@ -191,7 +191,11 @@ unsafe extern "C" {
 src/
 ├── lib.rs         # prelude, panic handler (feature), re-export of hooks-core as `raw`
 ├── error.rs       # HookError + Result<T>
-├── types.rs       # AccountId, Hash, Keylet, ... fixed-size buffer aliases
+├── types.rs       # AccountId, Hash, Keylet, ... #[repr(transparent)] fixed-size newtypes
+├── convert.rs     # ToBytes/FromBytes boundary conversion traits
+├── state.rs       # typed state layer (state_get/state_set_typed/state_update_typed) + state_keys!
+├── buf_eq.rs      # loop-free, panic-free fixed-size buffer equality (buf_eq_8/20/32/...)
+├── errors.rs      # hook_errors! user error enum -> rollback code mapping
 ├── xfl.rs         # XFL newtype over i64
 ├── txn.rs         # txn_template! macro + generic field-encoding primitives
 ├── static_cell.rs # HookStatic: take-once cell for static hook buffers
@@ -248,8 +252,12 @@ pub fn hook_account_buf() -> Result<AccountId>;   // fixed-size convenience
 - Every wrapper is `#[inline(always)]` (extra internal functions are both a
   size cost and a validation risk — C7).
 - Buffers that have a protocol-fixed size get typed convenience wrappers
-  returning arrays (`AccountId = [u8; 20]`, `Hash = [u8; 32]`,
-  `Keylet = [u8; 34]`, `Nonce = [u8; 32]`, …). The caller-buffer form keeps
+  returning `types.rs`' `#[repr(transparent)]` newtypes (`AccountId`
+  wrapping `[u8; 20]`, `Hash`/`Keylet`/`Nonce` wrapping `[u8; 32]`/
+  `[u8; 34]`/`[u8; 32]`, …) rather than bare arrays — same layout, size,
+  and FFI-compatibility as the array, but distinct at the type level so an
+  `AccountId` and a `Hash` can no longer be passed to each other's slots by
+  accident (see `types.rs`'s module doc comment). The caller-buffer form keeps
   the standard name (`hook_account(out: &mut [u8], ...) -> Result<usize>`,
   matching the raw Hook API's write_ptr/write_len shape and the crate's
   other caller-buffer functions like `state`); the array-returning

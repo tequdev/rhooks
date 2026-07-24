@@ -14,6 +14,14 @@
 //!   convention the `state-counter` example already uses by hand
 //!   (`u64::from_le_bytes`/`to_le_bytes` around a plain `state`/`state_set`
 //!   round-trip). These do not use the host's as-int64 mode at all.
+//!
+//! Every helper above is a standalone function keyed by a raw `&[u8]` — for
+//! a typed layer where the key itself is a compile-time-checked enum
+//! variant and the value can be any [`crate::convert::ToBytes`]/
+//! [`crate::convert::FromBytes`] type (including every `hooks_lib::types`
+//! newtype), see [`mod@crate::state`]'s `state_get`/`state_set_typed`/
+//! `state_update_typed` and the [`state_keys!`](crate::state_keys) macro,
+//! built on top of this module's [`state`]/[`state_set`]/[`state_exact`].
 
 use crate::error::{HookError, Result, res};
 use crate::xfl::XFL;
