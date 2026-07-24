@@ -2,9 +2,10 @@
 //!
 //! Turns cargo's raw wasm output into a SetHook-shaped module: drops custom
 //! sections, restricts exports to `hook`/`cbak`, garbage-collects
-//! unreachable functions and globals, and re-encodes the module with a
-//! whole-module index remap (one table per index space, applied everywhere
-//! that space is referenced).
+//! unreachable functions and globals, trims trailing zero bytes off active
+//! data segments, and re-encodes the module with a whole-module index remap
+//! (one table per index space, applied everywhere that space is
+//! referenced).
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -16,7 +17,11 @@ use crate::ir::{self, IndexRemapper};
 /// Cleans `wasm`, producing a module whose only exports are `hook` (and
 /// `cbak`, if present in the input), with all reachable-from-those-exports
 /// functions and globals kept (and everything else — custom sections, the
-/// table, element segments, unreachable code — dropped).
+/// table, element segments, unreachable code — dropped), and every active
+/// data segment trimmed to end at its last non-zero byte (or dropped
+/// entirely, if all-zero) — see [`trim_trailing_zeros`]. Trimming is
+/// skipped wholesale when segments overlap or use non-`i32.const` offsets
+/// (see [`data_trim_is_safe`]).
 ///
 /// Errors if the `hook` export is missing, or if `hook`/`cbak` do not have
 /// the required `(i32) -> i64` signature.
@@ -238,6 +243,7 @@ pub fn clean(wasm: &[u8], _opts: &Options) -> Result<Vec<u8>> {
 
     let mut data_sec = wasm_encoder::DataSection::new();
     {
+        let trim_safe = data_trim_is_safe(&m.datas);
         let mut remapper = IndexRemapper::new(func_map, global_map);
         for d in &m.datas {
             match &d.kind {
@@ -245,10 +251,41 @@ pub fn clean(wasm: &[u8], _opts: &Options) -> Result<Vec<u8>> {
                     memory_index,
                     offset_expr,
                 } => {
-                    let expr = ir::remap_const_expr(offset_expr, &mut remapper)?;
-                    data_sec.active(*memory_index, &expr, d.data.iter().copied());
+                    // Trailing-zero trim (`docs/DESIGN.md` §6.2 step 3): wasm
+                    // linear memory is zero-initialized by definition, so
+                    // trailing zero bytes in an active data segment are pure
+                    // dead weight (5000 drops/byte SetHook fee) — untouched
+                    // memory reads as zero either way, and memory size comes
+                    // from the memory section, not segment lengths. Only the
+                    // payload shrinks from the tail; the offset expression is
+                    // untouched.
+                    //
+                    // Guarded by `trim_safe`: active segments apply in order
+                    // and may legally OVERLAP, in which case a trailing zero
+                    // can be a deliberate overwrite of an earlier segment's
+                    // non-zero byte — trimming it would change memory
+                    // contents. LLVM/wasm-ld never emit overlapping segments,
+                    // but `clean` accepts arbitrary wasm, so trimming is
+                    // skipped unless every offset is a plain `i32.const` and
+                    // no two segment ranges intersect.
+                    if trim_safe {
+                        if let Some(trimmed) = trim_trailing_zeros(d.data) {
+                            let expr = ir::remap_const_expr(offset_expr, &mut remapper)?;
+                            data_sec.active(*memory_index, &expr, trimmed.iter().copied());
+                        }
+                    } else {
+                        let expr = ir::remap_const_expr(offset_expr, &mut remapper)?;
+                        data_sec.active(*memory_index, &expr, d.data.iter().copied());
+                    }
                 }
                 wasmparser::DataKind::Passive => {
+                    // Never produced by cargo's wasm output for this target,
+                    // and a hard error downstream (the validator rejects any
+                    // passive segment outright) — passed through unchanged
+                    // rather than trimmed, since the trim above is only
+                    // justified for active segments (memory contents, not an
+                    // explicit `memory.init` payload whose exact length a
+                    // reachable instruction could depend on).
                     data_sec.passive(d.data.iter().copied());
                 }
             }
@@ -257,6 +294,51 @@ pub fn clean(wasm: &[u8], _opts: &Options) -> Result<Vec<u8>> {
     module.section(&data_sec);
 
     Ok(module.finish())
+}
+
+/// Reads an active-segment offset expression, returning its value only when
+/// it is exactly `i32.const <n>; end` (anything else — e.g. `global.get` —
+/// disqualifies trimming, conservatively).
+fn const_expr_offset(expr: &wasmparser::ConstExpr) -> Option<u64> {
+    let mut r = expr.get_operators_reader();
+    let wasmparser::Operator::I32Const { value } = r.read().ok()? else {
+        return None;
+    };
+    matches!(r.read().ok()?, wasmparser::Operator::End).then_some(value as u32 as u64)
+}
+
+/// Whether the trailing-zero trim may be applied: every active segment must
+/// have a plain `i32.const` offset, and no two segments' `[offset,
+/// offset+len)` ranges may intersect. Overlapping segments apply in
+/// declaration order, so a later segment's trailing zeros can be a
+/// deliberate overwrite of earlier non-zero bytes — trimming would then
+/// change memory contents.
+fn data_trim_is_safe(datas: &[wasmparser::Data<'_>]) -> bool {
+    let mut ranges: Vec<(u64, u64)> = Vec::new();
+    for d in datas {
+        match &d.kind {
+            wasmparser::DataKind::Active { offset_expr, .. } => {
+                let Some(start) = const_expr_offset(offset_expr) else {
+                    return false;
+                };
+                ranges.push((start, start.saturating_add(d.data.len() as u64)));
+            }
+            wasmparser::DataKind::Passive => {}
+        }
+    }
+    ranges.sort_unstable();
+    ranges.windows(2).all(|w| match w {
+        [(_, end_a), (start_b, _)] => end_a <= start_b,
+        _ => true,
+    })
+}
+
+/// Returns the shortest prefix of `data` that still ends in a non-zero
+/// byte, or `None` if `data` is empty or entirely zero (in which case the
+/// whole segment should be dropped).
+fn trim_trailing_zeros(data: &[u8]) -> Option<&[u8]> {
+    let last_nonzero = data.iter().rposition(|&b| b != 0)?;
+    data.get(..=last_nonzero)
 }
 
 /// Verifies that function `idx` has the required `hook`/`cbak` signature:

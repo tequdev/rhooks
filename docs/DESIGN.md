@@ -407,7 +407,14 @@ blob→fee). Setters are generated uniformly for every settable field;
 docs note that the host-filled ones are overwritten by
 `prepare_for_emit`. Transaction *shape* remains entirely user-declared —
 new fields or txn types never require a hooks-lib change; only the fixed
-emit plumbing is canned.
+emit plumbing is canned. The `const fn new()` template always reserves
+the full `EMIT_DETAILS_MAX_LEN = 138` bytes of capacity for the
+emit-details region regardless of whether the module exports `cbak`, but
+those reserved zero bytes cost nothing in the emitted binary — the
+cleaner's trailing-zero data-segment trim (6.2 step 3) strips them from
+the baked template's data segment — and the *runtime* blob length is
+whatever `etxn_details` actually returns (116 bytes without `cbak`, 138
+with), so cbak-vs-not needs no declaration-time switching at all.
 
 ## 6. hooks-build
 
@@ -452,8 +459,20 @@ Input: cargo's wasm. Output: SetHook-shaped wasm.
    - drop unreferenced functions and globals;
    - drop the table and all element segments entirely when no
      `call_indirect` survives (v1: always, given the hard error);
-   - keep active data segments as-is (merging is a future optimization);
-     a live defined memory is required for them.
+   - trim every active data segment's payload to end at its last non-zero
+     byte (dropping the segment entirely if it is all zero) — wasm linear
+     memory is zero-initialized by definition, so trailing zero bytes are
+     pure dead weight at 5000 drops/byte; only the payload shrinks from
+     the tail, the offset expression is untouched, and this preserves
+     semantics since memory size comes from the memory section, not
+     segment lengths. **Safety guard**: active segments apply in
+     declaration order and may legally overlap, in which case a trailing
+     zero can be a deliberate overwrite of an earlier segment's non-zero
+     byte — so the trim runs only when every offset is a plain
+     `i32.const` and no two segment ranges intersect (LLVM/wasm-ld never
+     emit overlaps, but `clean` accepts arbitrary wasm). Segment
+     *merging* remains a future optimization; a live defined memory is
+     required whenever at least one (untrimmed) segment survives.
 4. **Index renumbering is a whole-module concern.** One remap table per
    index space (types, functions, globals, memories, tables) is built once
    and applied everywhere that space is referenced: function section,

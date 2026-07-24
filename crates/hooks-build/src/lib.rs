@@ -5,8 +5,9 @@
 //! testable, byte-in/byte-out stages:
 //!
 //! 1. [`cleaner::clean`] — drops custom sections, restricts exports to
-//!    `hook`/`cbak`, garbage-collects unreachable functions/globals, and
-//!    re-encodes the module with a whole-module index remap.
+//!    `hook`/`cbak`, garbage-collects unreachable functions/globals, trims
+//!    trailing zero bytes off active data segments, and re-encodes the
+//!    module with a whole-module index remap.
 //! 2. [`flatten::flatten`] — (API version 0 only) inlines every defined
 //!    non-entry function into its callers, drops them, and rebuilds the
 //!    type section to exactly {import types} ∪ {entry type} — ensuring

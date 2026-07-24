@@ -73,6 +73,32 @@ fn export_names(wasm: &[u8]) -> Vec<String> {
     names
 }
 
+/// Returns every *active* data segment in `wasm` as `(i32 offset, bytes)`
+/// pairs, in section order. Panics on a passive segment or a non-`i32.const`
+/// offset expression — neither occurs in these fixtures.
+fn data_segments(wasm: &[u8]) -> Vec<(i32, Vec<u8>)> {
+    let mut out = Vec::new();
+    for payload in wasmparser::Parser::new(0).parse_all(wasm) {
+        if let wasmparser::Payload::DataSection(reader) = payload.expect("valid wasm") {
+            for d in reader {
+                let d = d.expect("valid data segment");
+                match d.kind {
+                    wasmparser::DataKind::Active { offset_expr, .. } => {
+                        let mut ops = offset_expr.get_operators_reader();
+                        let op = ops.read().expect("offset expr operator");
+                        let wasmparser::Operator::I32Const { value } = op else {
+                            panic!("expected an `i32.const` offset expression, got {op:?}")
+                        };
+                        out.push((value, d.data.to_vec()));
+                    }
+                    wasmparser::DataKind::Passive => panic!("unexpected passive data segment"),
+                }
+            }
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------------
 // Cleaner
 // ---------------------------------------------------------------------
@@ -220,6 +246,116 @@ fn gc_drops_unreachable_function_and_remaps_calls() {
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+// ---------------------------------------------------------------------
+// Cleaner: trailing-zero data-segment trim (`docs/DESIGN.md` §6.2 step 3)
+// ---------------------------------------------------------------------
+
+#[test]
+fn cleaner_trims_trailing_zeros_from_active_data_segment() {
+    // Offset 4 (not 0) so a bug that zeroed/dropped the offset expression
+    // instead of trimming the payload would be caught too.
+    let src = r#"
+    (module
+      (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
+      (memory 1)
+      (data (i32.const 4) "AB\00\00\00\00\00")
+      (func $hook (param i32) (result i64)
+        (call $accept (i32.const 0) (i32.const 0) (i64.const 0)))
+      (export "hook" (func $hook)))
+    "#;
+    let cleaned = hooks_build::clean(&wasm(src), &opts()).expect("clean succeeds");
+    let segs = data_segments(&cleaned);
+    assert_eq!(
+        segs,
+        vec![(4, b"AB".to_vec())],
+        "trailing zero bytes should be trimmed; offset must be unchanged"
+    );
+}
+
+#[test]
+fn cleaner_skips_trim_when_data_segments_overlap() {
+    // Active segments apply in declaration order and may legally overlap:
+    // here the second segment's trailing zero deliberately overwrites the
+    // first segment's non-zero byte at address 6. Trimming that zero would
+    // leave 0x43 ('C') in memory instead of 0x00 — so the trim must be
+    // skipped wholesale and both payloads pass through byte-identical.
+    let src = r#"
+    (module
+      (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
+      (memory 1)
+      (data (i32.const 4) "ABC")
+      (data (i32.const 5) "X\00")
+      (func $hook (param i32) (result i64)
+        (call $accept (i32.const 0) (i32.const 0) (i64.const 0)))
+      (export "hook" (func $hook)))
+    "#;
+    let cleaned = hooks_build::clean(&wasm(src), &opts()).expect("clean succeeds");
+    let segs = data_segments(&cleaned);
+    assert_eq!(
+        segs,
+        vec![(4, b"ABC".to_vec()), (5, b"X\x00".to_vec())],
+        "overlapping segments must disable the trailing-zero trim entirely"
+    );
+}
+
+#[test]
+fn cleaner_drops_all_zero_active_data_segment() {
+    let src = r#"
+    (module
+      (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
+      (memory 1)
+      (data (i32.const 0) "\00\00\00\00\00")
+      (func $hook (param i32) (result i64)
+        (call $accept (i32.const 0) (i32.const 0) (i64.const 0)))
+      (export "hook" (func $hook)))
+    "#;
+    let cleaned = hooks_build::clean(&wasm(src), &opts()).expect("clean succeeds");
+    assert!(
+        data_segments(&cleaned).is_empty(),
+        "an all-zero segment should be dropped entirely, not emitted empty"
+    );
+}
+
+#[test]
+fn cleaner_leaves_data_segment_with_nonzero_tail_untouched() {
+    let src = r#"
+    (module
+      (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
+      (memory 1)
+      (data (i32.const 0) "ABCD")
+      (func $hook (param i32) (result i64)
+        (call $accept (i32.const 0) (i32.const 0) (i64.const 0)))
+      (export "hook" (func $hook)))
+    "#;
+    let cleaned = hooks_build::clean(&wasm(src), &opts()).expect("clean succeeds");
+    assert_eq!(
+        data_segments(&cleaned),
+        vec![(0, b"ABCD".to_vec())],
+        "a segment with no trailing zero byte must be left byte-for-byte alone"
+    );
+}
+
+#[test]
+fn cleaner_data_segment_trim_is_idempotent() {
+    let src = r#"
+    (module
+      (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
+      (memory 1)
+      (data (i32.const 0) "AB\00\00\00\00\00")
+      (data (i32.const 16) "\00\00\00\00")
+      (data (i32.const 32) "CD")
+      (func $hook (param i32) (result i64)
+        (call $accept (i32.const 0) (i32.const 0) (i64.const 0)))
+      (export "hook" (func $hook)))
+    "#;
+    let once = hooks_build::clean(&wasm(src), &opts()).expect("clean succeeds");
+    let twice = hooks_build::clean(&once, &opts()).expect("re-clean succeeds");
+    assert_eq!(
+        once, twice,
+        "re-cleaning an already-trimmed module must be byte-identical (no re-trimming, no drift)"
+    );
 }
 
 // ---------------------------------------------------------------------
