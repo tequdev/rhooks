@@ -19,6 +19,12 @@ panic-handler = []
 # from a `std` context — see the handler's doc comment in lib.rs.
 host-panic-handler = []
 trace = []
+# Native-host-only, opt-in (see `hooks-core`'s `testenv` feature and
+# `crates/hooks-core/src/backend.rs`'s module doc): routes a curated subset
+# of this crate's wrapper functions to a process-global backend instead of
+# the default `NOT_IMPLEMENTED`. No effect on `wasm32` builds. Consumed by
+# `hooks-testenv`, not meant to be enabled directly by hook crates.
+testenv = ["hooks-core/testenv"]
 
 [lints]
 workspace = true

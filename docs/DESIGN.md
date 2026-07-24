@@ -79,7 +79,8 @@ rhooks/
 ├── crates/
 │   ├── hooks-core/           # no_std, FFI decls + constants, no logic
 │   ├── hooks-lib/            # no_std, idiomatic wrapper (depends: hooks-core)
-│   └── hooks-build/          # std, bin+lib CLI (clap, wasmparser, wasm-encoder)
+│   ├── hooks-build/          # std, bin+lib CLI (clap, wasmparser, wasm-encoder)
+│   └── hooks-testenv/        # std, native-only Hook API emulator (see §6.6)
 └── examples/
     ├── Cargo.toml            # SEPARATE workspace (no_std cdylibs)
     ├── accept-all/
@@ -741,6 +742,65 @@ project, and cleaning is a transform whose output the authoritative checker
 then judges); `wasmparser`/`wasm-encoder` byte-exactness (C8) is unchanged.
 Behavioral reference tests compare verdicts on known-good/known-bad
 fixtures, including the built examples.
+
+### 6.6 hooks-testenv: native Hook API emulator (Phase 1)
+
+`crates/hooks-testenv` is a `std`, native-host-only crate (never part of
+any `wasm32v1-none` build graph) that lets hook logic be exercised with
+plain `cargo test` instead of only against a live `xahaud` node (see
+`docs/E2E-TESTING.md`). It is a **semantics-only reference implementation**
+of a curated subset of the Hook API — `state`, `state_set`,
+`state_foreign`, `otxn_field`, `otxn_type`, `otxn_id`, `hook_param`,
+`hook_account`, `hook_hash`, `ledger_seq`, `ledger_last_time`, `accept`,
+`rollback`, `trace`, `trace_num` — and nothing else. **`xahaud` remains the
+source of truth**: guard checks, instruction counting, fees, and every
+Hook API function outside that list are out of scope and keep returning
+`NOT_IMPLEMENTED`, backend installed or not.
+
+**Mechanism.** `hooks-core` gains a `testenv` feature (native-host-only;
+no effect on `wasm32`) exposing `hooks_core::backend`: a `HostBackend`
+trait plus a process-global `RwLock<Option<Box<dyn HostBackend>>>`
+registry (`set_backend`/`clear_backend`/`with_backend`). `hooks-lib` gains
+a matching `testenv` feature (`= ["hooks-core/testenv"]`); its wrapper
+functions for exactly the functions above consult
+`hooks_core::backend::with_backend` first when built with that feature on
+a non-`wasm32` host, falling back to the existing raw-stub call (still
+`NOT_IMPLEMENTED` with no backend installed) otherwise. Both features are
+off by default, so this is purely additive — every existing host-build
+smoke test is unaffected.
+
+**Why routing happens in hooks-lib, not inside hooks-core's raw stubs.**
+`api.rs`'s non-`wasm32` stubs deliberately mirror `extern.h`'s `u32`
+`read_ptr`/`write_ptr` ABI byte-for-byte (matching `wasm32`, where a
+pointer *is* a `u32` linear-memory offset) — every hooks-lib wrapper casts
+a real slice pointer down to `u32` before calling them. On a 64-bit host
+that cast can silently truncate a real address, so those raw stubs cannot
+soundly reconstruct a buffer from their own arguments. hooks-lib's wrapper
+functions still hold the real `&[u8]`/`&mut [u8]` slice at the point they
+would otherwise perform that truncating cast, so that is where backend
+dispatch happens instead — `api.rs` itself is untouched by `testenv`.
+
+**accept/rollback.** Both are `-> !` in hooks-lib; on the real Hook API
+they never return, and the non-`wasm32` stub previously fell back to an
+explicit `loop {}` to honor that signature. With a `testenv` backend
+installed, `HostBackend::accept`/`rollback` instead unwind via
+`std::panic::panic_any` carrying an exit payload. This is sound here
+specifically because none of hooks-core's non-`wasm32` stubs (nor the
+bridging call in hooks-lib) are `extern "C"` — only the real `wasm32`
+import block is — so the unwind never crosses an `extern "C"` boundary.
+`hooks_testenv::TestEnv::invoke_hook` installs itself as the backend,
+calls the hook function as a plain Rust `fn` pointer (no `no_mangle`/`extern
+"C"` needed — it is never a real wasm export in this path), and
+`catch_unwind`s around the call to turn that panic back into a
+`HookExit { exit: Accept | Rollback, code, msg }`.
+
+**Concurrency.** The backend registry is one process-global static, but
+`cargo test` runs test functions concurrently by default. `TestEnv` itself
+supports being configured from one thread; `invoke_hook` serializes
+installing/running/uninstalling the backend against every other
+`invoke_hook` call in the process via a global `Mutex`, so concurrent
+tests each using their own `TestEnv` do not clobber each other's
+registration mid-hook.
 
 ## 7. examples/
 

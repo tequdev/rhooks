@@ -16,6 +16,12 @@ pub fn otxn_burden() -> u64 {
 /// number of bytes written.
 #[inline(always)]
 pub fn otxn_field(out: &mut [u8], field_id: u32) -> Result<usize> {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.otxn_field(field_id)) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe { hooks_core::otxn_field(out.as_mut_ptr() as u32, out.len() as u32, field_id) })
         .map(|v| v as usize)
 }
@@ -41,6 +47,12 @@ pub fn otxn_generation() -> u32 {
 /// convenience twin.
 #[inline(always)]
 pub fn otxn_id(out: &mut [u8], flags: u32) -> Result<usize> {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.otxn_id(flags)) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe { hooks_core::otxn_id(out.as_mut_ptr() as u32, out.len() as u32, flags) })
         .map(|v| v as usize)
 }
@@ -59,6 +71,12 @@ pub fn otxn_id_buf(flags: u32) -> Result<Hash> {
 /// The `TxType` of the originating transaction (see `hooks_core::tts`).
 #[inline(always)]
 pub fn otxn_type() -> u16 {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(t) = hooks_core::backend::with_backend(|b| b.otxn_type()) {
+            return t as u16;
+        }
+    }
     unsafe { hooks_core::otxn_type() as u16 }
 }
 

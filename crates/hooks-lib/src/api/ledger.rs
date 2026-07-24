@@ -17,12 +17,24 @@ pub fn fee_base() -> u64 {
 /// The sequence number of the current ledger.
 #[inline(always)]
 pub fn ledger_seq() -> u32 {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(v) = hooks_core::backend::with_backend(|b| b.ledger_seq()) {
+            return v as u32;
+        }
+    }
     unsafe { hooks_core::ledger_seq() as u32 }
 }
 
 /// The close time of the previous ledger (seconds since the Ripple epoch).
 #[inline(always)]
 pub fn ledger_last_time() -> u64 {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(v) = hooks_core::backend::with_backend(|b| b.ledger_last_time()) {
+            return v as u64;
+        }
+    }
     unsafe { hooks_core::ledger_last_time() as u64 }
 }
 

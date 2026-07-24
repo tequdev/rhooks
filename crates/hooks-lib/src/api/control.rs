@@ -21,6 +21,16 @@ use crate::error::{Result, res};
 /// ```
 #[inline(always)]
 pub fn accept(msg: &[u8], code: i64) -> ! {
+    // Testenv (native host only): if a backend is installed, hand it the
+    // real slice directly — `HostBackend::accept` unwinds out of this call
+    // via panic, which the caller (`hooks-testenv`'s `TestEnv::invoke_hook`)
+    // catches, so nothing below this block ever runs in that case. See
+    // `crates/hooks-core/src/backend.rs`'s module doc for why this bridges
+    // here rather than inside the raw `hooks_core::accept` stub.
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        let _ = hooks_core::backend::with_backend(|b| b.accept(msg, code));
+    }
     unsafe {
         let _ = hooks_core::accept(msg.as_ptr() as u32, msg.len() as u32, code);
     }
@@ -30,18 +40,25 @@ pub fn accept(msg: &[u8], code: i64) -> ! {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Host-only: the stub `accept` returns normally, so an explicit
-        // infinite loop is the only panic-free way to honor `-> !` here.
-        // Never reached in a real wasm hook (the arm above is used there).
+        // Host-only, no backend installed: the stub `accept` returns
+        // normally, so an explicit infinite loop is the only panic-free way
+        // to honor `-> !` here. Never reached in a real wasm hook (the arm
+        // above is used there), nor when a testenv backend is installed
+        // (the block above already diverged).
         #[allow(clippy::empty_loop)]
         loop {}
     }
 }
 
 /// Terminate hook execution with a failure, rolling back all state changes
-/// made by this hook invocation. See [`accept`] for the `-> !` rationale.
+/// made by this hook invocation. See [`accept`] for the `-> !` rationale
+/// and the testenv bridging note.
 #[inline(always)]
 pub fn rollback(msg: &[u8], code: i64) -> ! {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        let _ = hooks_core::backend::with_backend(|b| b.rollback(msg, code));
+    }
     unsafe {
         let _ = hooks_core::rollback(msg.as_ptr() as u32, msg.len() as u32, code);
     }

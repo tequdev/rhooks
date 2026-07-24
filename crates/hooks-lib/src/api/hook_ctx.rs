@@ -9,6 +9,12 @@ use crate::types::{ACC_ID_LEN, AccountId, HASH_LEN, Hash};
 /// convenience twin.
 #[inline(always)]
 pub fn hook_account(out: &mut [u8]) -> Result<usize> {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.hook_account()) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe { hooks_core::hook_account(out.as_mut_ptr() as u32, out.len() as u32) })
         .map(|v| v as usize)
 }
@@ -26,6 +32,12 @@ pub fn hook_account_buf() -> Result<AccountId> {
 /// fixed-size convenience twin.
 #[inline(always)]
 pub fn hook_hash(out: &mut [u8], hook_no: i32) -> Result<usize> {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.hook_hash(hook_no)) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe { hooks_core::hook_hash(out.as_mut_ptr() as u32, out.len() as u32, hook_no) })
         .map(|v| v as usize)
 }
@@ -44,6 +56,12 @@ pub fn hook_hash_buf(hook_no: i32) -> Result<Hash> {
 /// bytes written.
 #[inline(always)]
 pub fn hook_param(out: &mut [u8], name: &[u8]) -> Result<usize> {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.hook_param(name)) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe {
         hooks_core::hook_param(
             out.as_mut_ptr() as u32,

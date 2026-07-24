@@ -272,6 +272,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hooks-testenv"
+version = "0.0.0"
+dependencies = [
+ "hooks-core",
+ "hooks-lib",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

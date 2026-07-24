@@ -9,5 +9,14 @@ publish.workspace = true
 [dev-dependencies]
 sha2 = "0.10"
 
+[features]
+# Native-host-only, opt-in: routes a curated subset of the non-wasm host
+# stubs' *semantics* (not their raw u32 ptr/len ABI — see `backend`'s module
+# doc) through a process-global backend that a native test harness (see
+# `hooks-testenv`) can install. No effect on `wasm32` builds. Off by
+# default, so the plain `NOT_IMPLEMENTED` stub behavior is unchanged unless
+# a workspace member (like `hooks-testenv`) opts in.
+testenv = []
+
 [lints]
 workspace = true

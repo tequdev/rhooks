@@ -29,6 +29,13 @@ fn opt_in(o: Option<&[u8]>) -> (u32, u32) {
 /// ```
 #[inline(always)]
 pub fn state(out: &mut [u8], key: &[u8]) -> Result<usize> {
+    // Testenv (native host only): see `crate::testenv_bridge`'s module doc.
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.state(key)) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe {
         hooks_core::state(
             out.as_mut_ptr() as u32,
@@ -58,6 +65,14 @@ pub fn state_u64(key: &[u8]) -> Result<u64> {
 /// written.
 #[inline(always)]
 pub fn state_set(data: &[u8], key: &[u8]) -> Result<usize> {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.state_set(key, data)) {
+            return result
+                .map(|v| v as usize)
+                .map_err(crate::error::HookError::from);
+        }
+    }
     res(unsafe {
         hooks_core::state_set(
             data.as_ptr() as u32,
@@ -80,6 +95,14 @@ pub fn state_foreign(
     namespace: Option<&[u8]>,
     account: Option<&[u8]>,
 ) -> Result<usize> {
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) =
+            hooks_core::backend::with_backend(|b| b.state_foreign(key, namespace, account))
+        {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     let (nptr, nlen) = opt_in(namespace);
     let (aptr, alen) = opt_in(account);
     res(unsafe {
