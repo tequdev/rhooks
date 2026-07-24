@@ -7,6 +7,9 @@
 //!   (`AccountId`, `Hash`, `Keylet`, ...).
 //! - [`xfl::XFL`] — the Xahau decimal floating-point type.
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
+//! - [`sto_read`] — an opt-in, zero-copy STObject reader (`StoReader`) and
+//!   a typed `PaymentView`, for guest-side parsing of serialized
+//!   transactions/objects.
 //! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
 //!   terse macros for common patterns (see `macros.rs`).
 //! - An optional panic handler (feature `panic-handler`, default-on) that
@@ -33,6 +36,7 @@ pub mod api;
 pub mod error;
 mod macros;
 pub mod static_cell;
+pub mod sto_read;
 pub mod txn;
 pub mod types;
 pub mod xfl;
