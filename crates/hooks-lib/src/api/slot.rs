@@ -16,6 +16,15 @@ pub fn slot(out: &mut [u8], slot_no: u32) -> Result<usize> {
         .map(|v| v as usize)
 }
 
+/// Serialize the object in `slot_no` and return it as a big-endian `u64`
+/// ("as-int64" mode: `write_ptr = 0, write_len = 0`; only for data of at
+/// most 8 bytes with the top bit clear, else
+/// [`crate::error::HookError::TooBig`] — see `state_u64` for details).
+#[inline(always)]
+pub fn slot_u64(slot_no: u32) -> Result<u64> {
+    res(unsafe { hooks_core::slot(0, 0, slot_no) }).map(|v| v as u64)
+}
+
 /// Free `slot_no`, making it available for reuse.
 #[inline(always)]
 pub fn slot_clear(slot_no: u32) -> Result<i64> {
@@ -86,6 +95,7 @@ mod tests {
     fn smoke_not_implemented_on_host() {
         let mut out = [0u8; 32];
         assert_eq!(slot(&mut out, 1), Err(HookError::NotImplemented));
+        assert_eq!(slot_u64(1), Err(HookError::NotImplemented));
         assert_eq!(slot_clear(1), Err(HookError::NotImplemented));
         assert_eq!(slot_count(1), Err(HookError::NotImplemented));
         assert_eq!(slot_set(&out, 0), Err(HookError::NotImplemented));

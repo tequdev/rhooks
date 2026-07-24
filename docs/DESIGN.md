@@ -250,7 +250,15 @@ pub fn hook_account_buf() -> Result<AccountId>;   // fixed-size convenience
   larger template) uses the standard form; the host's own
   TOO_SMALL/OUT_OF_BOUNDS handling applies to whatever slice is passed. The
   `_buf` form delegates to the standard form so each raw call site exists
-  once. Emit details are variable-length — 116 bytes, or 138 when the
+  once.
+- **"as-int64" mode** (`state`, `state_foreign`, `otxn_field`, `slot`):
+  the host treats `write_ptr = 0, write_len = 0` as a request to return
+  the data itself, packed **big-endian** into the non-negative `i64`
+  return — only for data of at most 8 bytes with the top bit clear, else
+  `TOO_BIG` (xahaud `applyHook.cpp`, `data_as_int64`). Exposed as
+  `<name>_u64(...) -> Result<u64>` variants. (`state_set` /
+  `state_foreign_set` have no such mode — they carry no write buffer.)
+  Emit details are variable-length — 116 bytes, or 138 when the
   module exports `cbak`
   (verified against `HookAPI::etxn_details` in xahaud) — so there is no
   fixed `EmitDetails` array alias, only `EMIT_DETAILS_MAX_LEN = 138` and a

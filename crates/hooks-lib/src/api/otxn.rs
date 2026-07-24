@@ -20,6 +20,15 @@ pub fn otxn_field(out: &mut [u8], field_id: u32) -> Result<usize> {
         .map(|v| v as usize)
 }
 
+/// Read a field from the originating transaction as a big-endian `u64`
+/// ("as-int64" mode: `write_ptr = 0, write_len = 0`; only for fields of at
+/// most 8 bytes with the top bit clear, else
+/// [`crate::error::HookError::TooBig`] — see `state_u64` for details).
+#[inline(always)]
+pub fn otxn_field_u64(field_id: u32) -> Result<u64> {
+    res(unsafe { hooks_core::otxn_field(0, 0, field_id) }).map(|v| v as u64)
+}
+
 /// Generation of the originating transaction: `0` for a normal transaction,
 /// or the `sfEmitGeneration` value for an emitted transaction.
 #[inline(always)]
@@ -90,6 +99,7 @@ mod tests {
         let mut buf = [0u8; 32];
         assert_eq!(otxn_id(&mut buf, 0), Err(HookError::NotImplemented));
         assert_eq!(otxn_field(&mut buf, 0), Err(HookError::NotImplemented));
+        assert_eq!(otxn_field_u64(0), Err(HookError::NotImplemented));
         assert_eq!(otxn_param(&mut buf, b"x"), Err(HookError::NotImplemented));
     }
 }
