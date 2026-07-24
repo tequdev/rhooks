@@ -2,9 +2,13 @@
 //!
 //! `cargo xtask gen-core` regenerates `hooks-core`'s translated Rust
 //! sources (`error.rs`, `tts.rs`, `ls_flags.rs`, `tx_flags.rs`,
-//! `sfcodes.rs`, `consts.rs`, `api.rs`) from the vendored xahaud `hook/*.h`
-//! headers (`docs/DESIGN.md` §4), so the hand-translation step is
-//! automated: vendor sync -> regenerate -> test -> commit.
+//! `sfcodes.rs`, `consts.rs`, `api.rs`, `host.rs`) from the vendored xahaud
+//! `hook/*.h` headers (`docs/DESIGN.md` §4), so the hand-translation step is
+//! automated: vendor sync -> parse -> [`ir::HookApiSpec`] ->
+//! `crates/hooks-core/hook_api.json` -> per-file codegen -> test -> commit.
+//! [`ir`] holds the intermediate representation every generator in
+//! [`codegen`] consumes; nothing downstream of it touches header text or
+//! [`parse`] types directly.
 //!
 //! This is a host-side, repo-maintenance CLI tool, not guest-facing wasm
 //! code (`docs/DESIGN.md` §4/§8): a panic here means a build/dev-loop
@@ -28,6 +32,7 @@
 
 mod codegen;
 mod gen_core;
+mod ir;
 mod parse;
 mod render;
 

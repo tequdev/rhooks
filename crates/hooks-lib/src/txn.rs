@@ -30,7 +30,7 @@
 //! `emit_details` — see [`txn_template!`]'s grammar section) makes the
 //! macro generate `prepare_for_emit()` itself, replicating xahaud's C
 //! `PREPARE_TXN()`/`PREPARE_PAYMENT_SIMPLE` semantics exactly — see
-//! `examples/emit-txn` for the worked example.
+//! `examples/10_emit-txn` for the worked example.
 
 /// Generic, panic-free STObject field-header and value-encoding primitives.
 ///
@@ -477,6 +477,110 @@ pub mod codec {
     }
 }
 
+/// Implemented automatically for every `txn_template!`-generated type.
+/// Names that type's generated `bytes()` accessor generically, purely so
+/// [`Prepared`] can call it without knowing the concrete template type.
+/// Hook authors never call this trait's method directly — use the
+/// generated inherent `bytes()` instead.
+pub trait TemplateBytes {
+    /// Returns the full, fixed `Self::LEN`-capacity backing buffer (the
+    /// same value the generated inherent `bytes()` method returns).
+    fn template_bytes(&self) -> &[u8];
+}
+
+/// A `txn_template!` template that has finished `prepare_for_emit` (see
+/// [`txn_template!`]'s grammar docs) — the compile-time proof that the
+/// emit-plumbing fields (`FirstLedgerSequence`/`LastLedgerSequence`/
+/// `Account`/`EmitDetails`/`Fee`) were actually filled before anyone reads
+/// out an emit-ready blob. The unprepared template type has no
+/// `as_bytes`/`emit` method of its own — only `Prepared` does — so code
+/// that tries to emit without preparing first fails to compile rather than
+/// silently emitting a stale or zeroed buffer.
+///
+/// # Why a borrow, not an owned typestate
+///
+/// `txn_template!`-generated structs typically live in a `static` behind
+/// [`crate::static_cell::HookStatic`], whose
+/// [`take`](crate::static_cell::HookStatic::take) only ever hands out a
+/// `&'static mut T` — never an owned `T` — so an owning `Prepared<T>` would
+/// force every `prepare_for_emit` call to `core::mem::replace` a fresh
+/// dummy value back into the static, for no benefit. Borrowing `&mut T`
+/// gives the same guarantee this design calls for: while a `Prepared<'_,
+/// T>` is alive, the borrow checker forbids using the original `&mut T`
+/// directly (so code can't keep mutating through a stale handle while
+/// believing it still reflects an unprepared buffer), and setters remain
+/// reachable through [`core::ops::Deref`]/[`core::ops::DerefMut`] —
+/// re-adjusting a field and calling `prepare_for_emit` again is legitimate,
+/// and this type does not try to prevent that.
+///
+/// Obtained only from a generated `prepare_for_emit()`; [`Self::new`] is
+/// `#[doc(hidden)]` and crate-external code has no other way to produce a
+/// `Prepared`.
+#[must_use = "a Prepared handle that is never read via as_bytes()/emit() means prepare_for_emit's work was wasted"]
+pub struct Prepared<'a, T: TemplateBytes> {
+    inner: &'a mut T,
+    len: usize,
+}
+
+impl<'a, T: TemplateBytes> Prepared<'a, T> {
+    /// Wraps an already-`prepare_for_emit`-completed `inner` together with
+    /// the real serialized length `prepare_for_emit` computed. Only
+    /// `txn_template!`'s generated `prepare_for_emit` calls this.
+    #[doc(hidden)]
+    pub fn new(inner: &'a mut T, len: usize) -> Self {
+        Self { inner, len }
+    }
+
+    /// The real, emit-ready transaction bytes: a prefix of the template's
+    /// full reserved buffer, sized to what `etxn_details` actually returned
+    /// at `prepare_for_emit` time — never the full reserved capacity. Pass
+    /// this directly to [`crate::api::etxn::emit`]/
+    /// [`crate::api::etxn::emit_buf`] (or just call [`Self::emit`]).
+    #[inline(always)]
+    #[must_use]
+    #[allow(clippy::indexing_slicing)] // `len` came from prepare_for_emit's own bounds-checked computation
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner.template_bytes()[..self.len]
+    }
+
+    /// Emits [`Self::as_bytes`] as a new transaction, returning its hash.
+    /// Convenience wrapper over [`crate::api::etxn::emit_buf`] — see its
+    /// docs for the `etxn_reserve` precondition.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`crate::api::etxn::emit_buf`]'s errors.
+    #[inline(always)]
+    pub fn emit(&self) -> crate::error::Result<crate::types::Hash> {
+        crate::api::etxn::emit_buf(self.as_bytes())
+    }
+}
+
+impl<'a, T: TemplateBytes> core::ops::Deref for Prepared<'a, T> {
+    type Target = T;
+
+    #[inline(always)]
+    fn deref(&self) -> &T {
+        self.inner
+    }
+}
+
+impl<'a, T: TemplateBytes> core::ops::DerefMut for Prepared<'a, T> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut T {
+        self.inner
+    }
+}
+
+impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
+    // Doesn't require `T: Debug` (the generated template types don't derive
+    // it) — just enough to make `Result<Prepared<'_, T>, _>::expect_err`
+    // callable in tests, per `Result::expect_err`'s `T: Debug` bound.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Prepared").field("len", &self.len).finish()
+    }
+}
+
 /// Declares a typed, byte-exact emitted-transaction template.
 ///
 /// Modeled on xahaud's C "Tx Builder" split (see the module doc comment):
@@ -569,8 +673,9 @@ pub mod codec {
 /// unqualified `sfXxx` name.
 ///
 /// Because the seven required fields are mandatory, `prepare_for_emit(&mut
-/// self) -> Result<usize>` is generated **unconditionally** by every
-/// `txn_template!` invocation that compiles. It:
+/// self) -> Result<Prepared<'_, Self>>` (see
+/// [`Prepared`](crate::txn::Prepared)) is generated **unconditionally** by
+/// every `txn_template!` invocation that compiles. It:
 ///
 /// 1. Reads `ledger_seq()`, writes `FirstLedgerSequence = ledger_seq + 1`
 ///    and `LastLedgerSequence = FirstLedgerSequence + 4`.
@@ -583,23 +688,33 @@ pub mod codec {
 ///    length`, slices `bytes()` to exactly that length, and calls
 ///    `etxn_fee_base()` over *that* slice (not the full reserved region) to
 ///    get the fee, then writes `Fee`.
-/// 5. Returns the real blob length — the length to actually pass to
-///    [`crate::api::etxn::emit`], not [`Self::LEN`] (the region's max
-///    capacity).
+/// 5. Wraps `self` together with that real blob length in a
+///    [`Prepared`](crate::txn::Prepared) handle and returns it — see
+///    [`Prepared::as_bytes`](crate::txn::Prepared::as_bytes)/
+///    [`Prepared::emit`](crate::txn::Prepared::emit). There is no way to
+///    obtain an emit-sized slice, or call `emit`, without going through
+///    `prepare_for_emit` first: the unprepared type has no `as_bytes`/
+///    `emit` method of its own, and `Prepared` is only ever constructed
+///    here — this is the compile-time fix for the overwrite footgun
+///    described next (see `docs/DESIGN.md` §5.5 for the full rationale).
 ///
-/// **`prepare_for_emit` overwrites whatever `Sequence`, `FirstLedgerSequence`,
+/// **`prepare_for_emit` overwrites whatever `FirstLedgerSequence`,
 /// `LastLedgerSequence`, `Fee`, and `Account` were set to** — their setters
 /// exist (see below) but any value written through them before calling
-/// `prepare_for_emit` is discarded. `SigningPubKey` is never touched at
-/// runtime at all — its baked empty default is already correct.
+/// `prepare_for_emit` is discarded. `Sequence` and `SigningPubKey` are never
+/// touched at runtime at all — their baked defaults (`0`, and the empty VL
+/// marker) are already correct. The returned `Prepared<'_, Self>` derefs to
+/// `Self`, so setters remain callable afterward too (e.g. to adjust a field
+/// and call `prepare_for_emit` again) — only re-running `prepare_for_emit`
+/// itself refreshes the five emit-plumbing fields again.
 ///
 /// # Setter names
 ///
 /// A field declared `flags: u32_field(sfFlags) = 0` gets a method
-/// `fn set_flags(&mut self, value: u32)`, synthesized via nightly's
-/// `${concat(set_, $field)}` — **uniformly, for every `u32_field`/
-/// `native_amount`/`account_id` field**, including the required ones
-/// above (`set_sequence`, the two ledger-sequence setters, `set_fee`,
+/// `fn set_flags(&mut self, value: u32)`, synthesized via
+/// `$crate::__paste!`'s `[<set_ $field>]` splice — **uniformly, for every
+/// `u32_field`/`native_amount`/`account_id` field**, including the required
+/// ones above (`set_sequence`, the two ledger-sequence setters, `set_fee`,
 /// `set_account` all exist; see the overwrite note above for why setting
 /// them is rarely useful once `prepare_for_emit` is in the picture).
 /// `native_amount` setters take a `u64` named `drops` (native amounts are
@@ -607,19 +722,23 @@ pub mod codec {
 /// `account_id` setters take `&AccountId` and are infallible. `empty_vl`
 /// fields get no setter (there is nothing to set).
 ///
-/// `${concat(...)}` is unstable *syntax*, expanded into whichever crate
-/// invokes `txn_template!` — so every crate that calls it (not just
-/// `hooks-lib`) needs its own crate-root
-/// `#![feature(macro_metavar_expr_concat)]`, as in the example below.
+/// `$crate::__paste!` (from `hooks-macros`) is `hooks-lib`'s own
+/// stable-Rust replacement for nightly's `${concat(...)}` metavariable
+/// expression — see its doc comment for the `[< .. >]` splice syntax it
+/// recognizes. It is invoked from `txn_template!`'s own expansion, so
+/// nothing crate-root-level is required of whichever crate calls
+/// `txn_template!` (unlike the nightly feature this replaced).
 ///
 /// # Generated items
 ///
 /// `Self::LEN`, `Self::new()`, one `set_<field>` per `u32_field`/
 /// `native_amount`/`account_id` field (`empty_vl` gets none),
 /// `emit_details_region()`, `bytes()`, a `Default` impl equivalent to
-/// `new()`, and `prepare_for_emit()` (see above) — the last two are
-/// unconditional because the required fields, including `emit_details`,
-/// are mandatory.
+/// `new()`, an `impl` [`TemplateBytes`](crate::txn::TemplateBytes)
+/// forwarding to `bytes()` (so [`Prepared`](crate::txn::Prepared) can name
+/// the type generically), and `prepare_for_emit()` (see above) — the last
+/// three are unconditional because the required fields, including
+/// `emit_details`, are mandatory.
 ///
 /// # Compile-time canonical-order check
 ///
@@ -632,7 +751,6 @@ pub mod codec {
 /// # Examples
 ///
 /// ```
-/// # #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -676,7 +794,6 @@ pub mod codec {
 /// required fields are declared correctly here so the *only* failure is
 /// the order violation (`destination` placed before `flags`):
 /// ```compile_fail,E0080
-/// #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -700,7 +817,6 @@ pub mod codec {
 /// A field after `emit_details` fails to compile (macro-grammar rejection,
 /// before the required-field checks even run):
 /// ```compile_fail
-/// #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -720,7 +836,6 @@ pub mod codec {
 /// field `` and nothing else is wrong (canonical order and every other
 /// required field are fine):
 /// ```compile_fail,E0080
-/// #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -743,7 +858,6 @@ pub mod codec {
 /// required field is present, but `sfFee` is declared as `u32_field`
 /// instead of `native_amount`:
 /// ```compile_fail,E0080
-/// #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -759,6 +873,35 @@ pub mod codec {
 ///         emit_details: emit_details,
 ///     }
 /// }
+/// ```
+///
+/// Trying to obtain emit-ready bytes (or to `emit`) before calling
+/// `prepare_for_emit` fails to compile: the unprepared template type has no
+/// `as_bytes`/`emit` method at all — only the
+/// [`Prepared`](crate::txn::Prepared) handle `prepare_for_emit` returns
+/// does. This is the actual footgun fix (`docs/DESIGN.md` §5.5): the
+/// compiler, not a runtime check, refuses code that would read out an
+/// emit-sized blob whose `FirstLedgerSequence`/`LastLedgerSequence`/
+/// `Account`/`EmitDetails`/`Fee` were never actually filled in.
+/// ```compile_fail
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::txn_template;
+///
+/// txn_template! {
+///     struct EmitWithoutPrepare {
+///         transaction_type = ttPAYMENT,
+///         sequence: u32_field(sfSequence) = 0,
+///         first_ledger_sequence: u32_field(sfFirstLedgerSequence) = 0,
+///         last_ledger_sequence: u32_field(sfLastLedgerSequence) = 0,
+///         fee: native_amount(sfFee) = 0,
+///         signing_pub_key: empty_vl(sfSigningPubKey),
+///         account: account_id(sfAccount),
+///         emit_details: emit_details,
+///     }
+/// }
+///
+/// let mut tpl = EmitWithoutPrepare::new();
+/// let _ = tpl.as_bytes(); // ERROR: no method named `as_bytes` on `EmitWithoutPrepare`
 /// ```
 #[macro_export]
 macro_rules! txn_template {
@@ -854,7 +997,7 @@ macro_rules! __txn_template_step {
                 #[doc = concat!("Sets `", stringify!($field), "` (default `", stringify!($default), "`). Overwritten by `prepare_for_emit` if this is one of the required emit-plumbing fields.")]
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds by construction: `Self::LEN` sums these same field sizes
-                $vis fn ${concat(set_, $field)}(&mut self, value: u32) {
+                $vis fn [<set_ $field>](&mut self, value: u32) {
                     const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1);
                     self.bytes[OFF..OFF.wrapping_add(4)].copy_from_slice(&value.to_be_bytes());
                 }
@@ -905,7 +1048,7 @@ macro_rules! __txn_template_step {
                 /// their top 2 bits for control flags).
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds as above; only `drops` itself is runtime-fallible
-                $vis fn ${concat(set_, $field)}(&mut self, drops: u64) -> $crate::error::Result<()> {
+                $vis fn [<set_ $field>](&mut self, drops: u64) -> $crate::error::Result<()> {
                     const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1);
                     $crate::txn::codec::encode_native_amount(&mut self.bytes[OFF..OFF.wrapping_add(8)], drops)
                 }
@@ -950,7 +1093,7 @@ macro_rules! __txn_template_step {
                 #[doc = concat!("Sets `", stringify!($field), "` (defaults to the all-zero `AccountId`). Overwritten by `prepare_for_emit` if this is the required `sfAccount` field.")]
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds by construction, as above
-                $vis fn ${concat(set_, $field)}(&mut self, value: &$crate::types::AccountId) {
+                $vis fn [<set_ $field>](&mut self, value: &$crate::types::AccountId) {
                     const OFF: usize = ($($prev)*)
                         .wrapping_add($crate::txn::codec::field_header($sfcode).1)
                         .wrapping_add(1);
@@ -1070,6 +1213,13 @@ macro_rules! __txn_template_step {
             bytes: [u8; $Name::LEN],
         }
 
+        // `[<set_ $field>]` setter names (spliced into `$($setters)*` above,
+        // per-field, by the `u32_field`/`native_amount`/`account_id` arms)
+        // are only resolved to real identifiers here, by wrapping the whole
+        // impl block in `$crate::__paste!` — `hooks-lib`'s own stable
+        // replacement for nightly's `${concat(...)}` (see the `Setter
+        // names` section above and `hooks_macros::paste`'s doc comment).
+        $crate::__paste! {
         impl $Name {
             /// Total serialized length: the fixed-position field prefix,
             /// plus the reserved `EmitDetails` region.
@@ -1110,13 +1260,18 @@ macro_rules! __txn_template_step {
             /// Fills every required emit-plumbing field (`Sequence` is
             /// left untouched — it's baked `0` and that's already correct;
             /// `FirstLedgerSequence`, `LastLedgerSequence`, `Account`,
-            /// `EmitDetails`, `Fee`) and returns the actual serialized
-            /// length of the resulting transaction — a prefix of
-            /// [`Self::bytes`] sized to `EmitDetails`'s *actual* returned
+            /// `EmitDetails`, `Fee`) and returns a
+            /// [`Prepared`](crate::txn::Prepared) handle wrapping `self`
+            /// together with the actual serialized length of the resulting
+            /// transaction — sized to `EmitDetails`'s *actual* returned
             /// length, not [`Self::LEN`] (the reserved region's max
-            /// capacity). Generated unconditionally: the six required
-            /// fields plus `emit_details` are mandatory for this
-            /// declaration to have compiled at all — see
+            /// capacity). See
+            /// [`Prepared::as_bytes`](crate::txn::Prepared::as_bytes)/
+            /// [`Prepared::emit`](crate::txn::Prepared::emit) — there is no
+            /// way to obtain emit-ready bytes, or call `emit`, without going
+            /// through this method first. Generated unconditionally: the
+            /// six required fields plus `emit_details` are mandatory for
+            /// this declaration to have compiled at all — see
             /// `docs/DESIGN.md` §5.5 and the `txn_template!` grammar docs.
             /// Mirrors xahaud's C `PREPARE_TXN()`: `EmitDetails` is filled
             /// before `Fee`, since `etxn_fee_base` needs the
@@ -1137,7 +1292,7 @@ macro_rules! __txn_template_step {
             /// blob length exceeds [`Self::LEN`].
             #[inline(always)]
             #[allow(clippy::indexing_slicing)] // in-bounds by construction, as the setters above
-            $vis fn prepare_for_emit(&mut self) -> $crate::error::Result<usize> {
+            $vis fn prepare_for_emit(&mut self) -> $crate::error::Result<$crate::txn::Prepared<'_, Self>> {
                 let __fls = $crate::api::ledger::ledger_seq().wrapping_add(1);
                 {
                     const OFF: usize = $crate::txn::codec::field_offset_or(
@@ -1185,15 +1340,23 @@ macro_rules! __txn_template_step {
                     );
                     $crate::txn::codec::encode_native_amount(&mut self.bytes[OFF..OFF.wrapping_add(8)], __fee)?;
                 }
-                Ok(__total_len)
+                Ok($crate::txn::Prepared::new(self, __total_len))
             }
         }
+        } // $crate::__paste!
 
         impl ::core::default::Default for $Name {
             /// Equivalent to [`Self::new`].
             #[inline(always)]
             fn default() -> Self {
                 Self::new()
+            }
+        }
+
+        impl $crate::txn::TemplateBytes for $Name {
+            #[inline(always)]
+            fn template_bytes(&self) -> &[u8] {
+                self.bytes()
             }
         }
 
@@ -1431,9 +1594,13 @@ mod tests {
         // required fields plus `emit_details` are mandatory for
         // `TestPayment` to compile at all).
         let mut tpl = TestPayment::new();
+        // `Prepared` (the `Ok` variant) doesn't implement `PartialEq` — only
+        // the error path is ever compared here — so pull the `Err` out with
+        // `expect_err` first rather than `assert_eq!`ing the whole `Result`.
         assert_eq!(
-            tpl.prepare_for_emit(),
-            Err(crate::error::HookError::NotImplemented)
+            tpl.prepare_for_emit()
+                .expect_err("prepare_for_emit must fail on the host stub"),
+            crate::error::HookError::NotImplemented
         );
     }
 
@@ -1477,8 +1644,9 @@ mod tests {
         let _ = tpl.emit_details_region();
         assert_eq!(tpl.bytes().len(), QualifiedPathAccount::LEN);
         assert_eq!(
-            tpl.prepare_for_emit(),
-            Err(crate::error::HookError::NotImplemented)
+            tpl.prepare_for_emit()
+                .expect_err("prepare_for_emit must fail on the host stub"),
+            crate::error::HookError::NotImplemented
         );
     }
 }

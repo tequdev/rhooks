@@ -4,7 +4,7 @@
 //! build the entire wire-format transaction ourselves. Also exports a
 //! `cbak` callback for when the emitted transaction settles.
 //!
-//! Build: `hooks-build build --manifest-path examples/emit-txn/Cargo.toml`
+//! Build: `hooks-build build --manifest-path examples/10_emit-txn/Cargo.toml`
 //!
 //! ## Why not `prepare()`
 //!
@@ -36,13 +36,9 @@
 //! `hooks-lib` release.
 
 #![no_std]
-// Required by `txn_template!`: it expands `${concat(set_, $field)}` into
-// this crate, and that unstable syntax must be feature-gated here too, not
-// just in hooks-lib where the macro is defined.
-#![feature(macro_metavar_expr_concat)]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, rollback, txn_template};
+use hooks_lib::{accept, cbak, hook, hook_errors, rollback, txn_template};
 
 txn_template! {
     /// This hook's Payment template: `TransactionType` through
@@ -74,48 +70,78 @@ txn_template! {
 /// `hooks_lib::static_cell::HookStatic`).
 static TXN: HookStatic<Payment> = HookStatic::new(Payment::new());
 
+hook_errors! {
+    /// `emit-txn` rollback codes.
+    pub enum EmitTxnError {
+        /// `etxn_reserve(1)` failed to reserve an emission slot.
+        ReserveFailed = 1,
+        /// `otxn_field(sfAccount)` did not return a 20-byte `AccountId`.
+        CouldNotReadSender = 2,
+        /// The static `Payment` buffer had already been `take()`n (never
+        /// happens in this hook, which only takes it once per invocation).
+        BufferAlreadyTaken = 3,
+        /// `Payment::set_amount` failed to set the 1-drop amount field.
+        SetAmountFailed = 4,
+        /// `Payment::prepare_for_emit` failed to fill in the host-supplied
+        /// fields.
+        PrepareFailed = 5,
+        /// `emit_buf` failed to submit the prepared transaction.
+        EmitFailed = 6,
+    }
+}
+
 /// Hook entry point: emits a 1-drop Payment back to the originating
 /// transaction's sender.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     if etxn_reserve(1).is_err() {
-        rollback!(b"emit-txn: etxn_reserve failed", -1);
+        rollback!(
+            b"emit-txn: etxn_reserve failed",
+            EmitTxnError::ReserveFailed
+        );
     }
 
     let mut dest = AccountId([0u8; ACC_ID_LEN]);
     match otxn_field(dest.as_mut(), sfAccount) {
         Ok(n) if n == ACC_ID_LEN => {}
-        _ => rollback!(b"emit-txn: could not read otxn sender", -1),
+        _ => rollback!(
+            b"emit-txn: could not read otxn sender",
+            EmitTxnError::CouldNotReadSender
+        ),
     }
 
     // None only on a second take, which this hook never performs.
     let Some(txn) = TXN.take() else {
-        rollback!(b"emit-txn: static buffer already taken", -1);
+        rollback!(
+            b"emit-txn: static buffer already taken",
+            EmitTxnError::BufferAlreadyTaken
+        );
     };
 
     if txn.set_amount(1).is_err() {
-        rollback!(b"emit-txn: amount setter failed", -1);
+        rollback!(
+            b"emit-txn: amount setter failed",
+            EmitTxnError::SetAmountFailed
+        );
     }
     txn.set_destination(&dest);
 
-    let len = match txn.prepare_for_emit() {
-        Ok(n) => n,
-        Err(_) => rollback!(b"emit-txn: prepare_for_emit failed", -1),
+    let prepared = match txn.prepare_for_emit() {
+        Ok(p) => p,
+        Err(_) => rollback!(
+            b"emit-txn: prepare_for_emit failed",
+            EmitTxnError::PrepareFailed
+        ),
     };
 
-    let tx_blob = match txn.bytes().get(..len) {
-        Some(b) => b,
-        None => rollback!(b"emit-txn: prepare_for_emit returned an invalid length", -1),
-    };
-
-    match emit_buf(tx_blob) {
+    match prepared.emit() {
         Ok(_hash) => accept!(b"emit-txn: emitted", 0),
-        Err(_) => rollback!(b"emit-txn: emit failed", -1),
+        Err(_) => rollback!(b"emit-txn: emit failed", EmitTxnError::EmitFailed),
     }
 }
 
 /// Callback invoked when the emitted transaction settles. Always accepts.
-#[unsafe(no_mangle)]
-pub extern "C" fn cbak(_reserved: u32) -> i64 {
+#[cbak]
+fn my_cbak() -> i64 {
     accept!()
 }

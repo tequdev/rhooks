@@ -16,13 +16,20 @@ const e2eRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const repoRoot = dirname(e2eRoot)
 const buildDir = join(e2eRoot, 'build')
 
-// example directory name -> wasm basename produced by hooks-build (the
-// crate name with `-` replaced by `_`, per examples/*/Cargo.toml [package].name)
+// example directory name (numbered - suggested reading order, see
+// examples/README.md) -> wasm basename produced by hooks-build (the crate
+// name with `-` replaced by `_`, per examples/*/Cargo.toml [package].name)
 const examples = {
-  'accept-all': 'accept_all',
-  firewall: 'firewall',
-  'state-counter': 'state_counter',
-  'emit-txn': 'emit_txn',
+  '01_accept-all': 'accept_all',
+  '02_state-counter': 'state_counter',
+  '03_hook-params': 'hook_params',
+  '04_errors': 'errors',
+  '05_firewall': 'firewall',
+  '06_guard-patterns': 'guard_patterns',
+  '07_xfl-math': 'xfl_math',
+  '08_slot-ledger': 'slot_ledger',
+  '09_state-foreign': 'state_foreign',
+  '10_emit-txn': 'emit_txn',
 }
 
 mkdirSync(buildDir, { recursive: true })

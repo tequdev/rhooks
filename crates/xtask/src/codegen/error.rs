@@ -1,9 +1,10 @@
-//! Generates `crates/hooks-core/src/error.rs` from `error.h`.
+//! Generates `crates/hooks-core/src/error.rs` from `error.h`'s parsed
+//! [`ConstSpec`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
 
 use super::{push_const, with_generated_marker};
-use crate::parse::scan_defines;
+use crate::ir::ConstSpec;
 use crate::render::expect_decimal;
 
 const MODULE_DOC: &str = "\
@@ -33,12 +34,11 @@ fn doc_lines(name: &str) -> Vec<String> {
     }
 }
 
-/// Renders `error.rs`'s full contents from `error.h`'s source text.
-pub fn generate(error_h: &str) -> Result<String> {
-    let defines = scan_defines(error_h);
+/// Renders `error.rs`'s full contents from `error.h`'s parsed [`ConstSpec`]s.
+pub fn generate(error_codes: &[ConstSpec]) -> Result<String> {
     let mut body = String::from("\n");
-    for d in &defines {
-        let value = expect_decimal(&d.name, &d.value)?;
+    for d in error_codes {
+        let value = expect_decimal(&d.name, &d.c_expr)?;
         push_const(&mut body, &doc_lines(&d.name), &d.name, "i64", &value);
     }
     Ok(with_generated_marker("error.h", MODULE_DOC) + &body)
