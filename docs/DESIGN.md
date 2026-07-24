@@ -70,7 +70,7 @@ These come from xahaud's SetHook validation (`SetHook.cpp`,
 ```
 rhooks/
 ├── Cargo.toml                # workspace: crates/* (examples excluded)
-├── rust-toolchain.toml       # dated nightly channel + wasm32v1-none target
+├── rust-toolchain.toml       # stable channel + wasm32v1-none target
 ├── rustfmt.toml
 ├── mise.toml                 # fmt / lint / test / build-examples tasks
 ├── .gitignore                # target/, out/, *.wasm artifacts
@@ -78,8 +78,10 @@ rhooks/
 │   └── DESIGN.md             # this file
 ├── crates/
 │   ├── hooks-core/           # no_std, FFI decls + constants, no logic
-│   ├── hooks-lib/            # no_std, idiomatic wrapper (depends: hooks-core)
-│   └── hooks-build/          # std, bin+lib CLI (clap, wasmparser, wasm-encoder)
+│   ├── hooks-macros/         # std, proc-macro crate (#[hook]/#[cbak], txn_template! internals)
+│   ├── hooks-lib/            # no_std, idiomatic wrapper (depends: hooks-core, hooks-macros)
+│   ├── hooks-build/          # std, bin+lib CLI (clap, wasmparser, wasm-encoder)
+│   └── xtask/                # std, bin CLI: header → hooks-core codegen
 └── examples/
     ├── Cargo.toml            # SEPARATE workspace (no_std cdylibs)
     ├── accept-all/
@@ -92,10 +94,11 @@ rhooks/
   its crates are `no_std` cdylibs with hook-specific release profiles that
   must not leak into host crates, and they don't build for host targets.
 - Edition 2024, `rust-version = "1.85"` (wasm32v1-none is stable ≥ 1.84). A
-  dated nightly is pinned via `rust-toolchain.toml` (`hooks-lib` needs
-  `#![feature(macro_metavar_expr_concat)]` for `txn_template!`'s `set_<field>`
-  setter names — see §5.5); `rust-version` still tracks the language edition
-  floor, not a claim that stable can build this workspace.
+  stable toolchain is pinned via `rust-toolchain.toml` (currently `1.89.0`,
+  matching `mise.toml`'s `[tools] rust` pin — see §5.5 for why no nightly
+  feature is needed: `hooks-macros`, a small hand-rolled `proc_macro` crate,
+  covers what `${concat(...)}` used to); `rust-version` still tracks the
+  language edition floor, not the exact pinned toolchain.
 - All crates `publish = false` for now.
 - All comments, docs, and identifiers in English.
 
@@ -332,13 +335,33 @@ explicitly named method (`bits_eq`), not `==`.
 - `uninit_buf!()` is NOT provided: `MaybeUninit::uninit().assume_init()` for
   arrays is UB. Buffers are `[0u8; N]`; the cleaner/opt pipeline keeps the
   cost acceptable, and correctness wins.
-- Entry point is written by the developer, no proc-macro crate in v1:
+- Entry point: `#[hook]` / `#[cbak]` (from `hooks-macros`, re-exported as
+  `hooks_lib::hook`/`hooks_lib::cbak`) turn a plain, argument-less
+  `fn name() -> i64` into the required wasm export:
+
+```rust
+use hooks_lib::hook;
+
+#[hook]
+fn my_hook() -> i64 { ... }
+```
+
+  expands to (unchanged original function, plus):
 
 ```rust
 #[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 { ... }
+pub extern "C" fn hook(_reserved: u32) -> i64 {
+    my_hook()
+}
 ```
 
+  `#[cbak]` is identical except it exports `cbak`. Both are hand-rolled
+  `proc_macro` (no `syn`/`quote` — see `hooks-macros`'s crate doc comment
+  for why): they only ever need to recognize one token shape (a
+  no-argument, `i64`-returning, non-generic, non-`async`/`unsafe`/`const`/
+  `extern` `fn`), so a general Rust-item parser is unneeded weight. Every
+  malformed shape is a `compile_error!` at the offending token, not a
+  macro panic.
 - Panic handler behind default feature `panic-handler`:
   `rollback(b"panic", ...)` then `unreachable` — examples just work; users
   embedding differently can disable it.
@@ -366,9 +389,14 @@ things:
    `transaction_type = ttXXX`); the macro computes cumulative offsets and
    total length at compile time, bakes the field headers into a
    `const fn new()` template (⇒ data segment via `HookStatic`), and
-   generates typed `set_<field>` setters (via nightly's
-   `${concat(set_, $field)}`) plus an `emit_details_region()` accessor. A
-   compile-time assertion rejects field lists that violate canonical
+   generates typed `set_<field>` setters plus an `emit_details_region()`
+   accessor. Setter names are synthesized by splicing `set_` and the field
+   name (`[<set_ $field>]`) through `hooks-macros`'s `paste`-equivalent
+   proc-macro (`$crate::__paste!`, wrapping the generated `impl` block) —
+   a small, purpose-built identifier-concatenation macro that replaces
+   nightly's `${concat(set_, $field)}` metavariable expression, letting
+   `txn_template!` (and every crate that calls it) build on stable Rust.
+   A compile-time assertion rejects field lists that violate canonical
    (type, field) ordering — a safety the C flow lacks. `emit_details`
    must be last.
 

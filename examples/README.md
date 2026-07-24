@@ -13,6 +13,29 @@ release profile that must not leak into `hooks-core`/`hooks-lib`/
 | [`state-counter`](state-counter) | `state`/`state_set` round-trip, counter in hook state |
 | [`emit-txn`](emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
 
+## Entry points: `#[hook]` / `#[cbak]`
+
+Every example declares its entry point as a plain, safe function annotated
+with `hooks_lib::hook` (or `hooks_lib::cbak` for the optional settlement
+callback), not a hand-written `extern "C"` export:
+
+```rust
+use hooks_lib::hook;
+
+#[hook]
+fn my_hook() -> i64 {
+    // ...
+}
+```
+
+`#[hook]` expands to the wasm export shape the Hook host requires
+(`#[unsafe(no_mangle)] pub extern "C" fn hook(_reserved: u32) -> i64`,
+calling the annotated function) — see `hooks-macros`'s crate doc comment
+for the exact signature it enforces (no arguments, `-> i64`, no
+`async`/`unsafe`/`const`/`extern`/generics). The annotated function's own
+name is arbitrary (`my_hook` here is just a convention); what matters is
+the export it produces.
+
 ## Building
 
 ```sh

@@ -9,6 +9,9 @@
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
 //! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
 //!   terse macros for common patterns (see `macros.rs`).
+//! - [`hook`] / [`cbak`] — attribute macros that turn a plain, argument-less
+//!   `fn name() -> i64` into the wasm export shape the Hook host requires
+//!   (see `hooks-macros`'s crate doc comment).
 //! - An optional panic handler (feature `panic-handler`, default-on) that
 //!   rolls the hook back instead of leaving an unhandled panic.
 //!
@@ -25,9 +28,6 @@
 //! keeps that path a single, direct alias with no extra module indirection.
 
 #![no_std]
-// Nightly only: lets `txn_template!` synthesize `set_<field>` setter names
-// (`${concat(set_, $field)}`) instead of naming setters after the bare field.
-#![feature(macro_metavar_expr_concat)]
 
 pub mod api;
 pub mod error;
@@ -46,6 +46,25 @@ pub use macros::padded_bytes;
 /// C-verbatim constant. See the crate doc comment for why this is a plain
 /// alias rather than a re-exporting wrapper module.
 pub use hooks_core as raw;
+
+/// Turns a plain, argument-less `fn name() -> i64` into the Hook host's
+/// required `hook` export (`#[unsafe(no_mangle)] pub extern "C" fn hook(
+/// _reserved: u32) -> i64`). See `hooks_macros::hook`'s doc comment for the
+/// exact requirements and generated shape.
+pub use hooks_macros::hook;
+
+/// Like [`hook`], but exports `cbak` instead — for the optional callback a
+/// Hook module can export, invoked when a transaction it previously emitted
+/// settles.
+pub use hooks_macros::cbak;
+
+// `txn_template!` expands `[<set_ $field>]` splice markers through
+// `$crate::__paste!`, its own stable replacement for nightly's
+// `${concat(...)}` (see `txn.rs`); re-export it (hidden) at the crate root
+// so `$crate::__paste!` resolves regardless of which crate invokes
+// `txn_template!`.
+#[doc(hidden)]
+pub use hooks_macros::paste as __paste;
 
 /// Common imports for hook developers: `use hooks_lib::prelude::*;` pulls in
 /// every `api::*` wrapper function, the fixed-size buffer type aliases, the

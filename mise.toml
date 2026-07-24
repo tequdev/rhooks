@@ -4,10 +4,9 @@
 rust = "1.89.0"
 
 [env]
-# The [tools] rust pin above exports RUSTUP_TOOLCHAIN=1.89.0, which would
-# override rust-toolchain.toml's nightly channel; [env] is applied after
-# [tools], so this wins and the rustup proxies below resolve the nightly.
-RUSTUP_TOOLCHAIN = "nightly-2026-07-20"
+# rust-toolchain.toml's channel is "1.89.0", matching the [tools] rust pin
+# above (which already exports RUSTUP_TOOLCHAIN=1.89.0) — no override
+# needed here; both agree on a single stable toolchain.
 XAHAUD_VERSION = "2026.6.21-release+3350"
 
 [env._]

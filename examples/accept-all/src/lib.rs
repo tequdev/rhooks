@@ -5,11 +5,11 @@
 
 #![no_std]
 
-use hooks_lib::{accept, trace};
+use hooks_lib::{accept, hook, trace};
 
 /// Hook entry point. Accepts every transaction it is invoked for.
-#[unsafe(no_mangle)]
-pub extern "C" fn hook(_reserved: u32) -> i64 {
+#[hook]
+fn my_hook() -> i64 {
     trace!(b"accept-all: accepting transaction");
     accept!()
 }

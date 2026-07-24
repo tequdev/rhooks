@@ -596,10 +596,10 @@ pub mod codec {
 /// # Setter names
 ///
 /// A field declared `flags: u32_field(sfFlags) = 0` gets a method
-/// `fn set_flags(&mut self, value: u32)`, synthesized via nightly's
-/// `${concat(set_, $field)}` — **uniformly, for every `u32_field`/
-/// `native_amount`/`account_id` field**, including the required ones
-/// above (`set_sequence`, the two ledger-sequence setters, `set_fee`,
+/// `fn set_flags(&mut self, value: u32)`, synthesized via
+/// `$crate::__paste!`'s `[<set_ $field>]` splice — **uniformly, for every
+/// `u32_field`/`native_amount`/`account_id` field**, including the required
+/// ones above (`set_sequence`, the two ledger-sequence setters, `set_fee`,
 /// `set_account` all exist; see the overwrite note above for why setting
 /// them is rarely useful once `prepare_for_emit` is in the picture).
 /// `native_amount` setters take a `u64` named `drops` (native amounts are
@@ -607,10 +607,12 @@ pub mod codec {
 /// `account_id` setters take `&AccountId` and are infallible. `empty_vl`
 /// fields get no setter (there is nothing to set).
 ///
-/// `${concat(...)}` is unstable *syntax*, expanded into whichever crate
-/// invokes `txn_template!` — so every crate that calls it (not just
-/// `hooks-lib`) needs its own crate-root
-/// `#![feature(macro_metavar_expr_concat)]`, as in the example below.
+/// `$crate::__paste!` (from `hooks-macros`) is `hooks-lib`'s own
+/// stable-Rust replacement for nightly's `${concat(...)}` metavariable
+/// expression — see its doc comment for the `[< .. >]` splice syntax it
+/// recognizes. It is invoked from `txn_template!`'s own expansion, so
+/// nothing crate-root-level is required of whichever crate calls
+/// `txn_template!` (unlike the nightly feature this replaced).
 ///
 /// # Generated items
 ///
@@ -632,7 +634,6 @@ pub mod codec {
 /// # Examples
 ///
 /// ```
-/// # #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -676,7 +677,6 @@ pub mod codec {
 /// required fields are declared correctly here so the *only* failure is
 /// the order violation (`destination` placed before `flags`):
 /// ```compile_fail,E0080
-/// #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -700,7 +700,6 @@ pub mod codec {
 /// A field after `emit_details` fails to compile (macro-grammar rejection,
 /// before the required-field checks even run):
 /// ```compile_fail
-/// #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -720,7 +719,6 @@ pub mod codec {
 /// field `` and nothing else is wrong (canonical order and every other
 /// required field are fine):
 /// ```compile_fail,E0080
-/// #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -743,7 +741,6 @@ pub mod codec {
 /// required field is present, but `sfFee` is declared as `u32_field`
 /// instead of `native_amount`:
 /// ```compile_fail,E0080
-/// #![feature(macro_metavar_expr_concat)]
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::txn_template;
 ///
@@ -854,7 +851,7 @@ macro_rules! __txn_template_step {
                 #[doc = concat!("Sets `", stringify!($field), "` (default `", stringify!($default), "`). Overwritten by `prepare_for_emit` if this is one of the required emit-plumbing fields.")]
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds by construction: `Self::LEN` sums these same field sizes
-                $vis fn ${concat(set_, $field)}(&mut self, value: u32) {
+                $vis fn [<set_ $field>](&mut self, value: u32) {
                     const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1);
                     self.bytes[OFF..OFF.wrapping_add(4)].copy_from_slice(&value.to_be_bytes());
                 }
@@ -905,7 +902,7 @@ macro_rules! __txn_template_step {
                 /// their top 2 bits for control flags).
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds as above; only `drops` itself is runtime-fallible
-                $vis fn ${concat(set_, $field)}(&mut self, drops: u64) -> $crate::error::Result<()> {
+                $vis fn [<set_ $field>](&mut self, drops: u64) -> $crate::error::Result<()> {
                     const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1);
                     $crate::txn::codec::encode_native_amount(&mut self.bytes[OFF..OFF.wrapping_add(8)], drops)
                 }
@@ -950,7 +947,7 @@ macro_rules! __txn_template_step {
                 #[doc = concat!("Sets `", stringify!($field), "` (defaults to the all-zero `AccountId`). Overwritten by `prepare_for_emit` if this is the required `sfAccount` field.")]
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds by construction, as above
-                $vis fn ${concat(set_, $field)}(&mut self, value: &$crate::types::AccountId) {
+                $vis fn [<set_ $field>](&mut self, value: &$crate::types::AccountId) {
                     const OFF: usize = ($($prev)*)
                         .wrapping_add($crate::txn::codec::field_header($sfcode).1)
                         .wrapping_add(1);
@@ -1070,6 +1067,13 @@ macro_rules! __txn_template_step {
             bytes: [u8; $Name::LEN],
         }
 
+        // `[<set_ $field>]` setter names (spliced into `$($setters)*` above,
+        // per-field, by the `u32_field`/`native_amount`/`account_id` arms)
+        // are only resolved to real identifiers here, by wrapping the whole
+        // impl block in `$crate::__paste!` — `hooks-lib`'s own stable
+        // replacement for nightly's `${concat(...)}` (see the `Setter
+        // names` section above and `hooks_macros::paste`'s doc comment).
+        $crate::__paste! {
         impl $Name {
             /// Total serialized length: the fixed-position field prefix,
             /// plus the reserved `EmitDetails` region.
@@ -1188,6 +1192,7 @@ macro_rules! __txn_template_step {
                 Ok(__total_len)
             }
         }
+        } // $crate::__paste!
 
         impl ::core::default::Default for $Name {
             /// Equivalent to [`Self::new`].
