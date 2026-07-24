@@ -1,0 +1,14 @@
+{
+  "extends": "@tsconfig/node22/tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals"],
+    // node16/nodenext (the @tsconfig/node22 default) refuses to resolve
+    // the extensionless deep-subpath imports both `xahau` and
+    // `@transia/hooks-toolkit` need for symbols (e.g. `HookFlags`) that
+    // aren't re-exported from the package root; bundler resolution (what
+    // vitest/vite itself uses at runtime) resolves them the same way
+    // Node's classic `require()` does.
+    "moduleResolution": "bundler",
+    "module": "ESNext"
+  }
+}

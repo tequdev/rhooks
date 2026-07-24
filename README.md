@@ -41,3 +41,21 @@ mise run build-examples   # builds all four through hooks-build and checks the o
 
 See [`examples/README.md`](examples/README.md) for details, including why
 one of the four (`firewall`) needs `--auto-guard`.
+
+## E2E tests
+
+`e2e/` deploys the four examples' `hooks-build` output to a real,
+standalone `xahaud` (via `SetHook`) and asserts on the resulting
+transaction metadata and ledger state — proof of runtime behavior, not
+just that the binaries are SetHook-valid. See
+[`docs/E2E-TESTING.md`](docs/E2E-TESTING.md) for the design.
+
+```sh
+mise run e2e:node-up     # starts a standalone Xahau node (xrpld-netgen; needs Docker)
+mise run e2e              # builds the examples, then runs the e2e suite against it
+mise run e2e:node-down   # stops it
+```
+
+`e2e/` is an isolated pnpm package (not part of any Cargo or pnpm
+workspace) using the same stack as this machine's other hook repos:
+vitest + `@transia/hooks-toolkit` + `xahau`.

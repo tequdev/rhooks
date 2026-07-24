@@ -684,7 +684,12 @@ legality), so the division of labor is:
 - **C++ vendored checker** — authoritative pass/fail for api-version 0, in
   both `check` and post-transform `build`. Its captured log is printed on
   failure verbatim; on success the instruction counts are reported (they
-  are also what SetHook fee estimation derives from).
+  are also what SetHook fee estimation derives from). Note: these are
+  *syntactic* worst-case counts (a host `call` counts as 1; host-function
+  work is not modeled), and the node's live `HookInstructionCount` meter
+  can exceed them for tiny functions — observed live: emit-txn's `cbak`
+  10 vs static 7 (see docs/E2E-TESTING.md). They are a fee-estimation
+  input, not a runtime ceiling.
 - **Rust pipeline (6.2–6.4)** — everything the checker does not do
   (cleaning, auto-guard insertion, the 65,535-byte size gate, fee
   estimate, api-version 1 checks) plus pre-transform diagnostics with

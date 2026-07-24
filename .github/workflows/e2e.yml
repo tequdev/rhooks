@@ -1,0 +1,139 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  XAHAUD_VERSION: 2026.6.21-release+3350
+
+jobs:
+  build-hooks:
+    name: Build example hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (per rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            examples
+
+      # Same build invocations as ci.yml's `examples` job (kept in sync
+      # manually - see mise.toml's `build-examples` task, the single
+      # source of truth for the actual flags each example needs).
+      - name: accept-all
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/accept-all/Cargo.toml
+          cargo run -p hooks-build -- check examples/accept-all/out/accept_all.wasm
+
+      - name: state-counter
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/state-counter/Cargo.toml
+          cargo run -p hooks-build -- check examples/state-counter/out/state_counter.wasm
+
+      - name: firewall
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/firewall/Cargo.toml --auto-guard --default-maxiter 24
+          cargo run -p hooks-build -- check examples/firewall/out/firewall.wasm
+
+      - name: emit-txn
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/emit-txn/Cargo.toml
+          cargo run -p hooks-build -- check examples/emit-txn/out/emit_txn.wasm
+
+      - name: Upload example hook binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: example-hooks
+          path: examples/*/out/*.wasm
+          if-no-files-found: error
+
+  e2e:
+    name: Deploy & test on standalone Xahau
+    needs: build-hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download example hook binaries
+        uses: actions/download-artifact@v7
+        with:
+          name: example-hooks
+          path: examples-out
+
+      - name: Place downloaded wasm files back under examples/*/out/
+        run: |
+          set -e
+          for dir in examples-out/*/out; do
+            example="$(basename "$(dirname "$dir")")"
+            mkdir -p "examples/${example}/out"
+            cp "$dir"/*.wasm "examples/${example}/out/"
+          done
+          find examples -name '*.wasm'
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      # `xrpld-netgen` is a PyPI package (not vendored config): using it
+      # here, identically to `mise run e2e:node-up` locally, avoids hand-
+      # rolling a genesis-ledger generator. hooks-toolkit-ts's own CI
+      # pattern does exactly that (a vendored `.ci-config/genesis.js`) but
+      # that repo - and hence that script - is GPL-3.0-or-later, which
+      # cannot be vendored into this MIT-licensed repo; driving the same
+      # published CLI tool as a subprocess has no such issue and keeps
+      # local/CI provisioning identical (both `up:standalone`).
+      - name: Install xrpld-netgen
+        run: pip install xrpld-netgen
+
+      - name: Start standalone Xahau node
+        run: xrpld-netgen up:standalone --protocol xahau --version "${{ env.XAHAUD_VERSION }}"
+
+      - name: Wait for the node to answer admin RPC
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -sf -X POST http://0.0.0.0:5005 -d '{"method":"server_info"}' \
+                | grep -q '"build_version"'; then
+              echo "node is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "node did not become ready in time" >&2
+          docker logs xahau --tail 200 || true
+          exit 1
+
+      - name: Install e2e dependencies
+        run: pnpm --dir e2e install
+
+      - name: Run e2e suite
+        run: pnpm --dir e2e test
+
+      - name: Node debug log (on failure)
+        if: failure()
+        run: docker logs xahau --tail 500 || true
+
+      - name: Stop standalone Xahau node
+        if: always()
+        run: xrpld-netgen down:standalone --protocol xahau --version "${{ env.XAHAUD_VERSION }}" || true
