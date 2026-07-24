@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["accept-all", "firewall", "state-counter", "emit-txn"]
+members = ["accept-all", "firewall", "state-counter", "emit-txn", "gas-counter"]
 
 [workspace.package]
 edition = "2024"

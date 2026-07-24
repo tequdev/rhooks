@@ -12,16 +12,20 @@ release profile that must not leak into `hooks-core`/`hooks-lib`/
 | [`firewall`](firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
 | [`state-counter`](state-counter) | `state`/`state_set` round-trip, counter in hook state |
 | [`emit-txn`](emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
+| [`gas-counter`](gas-counter) | HookApiVersion 1 ("Gas"-type): same counter as `state-counter`, but with an unguarded loop/array comparison — see `docs/GAS-HOOKS.md` |
 
 ## Building
 
 ```sh
-mise run build-examples   # builds all four through hooks-build and checks the output
+mise run build-examples   # builds all five through hooks-build and checks the output
 ```
 
 This is also the toolchain's end-to-end test: each example is built via
 `cargo run -p hooks-build -- build ...` from the root workspace, and the
-resulting `out/<name>.wasm` is re-validated with `hooks-build check`.
+resulting `out/<name>.wasm` is re-validated with `hooks-build check`. All
+but `gas-counter` build against the default HookApiVersion 0 (Guard-type)
+rule set; `gas-counter` passes `--api-version 1` on both `build` and `check`
+(see its own README and `docs/GAS-HOOKS.md`).
 
 Each example can also be built individually, e.g.:
 

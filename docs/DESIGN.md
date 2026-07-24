@@ -28,7 +28,10 @@ contracts) end to end:
 - Publishing to crates.io (names/ownership decided later; `publish = false`).
 - Gas-type hook (HookApiVersion 1) *ergonomics*. The pipeline accepts
   `--api-version 1` (skips guard handling) but hooks-lib v1 targets
-  Guard-type hooks.
+  Guard-type hooks. PLAN L6 (`docs/GAS-HOOKS.md`) brought the
+  `--api-version 1` validator rules up to parity with `GasValidator.cpp`
+  and added a first Gas-type example (`examples/gas-counter`) — still no
+  hooks-lib API changes, so this remains accurate as written.
 - Deployment tooling (SetHook submission, faucet, networks). Out of scope;
   hooks-build stops at a valid `.wasm` plus a fee estimate.
 - WAT round-tripping, debugger, simulator.
@@ -566,7 +569,13 @@ an inlining bug must fail tests, not silently change hook semantics.
 
 ### 6.3 Guard pass (guard-checker equivalent + auto-insert)
 
-Skipped entirely when `--api-version 1`.
+Skipped entirely when `--api-version 1` — but the validator (6.4) then
+hard-errors if `_g` *is* imported anyway: Gas-type hooks have no guard
+concept at all. Verified by reading `GasValidator.cpp`'s
+`validateImportSection()` from the (not-yet-merged, not vendored)
+`gas-hook` branch of `Xahau/xahaud`, which explicitly rejects a `_g` import
+as "Gas-type hooks cannot import _g (guard) function" — see the vendoring
+caveat in `docs/GAS-HOOKS.md` §"Validation coverage and its limits".
 
 For every function body, scan instructions; at each `loop` opcode:
 
@@ -651,7 +660,11 @@ upstream checker (6.5), not from the Rust reimplementation.
 Hard errors (module shape — the SetHook-derived rule set; the final
 authority is `SetHook.cpp`, and phase 3 includes cross-checking every rule
 against xahaud source plus a known-good C-built hook fixture):
-- Any export other than `hook`/`cbak`; missing `hook`; wrong signatures.
+- Any export other than `hook`/`cbak`; missing `hook`; wrong signatures. For
+  api-version 1 only: a `__`-prefixed function export, or an exported
+  memory, is not "any export other than `hook`/`cbak`" — see the
+  api-version-1 bullets below (`GasValidator.cpp`'s
+  `validateExportSection()` explicitly allows both).
 - Any import from a module other than `env`, or a function name outside the
   whitelist (the whitelist is generated from `extern.h` — single source of
   truth shared with hooks-core; kept as a checked-in table with a test that
@@ -674,6 +687,17 @@ against xahaud source plus a known-good C-built hook fixture):
   entry that is not an import's type or the entry-point type (6.2b R2).
 - For api-version 0: block nesting depth > 32 (`Guard.h` `NESTING_LIMIT`
   under `GuardRuleDepth32`; warning from depth 28 — see 6.2c).
+- For api-version 1: `_g` imported at all (see 6.3) — verified against
+  `GasValidator.cpp`'s `validateImportSection()` (source read from the
+  `gas-hook` branch; not vendored — see `docs/GAS-HOOKS.md`).
+- For api-version 1: an exported memory whose minimum or (if present)
+  maximum page count exceeds 8 (`hook_api::max_memory_pages`, `Enum.h`) —
+  verified against `GasValidator.cpp`'s `validateExportSection()` (same
+  caveat). This rule has no api-version-0 counterpart (the guard checker
+  does not check memory page counts); our own `clean`/`build` pipeline
+  never emits an exported memory for either version (the cleaner always
+  restricts exports to `hook`/`cbak`), so it only bites `check` against
+  externally-built Gas-type wasm.
 - Binary > 65,535 bytes. (`build` refuses to emit; `--allow-oversize`
   writes the artifact anyway for size-debugging, clearly marked INVALID.)
 

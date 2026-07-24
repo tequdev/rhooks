@@ -11,7 +11,7 @@
     clippy::indexing_slicing
 )]
 
-use hooks_build::Options;
+use hooks_build::{ApiVersion, Options};
 
 fn wasm(src: &str) -> Vec<u8> {
     wat::parse_str(src).expect("fixture is valid wat")
@@ -19,6 +19,13 @@ fn wasm(src: &str) -> Vec<u8> {
 
 fn opts() -> Options {
     Options::default()
+}
+
+fn opts_v1() -> Options {
+    Options {
+        api_version: ApiVersion::V1,
+        ..Options::default()
+    }
 }
 
 /// Appends a raw custom section (id 0) to an existing wasm binary.
@@ -754,4 +761,136 @@ fn run_pipeline_reports_fee_relevant_size() {
     );
     let fee = hooks_build::estimate_fee(out.len());
     assert_eq!(fee.drops, fee.bytes * 5000);
+}
+
+// ---------------------------------------------------------------------
+// API version 1 (Gas-type): validator rules with no api-version-0
+// counterpart, per `docs/GAS-HOOKS.md` and `docs/DESIGN.md` §6.3/§6.4.
+// These were verified by hand against `GasValidator.cpp` on the (not
+// vendored) `gas-hook` branch of `Xahau/xahaud` — see the "Validation
+// coverage and its limits" section of `docs/GAS-HOOKS.md`.
+// ---------------------------------------------------------------------
+
+/// An ordinary, unguarded loop and no `_g` import at all — invalid for
+/// api-version 0 (missing R1, unguarded loop) but exactly what a Gas-type
+/// hook is expected to look like.
+const UNGUARDED_LOOP_NO_G_HOOK: &str = r#"
+(module
+  (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
+  (func $hook (param i32) (result i64)
+    (local $i i32)
+    (loop $l
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br_if $l (i32.lt_u (local.get $i) (i32.const 10))))
+    (call $accept (i32.const 0) (i32.const 0) (i64.const 0)))
+  (export "hook" (func $hook)))
+"#;
+
+#[test]
+fn validator_v1_accepts_unguarded_loop_without_g_import() {
+    hooks_build::validate(&wasm(UNGUARDED_LOOP_NO_G_HOOK), &opts_v1())
+        .expect("an unguarded loop and no `_g` import is exactly what a Gas-type hook looks like");
+}
+
+#[test]
+fn validator_v0_rejects_the_same_module() {
+    // The same fixture, unmodified, is invalid for api-version 0: it is
+    // missing the `_g` import (R1) and has an unguarded loop.
+    let err = hooks_build::validate(&wasm(UNGUARDED_LOOP_NO_G_HOOK), &opts()).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("_g"), "{msg}");
+    assert!(msg.to_lowercase().contains("guard"), "{msg}");
+}
+
+#[test]
+fn validator_v1_rejects_g_import() {
+    let src = r#"
+    (module
+      (import "env" "_g" (func $g (param i32 i32) (result i32)))
+      (func $hook (param i32) (result i64) (i64.const 0))
+      (export "hook" (func $hook)))
+    "#;
+    let err = hooks_build::validate(&wasm(src), &opts_v1()).unwrap_err();
+    assert!(err.to_string().contains("_g"), "{err}");
+}
+
+#[test]
+fn validator_v1_allows_dunder_prefixed_export() {
+    let src = r#"
+    (module
+      (func $hook (param i32) (result i64) (i64.const 0))
+      (func $rt_alloc (param i32) (result i64) (i64.const 0))
+      (export "hook" (func $hook))
+      (export "__rust_alloc" (func $rt_alloc)))
+    "#;
+    hooks_build::validate(&wasm(src), &opts_v1())
+        .expect("Gas-type hooks may export `__`-prefixed runtime-support functions");
+}
+
+#[test]
+fn validator_v0_rejects_dunder_prefixed_export() {
+    // The same fixture is invalid for api-version 0: only `hook`/`cbak` may
+    // be exported at all.
+    let src = r#"
+    (module
+      (import "env" "_g" (func $g (param i32 i32) (result i32)))
+      (func $hook (param i32) (result i64) (i64.const 0))
+      (func $rt_alloc (param i32) (result i64) (i64.const 0))
+      (export "hook" (func $hook))
+      (export "__rust_alloc" (func $rt_alloc)))
+    "#;
+    let err = hooks_build::validate(&wasm(src), &opts()).unwrap_err();
+    assert!(err.to_string().contains("__rust_alloc"), "{err}");
+}
+
+#[test]
+fn validator_v1_allows_memory_export_within_page_limit() {
+    // `MINIMAL_HOOK` (defined above) exports an 1-page memory alongside
+    // `hook` — within the Gas-type 8-page limit.
+    hooks_build::validate(&wasm(MINIMAL_HOOK), &opts_v1())
+        .expect("an exported memory within the 8-page limit is allowed for Gas-type hooks");
+}
+
+#[test]
+fn validator_v1_rejects_memory_export_exceeding_min_page_limit() {
+    let src = r#"
+    (module
+      (memory 9)
+      (func $hook (param i32) (result i64) (i64.const 0))
+      (export "hook" (func $hook))
+      (export "memory" (memory 0)))
+    "#;
+    let err = hooks_build::validate(&wasm(src), &opts_v1()).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains('8'), "{msg}");
+    assert!(msg.to_lowercase().contains("memory"), "{msg}");
+}
+
+#[test]
+fn validator_v1_rejects_memory_export_exceeding_max_page_limit() {
+    let src = r#"
+    (module
+      (memory 1 9)
+      (func $hook (param i32) (result i64) (i64.const 0))
+      (export "hook" (func $hook))
+      (export "memory" (memory 0)))
+    "#;
+    let err = hooks_build::validate(&wasm(src), &opts_v1()).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains('8'), "{msg}");
+    assert!(msg.to_lowercase().contains("maximum"), "{msg}");
+}
+
+#[test]
+fn run_pipeline_v1_skips_flatten_unnest_and_guard() {
+    // `run_pipeline` on an unguarded, non-inlined-helper module succeeds
+    // under `--api-version 1` with no `guard_verdict` (the native checker
+    // never runs for v1 — see `docs/DESIGN.md` §6.5).
+    let (out, report) = hooks_build::run_pipeline(&wasm(UNGUARDED_LOOP_NO_G_HOOK), &opts_v1())
+        .expect("api-version-1 pipeline accepts an unguarded loop with no `_g` import");
+    assert!(!out.is_empty());
+    assert!(
+        report.guard_verdict.is_none(),
+        "the native guard checker is v0-only and must not run for api-version 1"
+    );
 }
