@@ -9,6 +9,9 @@
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
 //! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
 //!   terse macros for common patterns (see `macros.rs`).
+//! - [`hook_errors!`] / [`exit_on_err!`] — define a `#[repr(i64)]` user error
+//!   enum and convert `Result<T, YourEnum>` into a `rollback!` at the hook's
+//!   boundary (see `errors.rs`).
 //! - An optional panic handler (feature `panic-handler`, default-on) that
 //!   rolls the hook back instead of leaving an unhandled panic.
 //!
@@ -31,6 +34,7 @@
 
 pub mod api;
 pub mod error;
+mod errors;
 mod macros;
 pub mod static_cell;
 pub mod txn;
