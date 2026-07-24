@@ -48,9 +48,7 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
     // `examples/xfl-math` for reading *any* Amount kind uniformly via XFL.
     let mut amount_raw = [0u8; 8];
     let drops = match otxn_field(&mut amount_raw, sfAmount) {
-        Ok(n) if n == amount_raw.len() => {
-            u64::from_be_bytes(amount_raw) & !NATIVE_AMOUNT_FLAG_BITS
-        }
+        Ok(n) if n == amount_raw.len() => u64::from_be_bytes(amount_raw) & !NATIVE_AMOUNT_FLAG_BITS,
         _ => rollback!(b"hook-params: unsupported (non-native) Amount", -1),
     };
 

@@ -75,5 +75,8 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
     // inspect the whole 20/8 bytes, e.g. against an allow-list — see
     // `firewall` — or decode the amount, e.g. `examples/hook-params`).
     let marker = u16::from(dest[0]).wrapping_add(u16::from(amount_buf[0]));
-    accept!(b"slot-ledger: read Destination and native Amount", i64::from(marker))
+    accept!(
+        b"slot-ledger: read Destination and native Amount",
+        i64::from(marker)
+    )
 }
