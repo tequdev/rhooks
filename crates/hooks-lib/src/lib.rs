@@ -7,6 +7,9 @@
 //!   (`AccountId`, `Hash`, `Keylet`, ...).
 //! - [`convert::ToBytes`]/[`convert::FromBytes`] — boundary conversion
 //!   traits for encoding/decoding fixed-size values to/from byte buffers.
+//! - [`state`] — a typed layer over hook state (`state_get`,
+//!   `state_set_typed`, `state_update_typed`, and the [`state_keys!`] macro
+//!   for declaring a state-key enum) built on top of [`convert`].
 //! - [`xfl::XFL`] — the Xahau decimal floating-point type.
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
 //! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
@@ -35,6 +38,7 @@ pub mod api;
 pub mod convert;
 pub mod error;
 mod macros;
+pub mod state;
 pub mod static_cell;
 pub mod txn;
 pub mod types;
@@ -63,6 +67,10 @@ pub mod prelude {
     pub use crate::api::*;
     pub use crate::convert::{FromBytes, ToBytes};
     pub use crate::error::{HookError, Result};
+    pub use crate::state::{
+        StateKeyEncode, state_foreign_get, state_foreign_set_typed, state_foreign_update_typed,
+        state_get, state_set_typed, state_update_typed,
+    };
     pub use crate::static_cell::HookStatic;
     pub use crate::types::*;
     pub use crate::xfl::XFL;
