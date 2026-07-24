@@ -38,7 +38,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, rollback, txn_template};
+use hooks_lib::{accept, cbak, hook, rollback, txn_template};
 
 txn_template! {
     /// This hook's Payment template: `TransactionType` through
@@ -110,8 +110,8 @@ fn my_hook() -> i64 {
     }
 }
 
-// Callback invoked when the emitted transaction settles. Always accepts.
-// #[cbak]
-// fn my_cbak() -> i64 {
-//     accept!()
-// }
+/// Callback invoked when the emitted transaction settles. Always accepts.
+#[cbak]
+fn my_cbak() -> i64 {
+    accept!()
+}
