@@ -82,11 +82,9 @@ pub fn hook_skip(hash: &[u8], flags: u32) -> Result<i64> {
 
 /// Get the hook's position (index) in the hook chain of the current account.
 ///
-/// Returned as `u64`: like burden/fee/seq/time elsewhere in this crate, a
-/// hook position is a natural (unsigned) magnitude even though the Hook API
-/// wire type is `i64` (see the `api::ledger` module doc for the same
-/// convention applied consistently).
+/// Never returns a Hook API error code, so it is exposed as a plain `u8`
+/// (a hook chain holds at most 10 hooks) rather than a `Result`.
 #[inline(always)]
-pub fn hook_pos() -> Result<u64> {
-    res(unsafe { hooks_core::hook_pos() }).map(|v| v as u64)
+pub fn hook_pos() -> u8 {
+    unsafe { hooks_core::hook_pos() as u8 }
 }

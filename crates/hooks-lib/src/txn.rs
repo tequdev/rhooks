@@ -1130,15 +1130,15 @@ macro_rules! __txn_template_step {
             ///
             /// # Errors
             ///
-            /// Propagates any error from the underlying `ledger_seq`,
-            /// `hook_account`, `etxn_details`, or `etxn_fee_base` host
-            /// calls, or returns
+            /// Propagates any error from the underlying `hook_account`,
+            /// `etxn_details`, or `etxn_fee_base` host calls
+            /// (`ledger_seq` cannot fail), or returns
             /// [`crate::error::HookError::InvalidArgument`] if the computed
             /// blob length exceeds [`Self::LEN`].
             #[inline(always)]
             #[allow(clippy::indexing_slicing)] // in-bounds by construction, as the setters above
             $vis fn prepare_for_emit(&mut self) -> $crate::error::Result<usize> {
-                let __fls = ($crate::api::ledger::ledger_seq()?).wrapping_add(1) as u32;
+                let __fls = $crate::api::ledger::ledger_seq().wrapping_add(1);
                 {
                     const OFF: usize = $crate::txn::codec::field_offset_or(
                         $Name::FIELDS,

@@ -1,10 +1,12 @@
 //! Emitted-transaction (`etxn_*`) API: reserving emission slots, computing
 //! fees/nonces, and emitting transactions.
 //!
-//! Burden, fee, and generation values are naturally unsigned magnitudes even
-//! though the Hook API wire type is `i64` — this module returns them as
-//! `u64` (the non-negative `i64` payload cast with `as`, safe because
-//! [`crate::error::res`] already rejected negative values).
+//! Burden and fee values are naturally unsigned magnitudes even though the
+//! Hook API wire type is `i64` — fallible calls return them as `u64` (the
+//! non-negative payload cast with `as`, safe because
+//! [`crate::error::res`] already rejected negative values), while calls
+//! that never return an error code (`etxn_generation`) are exposed as
+//! plain values.
 
 use crate::error::{Result, res};
 use crate::types::{HASH_LEN, Hash, NONCE_LEN, Nonce};
@@ -46,8 +48,8 @@ pub fn etxn_reserve(count: u32) -> Result<i64> {
 
 /// The generation of transactions emitted by this hook so far.
 #[inline(always)]
-pub fn etxn_generation() -> Result<u64> {
-    res(unsafe { hooks_core::etxn_generation() }).map(|v| v as u64)
+pub fn etxn_generation() -> u32 {
+    unsafe { hooks_core::etxn_generation() as u32 }
 }
 
 /// A fresh nonce for use in an emitted transaction.
@@ -102,7 +104,7 @@ mod tests {
         assert_eq!(etxn_details(&mut ed_out), Err(HookError::NotImplemented));
         assert_eq!(etxn_fee_base(&[0u8; 4]), Err(HookError::NotImplemented));
         assert_eq!(etxn_reserve(1), Err(HookError::NotImplemented));
-        assert_eq!(etxn_generation(), Err(HookError::NotImplemented));
+        assert_eq!(etxn_generation(), hooks_core::NOT_IMPLEMENTED as u32);
         assert_eq!(etxn_nonce(), Err(HookError::NotImplemented));
         assert_eq!(emit(&[0u8; 4]), Err(HookError::NotImplemented));
         let mut out = [0u8; 8];

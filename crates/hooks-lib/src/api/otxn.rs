@@ -8,8 +8,8 @@ use crate::types::{HASH_LEN, Hash};
 /// the `sfEmitBurden` value for an emitted transaction. A natural (unsigned)
 /// magnitude despite the Hook API's `i64` wire type.
 #[inline(always)]
-pub fn otxn_burden() -> Result<u64> {
-    res(unsafe { hooks_core::otxn_burden() }).map(|v| v as u64)
+pub fn otxn_burden() -> u64 {
+    unsafe { hooks_core::otxn_burden() as u64 }
 }
 
 /// Read a field from the originating transaction into `out`. Returns the
@@ -23,8 +23,8 @@ pub fn otxn_field(out: &mut [u8], field_id: u32) -> Result<usize> {
 /// Generation of the originating transaction: `0` for a normal transaction,
 /// or the `sfEmitGeneration` value for an emitted transaction.
 #[inline(always)]
-pub fn otxn_generation() -> Result<u64> {
-    res(unsafe { hooks_core::otxn_generation() }).map(|v| v as u64)
+pub fn otxn_generation() -> u32 {
+    unsafe { hooks_core::otxn_generation() as u32 }
 }
 
 /// The ID (hash) of the originating transaction. `flags = 0` prefers the
@@ -40,8 +40,8 @@ pub fn otxn_id(flags: u32) -> Result<Hash> {
 
 /// The `TxType` of the originating transaction (see `hooks_core::tts`).
 #[inline(always)]
-pub fn otxn_type() -> Result<u32> {
-    res(unsafe { hooks_core::otxn_type() }).map(|v| v as u32)
+pub fn otxn_type() -> u16 {
+    unsafe { hooks_core::otxn_type() as u16 }
 }
 
 /// Load the originating transaction into a slot. `slot_into = 0` auto-assigns
@@ -73,9 +73,9 @@ mod tests {
 
     #[test]
     fn smoke_not_implemented_on_host() {
-        assert_eq!(otxn_burden(), Err(HookError::NotImplemented));
-        assert_eq!(otxn_generation(), Err(HookError::NotImplemented));
-        assert_eq!(otxn_type(), Err(HookError::NotImplemented));
+        assert_eq!(otxn_burden(), hooks_core::NOT_IMPLEMENTED as u64);
+        assert_eq!(otxn_generation(), hooks_core::NOT_IMPLEMENTED as u32);
+        assert_eq!(otxn_type(), hooks_core::NOT_IMPLEMENTED as u16);
         assert_eq!(otxn_slot(0), Err(HookError::NotImplemented));
         assert_eq!(otxn_id(0), Err(HookError::NotImplemented));
         let mut buf = [0u8; 32];
