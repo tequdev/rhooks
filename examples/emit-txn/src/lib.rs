@@ -114,8 +114,8 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
     }
 }
 
-// Callback invoked when the emitted transaction settles. Always accepts.
-// #[unsafe(no_mangle)]
-// pub extern "C" fn cbak(_reserved: u32) -> i64 {
-//     accept!()
-// }
+/// Callback invoked when the emitted transaction settles. Always accepts.
+#[unsafe(no_mangle)]
+pub extern "C" fn cbak(_reserved: u32) -> i64 {
+    accept!()
+}
