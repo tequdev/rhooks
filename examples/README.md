@@ -46,6 +46,11 @@ root workspace's panic-free set) and by review:
   slices, not formatted strings.
 - No `unwrap`/`expect`/`panic!` (all denied by `[lints]`); handle every
   `Result` explicitly, typically by rolling back on `Err`.
+- A `rollback!`/`accept!` exit that carries a meaningful (non-zero, non-`-1`
+  placeholder) code defines its codes with `hooks_lib::hook_errors!` rather
+  than bare integer literals — see `firewall`, `state-counter`, and
+  `emit-txn` for worked examples, and each crate's own README for its error
+  code table.
 - Loops carry `guard!`/`guard_m!` when the bound is known at the source
   level. Some loops in the compiled output are *not* written in the
   source at all — see "On `--auto-guard`" below.

@@ -7,10 +7,21 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, rollback};
+use hooks_lib::{accept, hook_errors, rollback};
 
 /// Name of the Hook parameter carrying the 20-byte blocked `AccountId`.
 const BL_PARAM: &[u8] = b"BL";
+
+hook_errors! {
+    /// `firewall` rollback codes.
+    pub enum FirewallError {
+        /// `otxn_field(sfAccount)` did not return a 20-byte `AccountId`.
+        CouldNotReadSender = 1,
+        /// The originating transaction's sender matched the blacklisted
+        /// account configured via the `BL` Hook parameter.
+        BlockedAccount = 2,
+    }
+}
 
 /// Hook entry point. Rolls back if the originating transaction's sender is
 /// the blacklisted account; accepts otherwise.
@@ -19,7 +30,10 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
     let mut sender: AccountId = [0u8; ACC_ID_LEN];
     match otxn_field(&mut sender, sfAccount) {
         Ok(n) if n == ACC_ID_LEN => {}
-        _ => rollback!(b"firewall: could not read otxn sender", -1),
+        _ => rollback!(
+            b"firewall: could not read otxn sender",
+            FirewallError::CouldNotReadSender
+        ),
     }
 
     let mut blocked: AccountId = [0u8; ACC_ID_LEN];
@@ -30,7 +44,7 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
     }
 
     if sender == blocked {
-        rollback!(b"firewall: blocked account", -1);
+        rollback!(b"firewall: blocked account", FirewallError::BlockedAccount);
     }
 
     accept!()

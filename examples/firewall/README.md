@@ -27,3 +27,13 @@ successfully but risk a runtime `GUARD_VIOLATION` on a real node. See
 Set a `BL` Hook parameter (20 raw bytes, the blocked `AccountId`) when
 installing this Hook via `SetHook`. Deployment/SetHook tooling is out of
 scope for this repo (see `docs/DESIGN.md` §1 non-goals).
+
+## Error codes
+
+`FirewallError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`rollback!` code for each failure this hook can exit with:
+
+| variant | code | meaning |
+|---|---|---|
+| `CouldNotReadSender` | 1 | `otxn_field(sfAccount)` did not return a 20-byte `AccountId` |
+| `BlockedAccount` | 2 | the sender matched the `BL`-configured blacklist account |
