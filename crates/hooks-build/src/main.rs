@@ -46,9 +46,10 @@ enum Cmd {
         /// limit (clearly marked invalid).
         #[arg(long)]
         allow_oversize: bool,
-        /// Run `wasm-opt -Oz` (requires a system `wasm-opt` executable; see
-        /// `brew install binaryen`) between the cleaner and the flatten
-        /// pass. Every later stage still re-validates the result in full.
+        /// Run `wasm-opt -Oz` between the cleaner and the flatten pass
+        /// (vendored via the `wasm-opt` crate — no system install
+        /// required). Every later stage still re-validates the result in
+        /// full.
         #[arg(long)]
         optimize: bool,
     },
@@ -74,9 +75,10 @@ enum Cmd {
         /// limit (clearly marked invalid).
         #[arg(long)]
         allow_oversize: bool,
-        /// Run `wasm-opt -Oz` (requires a system `wasm-opt` executable; see
-        /// `brew install binaryen`) between the cleaner and the flatten
-        /// pass. Every later stage still re-validates the result in full.
+        /// Run `wasm-opt -Oz` between the cleaner and the flatten pass
+        /// (vendored via the `wasm-opt` crate — no system install
+        /// required). Every later stage still re-validates the result in
+        /// full.
         #[arg(long)]
         optimize: bool,
     },

@@ -1,11 +1,9 @@
 //! Integration tests for the `--optimize` (`wasm-opt -Oz`) pipeline stage
 //! (`docs/DESIGN.md` §6, PLAN M7).
 //!
-//! Tests that actually invoke `wasm-opt` skip themselves (rather than
-//! failing) when no `wasm-opt` executable is on `PATH`, since it is an
-//! optional system dependency, not a workspace toolchain pin (`mise.toml`
-//! does not manage it) — see `crate::optimize`'s module doc for why it's a
-//! shell-out rather than a vendored crate.
+//! `wasm-opt` is vendored in-process via the `wasm-opt` crate (see
+//! `crate::optimize`'s module doc), not a system executable, so these tests
+//! always run — no `PATH` probing or skip-if-missing logic needed.
 //!
 //! Test code is exempt from the workspace's panic-freedom lints (per
 //! `docs/DESIGN.md` §8): `unwrap`/`expect`/`panic!` on a known-good fixture
@@ -17,16 +15,7 @@
     clippy::indexing_slicing
 )]
 
-use std::sync::Mutex;
-
 use hooks_build::Options;
-
-/// Serializes every test in this file against `$WASM_OPT`: cargo runs tests
-/// within one binary concurrently by default, and `$WASM_OPT` is
-/// process-global state, so the negative test below (which points it at a
-/// nonexistent path) could otherwise race with the positive test (which
-/// needs it either unset or pointed at a real `wasm-opt`).
-static WASM_OPT_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn wasm(src: &str) -> Vec<u8> {
     wat::parse_str(src).expect("fixture is valid wat")
@@ -37,18 +26,6 @@ fn optimize_opts() -> Options {
         optimize: true,
         ..Options::default()
     }
-}
-
-/// True if a `wasm-opt` executable can be found on `PATH`, mirroring
-/// `crate::optimize::find_wasm_opt`'s search (checked independently here so
-/// a test skip and the pipeline's own lookup can never silently disagree
-/// for a reason other than "no `wasm-opt` installed").
-fn wasm_opt_on_path() -> bool {
-    std::env::var("PATH")
-        .ok()
-        .into_iter()
-        .flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
-        .any(|dir| dir.join("wasm-opt").is_file())
 }
 
 /// A guarded-loop hook (clears the vendored checker's unconditional `_g`
@@ -81,13 +58,6 @@ const GUARDED_LOOP_WITH_DEAD_CODE_HOOK: &str = r#"
 
 #[test]
 fn optimize_pipeline_completes_and_validates() {
-    let _env_guard = WASM_OPT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-
-    if !wasm_opt_on_path() {
-        eprintln!("skipping: no `wasm-opt` on PATH (install via `brew install binaryen`)");
-        return;
-    }
-
     let input = wasm(GUARDED_LOOP_WITH_DEAD_CODE_HOOK);
     let (out, report) = hooks_build::run_pipeline(&input, &optimize_opts())
         .expect("pipeline with --optimize should complete and pass validation");
@@ -127,31 +97,5 @@ fn optimize_pipeline_completes_and_validates() {
         after_guard.hook_cost <= before_guard.hook_cost,
         "dead-code elimination should not increase hook() worst-case instructions: \
          before={before_guard:?} after={after_guard:?}"
-    );
-}
-
-#[test]
-fn optimize_missing_wasm_opt_reports_actionable_error() {
-    let _env_guard = WASM_OPT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-
-    // SAFETY: `$WASM_OPT` is process-global; `WASM_OPT_ENV_LOCK` above
-    // serializes this against the only other test in this file that reads
-    // it, so this mutation cannot race with a concurrently-running test.
-    unsafe {
-        std::env::set_var(
-            "WASM_OPT",
-            "/definitely/not/a/real/wasm-opt/on/this/machine",
-        );
-    }
-    let result = hooks_build::optimize(&wasm(GUARDED_LOOP_WITH_DEAD_CODE_HOOK));
-    unsafe {
-        std::env::remove_var("WASM_OPT");
-    }
-
-    let err = result.expect_err("a nonexistent $WASM_OPT path must not silently succeed");
-    let msg = err.to_string();
-    assert!(
-        msg.contains("/definitely/not/a/real/wasm-opt/on/this/machine"),
-        "error should name the path that failed to spawn: {msg}"
     );
 }

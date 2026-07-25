@@ -1,39 +1,44 @@
 //! Optional `wasm-opt` (Binaryen) integration (`--optimize`).
 //!
-//! **Dependency choice**: this shells out to a system `wasm-opt` executable
-//! rather than depending on the `wasm-opt`/`binaryen` crates (which vendor
-//! and build the whole Binaryen C++ tree from source). That crate adds
-//! several minutes to a clean build of `hooks-build` itself (a one-time cost
-//! for every contributor and every CI run, paid whether or not `--optimize`
-//! is ever used) and a large, platform-sensitive C++ build dependency, for a
-//! feature this document already scopes as optional and off by default. A
-//! shell-out costs nothing when `--optimize` is not passed, keeps
-//! `hooks-build`'s own build fast and portable, and Binaryen's `wasm-opt` CLI
-//! is a stable, widely-packaged tool (`brew install binaryen`,
-//! `apt install binaryen`, or a prebuilt release archive) — so the trade is
-//! a slightly worse first-run experience (one extra install step, once) for
-//! a meaningfully better one on every other build. The cost is a clear,
-//! actionable error (see [`find_wasm_opt`]) when it's missing, rather than a
-//! silent capability gap.
+//! **Dependency choice**: this depends on the `wasm-opt` crate (crates.io),
+//! which vendors Binaryen's C++ sources and links `wasm-opt` in-process,
+//! rather than shelling out to a system `wasm-opt` executable. An earlier
+//! version of this module shelled out instead, to avoid the vendored
+//! crate's build-time cost; that traded a slower/less portable build for a
+//! capability gap (`--optimize` silently unavailable without a separate
+//! `brew install binaryen`/`apt install binaryen` step, plus `$WASM_OPT`
+//! escape-hatch plumbing) that turned out to matter more than the build-time
+//! cost it was avoiding. Self-containment won: with the crate dependency,
+//! `--optimize` always works, on every platform `wasm-opt-sys` supports,
+//! with no separate install step and no environment-variable override to
+//! document or test. The cost is paid once, at build time: the
+//! `wasm-opt-sys` crate compiles Binaryen's C++ sources from scratch (it
+//! does not do incremental recompilation), which adds a non-trivial amount
+//! of time to a *clean* build of `hooks-build` — every contributor and CI
+//! runner pays it once, then `cargo`'s normal build-artifact caching means
+//! every subsequent build (whether or not `--optimize` is ever passed) is
+//! unaffected.
 //!
 //! Pipeline position: after [`crate::cleaner::clean`], before
 //! [`crate::flatten::flatten`] (`docs/DESIGN.md` §6). Running it on the
 //! already-cleaned module means custom sections (including any
-//! `target_features` section LLVM emits) are already gone, so `wasm-opt`
-//! falls back to its conservative MVP-only default feature set instead of
-//! auto-detecting proposals from that section — matching the MVP-only shape
-//! `wasm32v1-none`/the vendored guard checker expect. `wasm-opt`'s output is
-//! **not** trusted blindly: every later stage (flatten, unnest, guard
-//! pass/verify, Rust validator, vendored upstream checker) still runs
-//! against it exactly as it would against un-optimized input, so any shape
-//! `-Oz` produces that those stages reject is still caught before it ever
-//! reaches disk.
+//! `target_features` section LLVM emits) are already gone; [`optimize`]
+//! restricts the optimizer to the WebAssembly MVP feature set explicitly
+//! (via [`wasm_opt::OptimizationOptions::mvp_features_only`]) rather than
+//! relying on Binaryen's default feature baseline (which enables
+//! sign-extension ops and mutable-globals import/export beyond MVP) —
+//! matching the MVP-only shape `wasm32v1-none`/the vendored guard checker
+//! expect. `wasm-opt`'s output is **not** trusted blindly: every later
+//! stage (flatten, unnest, guard pass/verify, Rust validator, vendored
+//! upstream checker) still runs against it exactly as it would against
+//! un-optimized input, so any shape `-Oz` produces that those stages reject
+//! is still caught before it ever reaches disk.
 
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
+use wasm_opt::OptimizationOptions;
 
 /// Before/after statistics for an `--optimize` run, attached to
 /// [`crate::ValidationReport::optimize_report`].
@@ -62,14 +67,12 @@ pub struct OptimizeReport {
     pub after_guard: Option<crate::GuardVerdict>,
 }
 
-/// Runs `wasm-opt -Oz` over `wasm`, returning the optimized bytes.
+/// Runs `wasm-opt -Oz` (MVP feature set only) over `wasm`, returning the
+/// optimized bytes.
 ///
-/// Errors with a clear, actionable message (see [`find_wasm_opt`]) if
-/// `wasm-opt` is not on `PATH`, or with `wasm-opt`'s own stderr if it runs
-/// but rejects/fails on the input.
+/// Errors with `wasm-opt`'s own diagnostic if it fails to parse, optimize,
+/// or validate the input or output module.
 pub fn optimize(wasm: &[u8]) -> Result<Vec<u8>> {
-    let wasm_opt = find_wasm_opt()?;
-
     let unique = format!(
         "hooks-build-optimize-{}-{}",
         std::process::id(),
@@ -82,7 +85,7 @@ pub fn optimize(wasm: &[u8]) -> Result<Vec<u8>> {
     let in_path = dir.join(format!("{unique}-in.wasm"));
     let out_path = dir.join(format!("{unique}-out.wasm"));
 
-    let result = run_wasm_opt(&wasm_opt, wasm, &in_path, &out_path);
+    let result = run_wasm_opt(wasm, &in_path, &out_path);
 
     let _ = std::fs::remove_file(&in_path);
     let _ = std::fs::remove_file(&out_path);
@@ -90,58 +93,18 @@ pub fn optimize(wasm: &[u8]) -> Result<Vec<u8>> {
     result
 }
 
-fn run_wasm_opt(
-    wasm_opt: &PathBuf,
-    wasm: &[u8],
-    in_path: &PathBuf,
-    out_path: &PathBuf,
-) -> Result<Vec<u8>> {
+fn run_wasm_opt(wasm: &[u8], in_path: &PathBuf, out_path: &PathBuf) -> Result<Vec<u8>> {
     std::fs::write(in_path, wasm)
         .with_context(|| format!("writing wasm-opt input to {}", in_path.display()))?;
 
-    let output = Command::new(wasm_opt)
-        .arg("-Oz")
-        .arg(in_path)
-        .arg("-o")
-        .arg(out_path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .with_context(|| format!("failed to spawn `{}`", wasm_opt.display()))?;
-
-    if !output.status.success() {
-        bail!(
-            "wasm-opt failed ({}):\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    // `-Oz`: optimize_level 2, shrink_level 2 (Binaryen's most aggressive
+    // size-optimization preset), restricted to the WebAssembly MVP feature
+    // set — see this module's doc comment.
+    OptimizationOptions::new_optimize_for_size_aggressively()
+        .mvp_features_only()
+        .run(in_path, out_path)
+        .context("wasm-opt (-Oz) failed")?;
 
     std::fs::read(out_path)
         .with_context(|| format!("reading wasm-opt output {}", out_path.display()))
-}
-
-/// Locates a `wasm-opt` executable: `$WASM_OPT` if set, otherwise the first
-/// `wasm-opt` found on `PATH`.
-fn find_wasm_opt() -> Result<PathBuf> {
-    if let Ok(p) = std::env::var("WASM_OPT") {
-        return Ok(PathBuf::from(p));
-    }
-    if let Ok(path) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path) {
-            let candidate = dir.join("wasm-opt");
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-        }
-    }
-    bail!(
-        "`--optimize` requires the `wasm-opt` executable (from the Binaryen toolkit) on PATH, \
-         but it was not found.\n\nInstall it, then retry:\n  \
-         macOS (Homebrew): brew install binaryen\n  \
-         Debian/Ubuntu:    apt install binaryen\n  \
-         or download a release from https://github.com/WebAssembly/binaryen/releases\n\n\
-         Alternatively, set $WASM_OPT to the executable's path, or drop --optimize to build \
-         without it."
-    )
 }

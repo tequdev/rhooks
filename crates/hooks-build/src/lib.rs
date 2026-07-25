@@ -88,11 +88,11 @@ pub struct Options {
     /// honored by `check`.
     pub allow_oversize: bool,
     /// If true, run `wasm-opt -Oz` (see [`optimize::optimize`]) between the
-    /// cleaner and the flatten pass. Off by default: it requires a system
-    /// `wasm-opt` executable, and every later stage still re-validates its
-    /// output in full, so turning it on can turn a previously-passing build
-    /// into a failing one if `-Oz` produces a shape flatten/unnest/the guard
-    /// checker rejects (`docs/DESIGN.md` §6).
+    /// cleaner and the flatten pass. Off by default: every later stage
+    /// still re-validates its output in full, so turning it on can turn a
+    /// previously-passing build into a failing one if `-Oz` produces a
+    /// shape flatten/unnest/the guard checker rejects (`docs/DESIGN.md`
+    /// §6).
     pub optimize: bool,
 }
 
