@@ -1,9 +1,10 @@
-//! Generates `crates/hooks-core/src/tts.rs` from `tts.h`.
+//! Generates `crates/hooks-core/src/tts.rs` from `tts.h`'s parsed
+//! [`ConstSpec`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
 
 use super::{push_const, with_generated_marker};
-use crate::parse::scan_defines;
+use crate::ir::ConstSpec;
 use crate::render::expect_decimal;
 
 const MODULE_DOC: &str = "\
@@ -13,12 +14,11 @@ const MODULE_DOC: &str = "\
 //! `crates/hooks-core/vendor/xahaud-hook/tts.h`.
 ";
 
-/// Renders `tts.rs`'s full contents from `tts.h`'s source text.
-pub fn generate(tts_h: &str) -> Result<String> {
-    let defines = scan_defines(tts_h);
+/// Renders `tts.rs`'s full contents from `tts.h`'s parsed [`ConstSpec`]s.
+pub fn generate(tts: &[ConstSpec]) -> Result<String> {
     let mut body = String::from("\n");
-    for d in &defines {
-        let value = expect_decimal(&d.name, &d.value)?;
+    for d in tts {
+        let value = expect_decimal(&d.name, &d.c_expr)?;
         let doc = vec![format!("C: `{}` (tts.h)", d.name)];
         push_const(&mut body, &doc, &d.name, "u32", &value);
     }

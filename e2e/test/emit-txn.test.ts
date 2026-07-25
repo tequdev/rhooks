@@ -1,4 +1,4 @@
-// e2e: examples/emit-txn against a standalone Xahau node.
+// e2e: examples/10_emit-txn against a standalone Xahau node.
 //
 // `hook()` reserves one emission slot, builds its `txn_template!`-declared
 // Payment (1 drop back to the otxn sender) fully in hook memory, and calls
@@ -96,13 +96,16 @@ describe('emit-txn', () => {
     )
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
-    // HookReturnCode is a 64-bit int field, serialized as a decimal string
-    // over RPC (like other int64/uint64 ledger fields) even though the
-    // toolkit's `iHookExecution` type declares it as `number`.
+    // HookReturnCode is a 64-bit int field, serialized as a *hex* string
+    // over RPC (same convention as HookInstructionCount below) even
+    // though the toolkit's `iHookExecution` type declares it as `number`
+    // - only matters here because the asserted codes are single-digit,
+    // which read identically whether parsed as decimal or hex (see
+    // slot-ledger.test.ts for a case where it doesn't).
     expect(Number(execution.HookReturnCode)).toBe(0)
     expect(execution.HookReturnString).toBe('emit-txn: emitted')
     // HookInstructionCount is a *hex* string over RPC (confirmed by direct
-    // inspection - e.g. "d" = 13), unlike HookReturnCode's decimal string.
+    // inspection - e.g. "d" = 13).
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_HOOK_INSTRUCTIONS,
     )

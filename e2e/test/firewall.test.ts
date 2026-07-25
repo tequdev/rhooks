@@ -1,10 +1,11 @@
-// e2e: examples/firewall against a standalone Xahau node.
+// e2e: examples/05_firewall against a standalone Xahau node.
 //
 // `hook()` reads the otxn sender, reads a 20-byte blocked AccountId from the
 // `BL` HookParameter (raw bytes, no extra encoding - `hook_param` copies the
 // HookParameterValue bytes as-is), and rolls back with
-// `rollback!(b"firewall: blocked account", -1)` on a match; accepts
-// otherwise. HookOn is Payment.
+// `rollback!(b"firewall: blocked account", FirewallError::BlockedAccount)`
+// (code 2, from the `hook_errors!`-defined `FirewallError` enum) on a
+// match; accepts otherwise. HookOn is Payment.
 import {
   ExecutionUtility,
   Xrpld,
@@ -105,13 +106,16 @@ describe('firewall', () => {
     )
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
-    // HookReturnCode is a 64-bit int field, serialized as a decimal string
-    // over RPC (like other int64/uint64 ledger fields) even though the
-    // toolkit's `iHookExecution` type declares it as `number`.
+    // HookReturnCode is a 64-bit int field, serialized as a *hex* string
+    // over RPC (same convention as HookInstructionCount below) even
+    // though the toolkit's `iHookExecution` type declares it as `number`
+    // - only matters here because the asserted codes are single-digit,
+    // which read identically whether parsed as decimal or hex (see
+    // slot-ledger.test.ts for a case where it doesn't).
     expect(Number(execution.HookReturnCode)).toBe(0)
     expect(execution.HookReturnString).toBe('')
     // HookInstructionCount is a *hex* string over RPC (confirmed by direct
-    // inspection - e.g. "d" = 13), unlike HookReturnCode's decimal string.
+    // inspection - e.g. "d" = 13).
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_INSTRUCTIONS,
     )

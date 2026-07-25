@@ -17,7 +17,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "errors"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
 name = "firewall"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
+name = "guard-patterns"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
+name = "hook-params"
 version = "0.1.0"
 dependencies = [
  "hooks-lib",
@@ -32,10 +53,36 @@ name = "hooks-lib"
 version = "0.0.0"
 dependencies = [
  "hooks-core",
+ "hooks-macros",
+]
+
+[[package]]
+name = "hooks-macros"
+version = "0.0.0"
+
+[[package]]
+name = "slot-ledger"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
 ]
 
 [[package]]
 name = "state-counter"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
+name = "state-foreign"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
+name = "xfl-math"
 version = "0.1.0"
 dependencies = [
  "hooks-lib",

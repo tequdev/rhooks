@@ -7,7 +7,7 @@
 
 use anyhow::{Result, bail};
 
-use crate::guard::{find_g_index, scan_function_loops};
+use crate::guard::{find_g_index, guard_hint, scan_function_loops};
 use crate::ir;
 use crate::{ApiVersion, Options};
 
@@ -344,10 +344,15 @@ pub fn validate(wasm: &[u8], opts: &Options) -> Result<ValidationReport> {
             match scan_function_loops(body, g_index) {
                 Ok(sites) => {
                     for site in sites.iter().filter(|s| !s.guarded) {
-                        errors.push(format!(
+                        let mut msg = format!(
                             "function {func_idx}, offset {}: `loop` is missing a guard (`i32.const; i32.const; call $_g`)",
                             site.offset
-                        ));
+                        );
+                        if let Some(hint) = guard_hint(site.guess) {
+                            msg.push_str(" — ");
+                            msg.push_str(hint);
+                        }
+                        errors.push(msg);
                     }
                 }
                 Err(e) => errors.push(format!(
