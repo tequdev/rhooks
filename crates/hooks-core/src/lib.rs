@@ -27,6 +27,7 @@ pub mod api;
 pub mod backend;
 pub mod consts;
 pub mod error;
+pub mod host;
 pub mod ls_flags;
 pub mod sfcodes;
 pub mod tts;

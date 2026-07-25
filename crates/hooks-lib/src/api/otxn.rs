@@ -1,7 +1,7 @@
 //! Information about the originating transaction (the transaction that
 //! triggered this hook invocation).
 
-use crate::error::{Result, res};
+use crate::error::{HookError, Result, res};
 use crate::types::{HASH_LEN, Hash};
 
 /// Burden of the originating transaction: `1` for a normal transaction, or
@@ -33,6 +33,32 @@ pub fn otxn_field(out: &mut [u8], field_id: u32) -> Result<usize> {
 #[inline(always)]
 pub fn otxn_field_u64(field_id: u32) -> Result<u64> {
     res(unsafe { hooks_core::otxn_field(0, 0, field_id) }).map(|v| v as u64)
+}
+
+/// Read field `field_id` from the originating transaction, requiring it to
+/// be exactly `N` bytes. A field longer than `N` already fails as
+/// [`crate::error::HookError::TooSmall`] from the underlying host call
+/// (`out`'s capacity is exactly `N`); a field shorter than `N` is caught
+/// here and mapped to the same variant — see `state_exact` (`state.rs`) for
+/// the identical pattern and rationale. No loop, no panic.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::otxn::otxn_field_exact;
+/// use hooks_lib::error::HookError;
+///
+/// assert_eq!(otxn_field_exact::<20>(0), Err(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn otxn_field_exact<const N: usize>(field_id: u32) -> Result<[u8; N]> {
+    let mut out = [0u8; N];
+    let written = otxn_field(&mut out, field_id)?;
+    if written == N {
+        Ok(out)
+    } else {
+        Err(HookError::TooSmall)
+    }
 }
 
 /// Generation of the originating transaction: `0` for a normal transaction,
@@ -118,6 +144,7 @@ mod tests {
         assert_eq!(otxn_id(&mut buf, 0), Err(HookError::NotImplemented));
         assert_eq!(otxn_field(&mut buf, 0), Err(HookError::NotImplemented));
         assert_eq!(otxn_field_u64(0), Err(HookError::NotImplemented));
+        assert_eq!(otxn_field_exact::<20>(0), Err(HookError::NotImplemented));
         assert_eq!(otxn_param(&mut buf, b"x"), Err(HookError::NotImplemented));
     }
 }
