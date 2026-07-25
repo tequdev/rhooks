@@ -86,8 +86,8 @@ cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 description = "Demo: build firewall with its hook-spec.toml, then generate TypeScript bindings from the resulting spec.json into e2e/generated (docs/SPEC-SIDECAR.md)"
 run = """
 set -e
-cargo run -p hooks-build -- build --manifest-path examples/firewall/Cargo.toml --auto-guard --default-maxiter 24
-cargo run -p hooks-build -- bindings-ts examples/firewall/out/firewall.spec.json --out e2e/generated
+cargo run -p hooks-build -- build --manifest-path examples/05_firewall/Cargo.toml
+cargo run -p hooks-build -- bindings-ts examples/05_firewall/out/firewall.spec.json --out e2e/generated
 pnpm --dir e2e install
 pnpm --dir e2e exec tsc --noEmit
 """

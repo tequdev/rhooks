@@ -57,7 +57,7 @@ description = "Monotonic invocation counter."
 `key_derivation`:
 - `ascii_padded` — `key` is an ASCII literal, right-zero-padded to 32 bytes.
   This is exactly `hooks_lib::pad!(key.as_bytes())` (see
-  `examples/state-counter`'s `STATE_KEY`) — the common idiom for a
+  `examples/02_state-counter`'s `STATE_KEY`) — the common idiom for a
   human-readable state-key name.
 - `hex` — `key` is already the full 32-byte state key, hex-encoded (for
   keys derived some other way, e.g. from an account ID or a hash).
@@ -155,7 +155,7 @@ comment naming its `spec.json` source. Regenerate by rerunning
 mise run spec-bindings
 ```
 
-Builds `examples/firewall` (which ships a `hook-spec.toml` documenting its
+Builds `examples/05_firewall` (which ships a `hook-spec.toml` documenting its
 `BL` parameter), generates TypeScript bindings from the resulting
 `out/firewall.spec.json` into `e2e/generated/firewall.ts`, and runs
 `pnpm --dir e2e exec tsc --noEmit` to confirm the generated module actually
