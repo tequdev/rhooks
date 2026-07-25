@@ -944,9 +944,14 @@ mod tests {
         tpl.set_last_ledger_sequence(0);
         tpl.set_fee(0).expect("0 drops is in range");
         let _ = tpl.emit_details_region();
+        // `Prepared` (the `Ok` variant) doesn't implement `PartialEq` — only
+        // the error path is ever compared here — so pull the `Err` out with
+        // `expect_err` first rather than `assert_eq!`ing the whole `Result`
+        // (see `txn.rs`'s `prepare_for_emit_propagates_host_stub_errors`).
         assert_eq!(
-            tpl.prepare_for_emit(),
-            Err(crate::error::HookError::NotImplemented)
+            tpl.prepare_for_emit()
+                .expect_err("prepare_for_emit must fail on the host stub"),
+            crate::error::HookError::NotImplemented
         );
 
         let fixed_len = RoundTripPayment::LEN - EMIT_DETAILS_MAX_LEN;
@@ -995,8 +1000,9 @@ mod tests {
         tpl.set_account(&[0u8; ACC_ID_LEN]);
         let _ = tpl.emit_details_region();
         assert_eq!(
-            tpl.prepare_for_emit(),
-            Err(crate::error::HookError::NotImplemented)
+            tpl.prepare_for_emit()
+                .expect_err("prepare_for_emit must fail on the host stub"),
+            crate::error::HookError::NotImplemented
         );
 
         let fixed_len = RoundTripPaymentWithTag::LEN - EMIT_DETAILS_MAX_LEN;
