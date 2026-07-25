@@ -25,6 +25,23 @@
 //! is not a faithful re-implementation of xahaud. Guard checks, instruction
 //! counting, and fees are entirely out of scope; a real `xahaud` node
 //! remains the source of truth.
+//!
+//! ## Relationship to `HookHost`
+//!
+//! [`crate::host::HookHost`] is a *different*, independently-designed
+//! substitution point: a generated, crate-root-level trait mirroring every
+//! `api.rs` function 1:1 (same names/signatures as `extern.h`), with `Guest`
+//! as its only implementor today, and no wiring into `hooks-lib` or this
+//! backend registry. [`HostBackend`] here is hand-written, lives one layer
+//! up (curated by semantics, not by raw FFI signature — `state`,
+//! `otxn_field`, `accept`, ... taking/returning real `&[u8]`/`Vec<u8>`
+//! rather than `u32` pointers), and *is* wired into `hooks-lib`'s wrapper
+//! functions (see this module's doc above). The two traits were built for
+//! the same broad purpose — pluggable non-`wasm32` Hook API semantics — by
+//! separate efforts that have not yet been reconciled; unifying them (e.g.
+//! `HostBackend` implemented in terms of `HookHost`, or `hooks-testenv`
+//! implementing `HookHost` directly) is a deliberately out-of-scope future
+//! refactor, not attempted here.
 
 extern crate std;
 

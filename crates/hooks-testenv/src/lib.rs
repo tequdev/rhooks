@@ -381,16 +381,30 @@ impl HostBackend for BackendHandle {
 mod tests {
     use super::*;
     use hooks_lib::prelude::*;
-    use hooks_lib::{accept, pad, rollback};
+    use hooks_lib::{accept, hook_errors, pad, rollback};
 
-    /// `firewall`-equivalent hook logic (see `examples/firewall`), defined
-    /// inline: rolls back if the originating transaction's sender matches
-    /// the `BL` hook parameter, accepts otherwise.
+    hook_errors! {
+        /// `firewall`-equivalent rollback codes (see `examples/05_firewall`).
+        enum FirewallError {
+            /// `otxn_field(sfAccount)` did not return a 20-byte `AccountId`.
+            CouldNotReadSender = 1,
+            /// The originating transaction's sender matched the blacklisted
+            /// account configured via the `BL` Hook parameter.
+            BlockedAccount = 2,
+        }
+    }
+
+    /// `firewall`-equivalent hook logic (see `examples/05_firewall`),
+    /// defined inline: rolls back if the originating transaction's sender
+    /// matches the `BL` hook parameter, accepts otherwise.
     fn firewall_hook(_reserved: u32) -> i64 {
         let mut sender: AccountId = [0u8; ACC_ID_LEN];
         match otxn_field(&mut sender, hooks_core::sfcodes::sfAccount) {
             Ok(n) if n == ACC_ID_LEN => {}
-            _ => rollback!(b"firewall: could not read otxn sender", -1),
+            _ => rollback!(
+                b"firewall: could not read otxn sender",
+                FirewallError::CouldNotReadSender
+            ),
         }
 
         let mut blocked: AccountId = [0u8; ACC_ID_LEN];
@@ -399,14 +413,18 @@ mod tests {
             _ => accept!(),
         }
 
-        if sender == blocked {
-            rollback!(b"firewall: blocked account", -1);
+        // `buf_eq_20` (not `sender == blocked`) to match `examples/05_firewall`
+        // — see `hooks_lib::buf_eq` docs; irrelevant to a native `cargo
+        // test` binary (no guard/loop concerns off `wasm32`), kept anyway
+        // so this inline hook mirrors the real example's source verbatim.
+        if buf_eq_20(&sender, &blocked) {
+            rollback!(b"firewall: blocked account", FirewallError::BlockedAccount);
         }
 
         accept!()
     }
 
-    /// `state-counter`-equivalent hook logic (see `examples/state-counter`),
+    /// `state-counter`-equivalent hook logic (see `examples/02_state-counter`),
     /// defined inline: reads an 8-byte little-endian counter from state
     /// (defaulting to zero), increments it, and writes it back.
     fn counter_hook(_reserved: u32) -> i64 {
@@ -436,7 +454,7 @@ mod tests {
         let exit = env.invoke_hook(firewall_hook);
 
         assert_eq!(exit.exit, ExitType::Rollback);
-        assert_eq!(exit.code, -1);
+        assert_eq!(exit.code, FirewallError::BlockedAccount.code());
         assert_eq!(exit.msg, b"firewall: blocked account");
     }
 

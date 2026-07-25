@@ -851,6 +851,19 @@ installing/running/uninstalling the backend against every other
 tests each using their own `TestEnv` do not clobber each other's
 registration mid-hook.
 
+**Relationship to `HookHost`.** `hooks-core::host::HookHost` (generated
+from `hook_api.json`; not otherwise covered in this document) is a
+separate, unrelated substitution point built for the same broad goal —
+pluggable Hook API semantics on non-`wasm32` hosts — but at a different
+layer: a 1:1, raw-`u32`-signature mirror of every `api.rs` function, with
+only `Guest` implementing it today and no wiring into `hooks-lib` or this
+`testenv` mechanism. `HostBackend` is hand-written, semantics-typed
+(`&[u8]`/`Vec<u8>`, not raw pointers), and is what `hooks-lib` actually
+dispatches through. See `hooks_core::backend`'s module rustdoc for the
+detailed comparison. The two were developed independently and have not
+been reconciled; doing so (e.g. implementing `HostBackend` in terms of
+`HookHost`) is left as a future refactor, out of scope here.
+
 ## 7. examples/
 
 Own workspace; every crate:
