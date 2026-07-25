@@ -2,7 +2,7 @@
 
 Status: FIRST PASS (PLAN L6, 2026-07-24) — `hooks-build`'s v1 validator
 rules brought up to parity with what `GasValidator.cpp` actually enforces,
-plus `examples/gas-counter` as the first Gas-type example. hooks-lib itself
+plus `examples/11_gas-counter` as the first Gas-type example. hooks-lib itself
 gained no v1-specific API in this pass (see "What did *not* change" below).
 
 This document is the developer-facing counterpart to `docs/DESIGN.md`
@@ -25,7 +25,7 @@ cost meter, drawing down a gas pool the *transaction* funds
 SetHook time, so:
 
 - Ordinary Rust loops and array comparisons need no `guard!`/`guard_m!` and
-  no `--auto-guard` build step — see `examples/gas-counter`.
+  no `--auto-guard` build step — see `examples/11_gas-counter`.
 - The wasm must **not** import `_g` at all — it would be meaningless (there
   is nothing to guard against) and xahaud's Gas-type validator
   (`GasValidator.cpp`) hard-rejects it outright.
@@ -41,8 +41,8 @@ Every `hooks-build` subcommand that touches validation takes
 `--api-version 1`:
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/gas-counter/Cargo.toml --api-version 1
-cargo run -p hooks-build -- check examples/gas-counter/out/gas_counter.wasm --api-version 1
+cargo run -p hooks-build -- build --manifest-path examples/11_gas-counter/Cargo.toml --api-version 1
+cargo run -p hooks-build -- check examples/11_gas-counter/out/gas_counter.wasm --api-version 1
 ```
 
 Omitting `--api-version 1` validates against the v0 (Guard-type) rule set
@@ -53,7 +53,7 @@ auto-detection.
 On the Rust side, nothing about writing the hook itself changes: the same
 `hooks-lib` (`state`/`state_set`, `accept!`/`rollback!`, `pad!`, XFL, ...)
 works unmodified for a v1 hook, simply because none of its own code paths
-call `guard!`/`guard_m!` (see `examples/gas-counter/src/lib.rs`'s doc
+call `guard!`/`guard_m!` (see `examples/11_gas-counter/src/lib.rs`'s doc
 comment for the one thing that *is* different: your own loops need no
 annotation).
 
@@ -72,7 +72,7 @@ transaction is a real, ongoing cost, unlike v0's guard-based model where the
 worst-case instruction count only affects the *hook's own* fee estimate at
 SetHook time.
 
-`examples/gas-counter`'s `hooks-build build` output prints its size and
+`examples/11_gas-counter`'s `hooks-build build` output prints its size and
 estimated *SetHook* fee (from `hooks_build::estimate_fee`, unchanged for
 v1); it does not — and cannot — estimate `sfHookGas`, since that number
 depends on runtime gas cost, not static analysis. Size it empirically
@@ -144,7 +144,7 @@ Gas-type hooks require the `HookGas` amendment. As of this writing (see
 `mise.toml`'s pinned `XAHAUD_VERSION`) that amendment is not active on
 Xahau mainnet or testnet, and this repo's e2e suite
 (`docs/E2E-TESTING.md`) has not exercised a Gas-type hook against a live
-node — `examples/gas-counter` is verified at the `hooks-build build`/`check`
+node — `examples/11_gas-counter` is verified at the `hooks-build build`/`check`
 level only (see "Validation coverage and its limits" above for why that
 verdict is weaker than the v0 examples'). Attempting to SetHook a
 Gas-type hook (`sfHookApiVersion = 1`) against a node without `HookGas`
@@ -162,7 +162,7 @@ disabled` — see the `gas-hook-dev` skill's error table for the full list).
 | `__`-prefixed function exports | Hard error (only `hook`/`cbak` allowed) | Allowed |
 | Fee/cost model | SetHook fee from static worst-case instruction count | SetHook fee unchanged; **plus** `sfHookGas`/`sfHookCallbackGas`/`sfHookWeakGas` charged per triggering transaction (1 drop/unit) |
 | `hooks-build`'s verdict authority | Vendored, byte-identical upstream checker (authoritative) | Hand-ported Rust rules only (informative — see limits above) |
-| Example | `examples/state-counter` | `examples/gas-counter` |
+| Example | `examples/02_state-counter` | `examples/11_gas-counter` |
 
 ## Measured size difference: `state-counter` vs `gas-counter`
 

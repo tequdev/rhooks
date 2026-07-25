@@ -28,23 +28,33 @@ mise run test         # cargo test --workspace
 
 ## Examples
 
-| example | demonstrates |
-|---|---|
-| [`accept-all`](examples/accept-all) | minimal hook: `accept` everything (starter template) |
-| [`firewall`](examples/firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
-| [`state-counter`](examples/state-counter) | `state`/`state_set` round-trip, counter in hook state |
-| [`emit-txn`](examples/emit-txn) | `etxn_reserve` + a user-declared `txn_template!` Payment, with a `cbak` |
+Numbered in suggested reading order — see
+[`examples/README.md`](examples/README.md) for the full walkthrough of why.
+
+| # | example | demonstrates |
+|---|---|---|
+| 01 | [`accept-all`](examples/01_accept-all) | minimal hook: `accept` everything (starter template) |
+| 02 | [`state-counter`](examples/02_state-counter) | `state`/`state_set` round-trip, counter in hook state |
+| 03 | [`hook-params`](examples/03_hook-params) | `hook_param`-configurable threshold, with a compiled-in default |
+| 04 | [`errors`](examples/04_errors) | a meaningful `hook_errors!`-based rollback error-code system, matched to `HookReturnCode` |
+| 05 | [`firewall`](examples/05_firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
+| 06 | [`guard-patterns`](examples/06_guard-patterns) | `guard!`/`guard_m!` correctness, choosing `maxiter`, and the array-`==` memcmp-loop pitfall |
+| 07 | [`xfl-math`](examples/07_xfl-math) | reading `Amount` as XFL, `mulratio`, `Result`-based comparisons |
+| 08 | [`slot-ledger`](examples/08_slot-ledger) | `otxn_slot`/`slot_subfield`/`slot`/`slot_size`: transaction field access via slots |
+| 09 | [`state-foreign`](examples/09_state-foreign) | `state_foreign`: reading another account's hook state |
+| 10 | [`emit-txn`](examples/10_emit-txn) | `etxn_reserve` + a user-declared `txn_template!` Payment, with a `cbak` |
 
 ```sh
-mise run build-examples   # builds all four through hooks-build and checks the output
+mise run build-examples   # builds all ten through hooks-build and checks the output
 ```
 
-See [`examples/README.md`](examples/README.md) for details, including why
-one of the four (`firewall`) needs `--auto-guard`.
+See [`examples/README.md`](examples/README.md) for details, including the
+compiler-generated-loop pitfall that used to require `--auto-guard` (none
+of the ten examples need it any more).
 
 ## E2E tests
 
-`e2e/` deploys the four examples' `hooks-build` output to a real,
+`e2e/` deploys the examples' `hooks-build` output to a real,
 standalone `xahaud` (via `SetHook`) and asserts on the resulting
 transaction metadata and ledger state — proof of runtime behavior, not
 just that the binaries are SetHook-valid. See

@@ -1,0 +1,45 @@
+# firewall
+
+Reads the originating transaction's sender (`otxn_field(sfAccount)`) and a
+Hook parameter named `BL` (the blocked `AccountId`, 20 bytes). Rolls the
+transaction back if they match; accepts otherwise (including when `BL`
+isn't configured — nothing to block). Straight-line code: no loop is
+written in the source, so no `guard!` is needed there.
+
+## Build
+
+```sh
+cargo run -p hooks-build -- build --manifest-path examples/05_firewall/Cargo.toml
+```
+
+No extra flags needed. Earlier versions of this example compared the two
+`AccountId`s with `sender == blocked`, which compiles to a compiler-generated
+byte-compare loop (`bcmp`) under `opt-level = "z"` on `wasm32v1-none` (no
+bulk-memory instructions to do it inline) and required
+`--auto-guard --default-maxiter 24` (24, not the `--auto-guard` default of
+16, because the loop's true worst case is 20 iterations — one per
+`AccountId` byte; getting that number wrong builds fine but risks a runtime
+`GUARD_VIOLATION` on a real node). This example now compares with
+[`hooks_lib::buf_eq_20`](../../crates/hooks-lib/src/buf_eq.rs), which is
+loop-free by construction (every byte index is a source-level literal), so
+the compiled output has no loop to guard in the first place — see
+`hooks_lib::buf_eq`'s module docs for why a generic `buf_eq<const N: usize>`
+isn't offered instead. See `examples/README.md`'s "On `--auto-guard`"
+section for the general story (still relevant to other compiler-generated
+loop shapes, like `memcpy`/`memset`).
+
+## Configuring the blacklist
+
+Set a `BL` Hook parameter (20 raw bytes, the blocked `AccountId`) when
+installing this Hook via `SetHook`. Deployment/SetHook tooling is out of
+scope for this repo (see `docs/DESIGN.md` §1 non-goals).
+
+## Error codes
+
+`FirewallError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`rollback!` code for each failure this hook can exit with:
+
+| variant | code | meaning |
+|---|---|---|
+| `CouldNotReadSender` | 1 | `otxn_field(sfAccount)` did not return a 20-byte `AccountId` |
+| `BlockedAccount` | 2 | the sender matched the `BL`-configured blacklist account |
