@@ -13,14 +13,17 @@ targets always live in their own workspace so their special build flags
   component set — install once per machine).
 - **Nightly is required**, unlike the rest of this workspace: `cargo fuzz`
   itself needs nightly for `-Z sanitizer=address`, independent of anything
-  this repo does. The repository's pinned toolchain
-  (`rust-toolchain.toml`, currently `nightly-2026-07-20`) already satisfies
-  this — no separate nightly install is needed, and no other lane in this
-  workspace needs to move off stable for fuzzing to keep working. If a
-  future change stabilizes the rest of the workspace onto a stable
-  toolchain, this `fuzz/` directory can keep pinning/using nightly
-  independently (e.g. via `cargo +nightly fuzz ...`) without affecting
-  anything else.
+  this repo does. The root workspace's `rust-toolchain.toml` pins a stable
+  toolchain (`1.89.0`, `docs/DESIGN.md` §5.5) — `fuzz/` pins its own
+  nightly instead, via `fuzz/rust-toolchain.toml` (`nightly-2026-07-20`).
+  That file only takes effect when the current directory is `fuzz/` (or a
+  descendant), e.g. `cd fuzz && cargo fuzz run <target>`; from the repo
+  root (where the root's stable `rust-toolchain.toml` would otherwise win),
+  select it explicitly instead, e.g. `cargo +nightly-2026-07-20 fuzz run
+  --fuzz-dir fuzz <target>` — this is what `mise run fuzz-smoke` does. No
+  other lane in this workspace needs to move off stable for fuzzing to
+  keep working, and this coexistence is independent of whichever toolchain
+  the root happens to be pinned to.
 
 ## Targets
 
@@ -44,14 +47,16 @@ targets always live in their own workspace so their special build flags
 ## Running
 
 ```sh
-cargo fuzz run --fuzz-dir fuzz xfl_decode
-cargo fuzz run --fuzz-dir fuzz txn_codec
-cargo fuzz run --fuzz-dir fuzz build_pipeline
+cargo +nightly-2026-07-20 fuzz run --fuzz-dir fuzz xfl_decode
+cargo +nightly-2026-07-20 fuzz run --fuzz-dir fuzz txn_codec
+cargo +nightly-2026-07-20 fuzz run --fuzz-dir fuzz build_pipeline
 ```
 
-(or `cd fuzz && cargo fuzz run <target>` — `--fuzz-dir` just lets it run from
-the repo root, since the root has no top-level `[package]` for cargo-fuzz to
-anchor off of).
+(or, from inside `fuzz/` itself, plain `cd fuzz && cargo fuzz run <target>` —
+no `+nightly-2026-07-20` needed there, since `fuzz/rust-toolchain.toml`'s
+directory-based override already selects it; `--fuzz-dir` and `+nightly-...`
+together just let the same invocation work unattended from the repo root,
+where the root's own stable `rust-toolchain.toml` would otherwise apply).
 
 `mise run fuzz-smoke` runs all three for a short, bounded time (CI-style
 smoke check that the harnesses still build and execute — not a substitute
