@@ -47,10 +47,10 @@ pub struct ValidationReport {
     /// it; only api-version 0 hard-errors/warns on it (`docs/DESIGN.md`
     /// §6.2c/§6.4).
     pub max_nesting_depth: u32,
-    /// Before/after statistics for a `--optimize` (`wasm-opt -Oz`) run, if
-    /// one was requested. Only ever set by
-    /// [`crate::run_pipeline`] — [`validate`] itself never populates this
-    /// field.
+    /// Before/after statistics for a `wasm-opt -Oz` run (on by default;
+    /// `--no-optimize`/[`crate::Options::optimize`]`= false` skips it). Only
+    /// ever set by [`crate::run_pipeline`] — [`validate`] itself never
+    /// populates this field.
     pub optimize_report: Option<crate::OptimizeReport>,
 }
 

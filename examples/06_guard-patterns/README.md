@@ -114,15 +114,17 @@ even though nothing here will stop you if you don't.
 
 Numbers from this repo's own `hooks-build build` output (they'll drift a
 little across compiler versions — these are current-toolchain
-measurements, not a guarantee):
+measurements, not a guarantee). `hooks-build build` runs `wasm-opt -Oz` by
+default (`--no-optimize` to disable it), so these are the optimized
+figures — the ones an unqualified `hooks-build build` actually produces:
 
 | Build | worst-case instructions (`hook=`) | size |
 |---|---:|---:|
-| `accounts_equal` only (the two `guard_m!` loops removed) | 832 | 650 bytes |
-| Full hook (`accounts_equal` + both `guard_m!` loops) | **1335** | **765 bytes** |
+| `accounts_equal` only (the two `guard_m!` loops removed) | 785 | 635 bytes |
+| Full hook (`accounts_equal` + both `guard_m!` loops) | **1292** | **740 bytes** |
 
-The two `maxiter = 8` demonstration loops together add **503** instructions
-to the worst case (`1335 - 832`) — a mechanical illustration of the point
+The two `maxiter = 8` demonstration loops together add **507** instructions
+to the worst case (`1292 - 785`) — a mechanical illustration of the point
 in §1: **WCE scales with `maxiter`**, because the guard call plus loop
 body are what get bounded, and the checker's worst-case count has to
 assume every guarded loop actually runs its full `maxiter` iterations (that

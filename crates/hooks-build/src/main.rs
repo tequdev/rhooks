@@ -46,12 +46,13 @@ enum Cmd {
         /// limit (clearly marked invalid).
         #[arg(long)]
         allow_oversize: bool,
-        /// Run `wasm-opt -Oz` between the cleaner and the flatten pass
-        /// (vendored via the `wasm-opt` crate — no system install
-        /// required). Every later stage still re-validates the result in
-        /// full.
+        /// Skip the `wasm-opt -Oz` pass that otherwise runs by default
+        /// between the cleaner and the flatten pass (vendored via the
+        /// `wasm-opt` crate — no system install required). When
+        /// optimization does run, every later stage still re-validates the
+        /// result in full.
         #[arg(long)]
-        optimize: bool,
+        no_optimize: bool,
     },
     /// Cleans and validates an already-built wasm file, without invoking
     /// cargo.
@@ -75,12 +76,13 @@ enum Cmd {
         /// limit (clearly marked invalid).
         #[arg(long)]
         allow_oversize: bool,
-        /// Run `wasm-opt -Oz` between the cleaner and the flatten pass
-        /// (vendored via the `wasm-opt` crate — no system install
-        /// required). Every later stage still re-validates the result in
-        /// full.
+        /// Skip the `wasm-opt -Oz` pass that otherwise runs by default
+        /// between the cleaner and the flatten pass (vendored via the
+        /// `wasm-opt` crate — no system install required). When
+        /// optimization does run, every later stage still re-validates the
+        /// result in full.
         #[arg(long)]
-        optimize: bool,
+        no_optimize: bool,
     },
     /// Validates a wasm file against the full SetHook rule set, without
     /// modifying it. Works on any wasm, including C-built hooks.
@@ -112,14 +114,14 @@ fn main() -> Result<()> {
             default_maxiter,
             out,
             allow_oversize,
-            optimize,
+            no_optimize,
         } => {
             let opts = Options {
                 api_version: api_version_from(api_version),
                 auto_guard,
                 default_maxiter,
                 allow_oversize,
-                optimize,
+                optimize: !no_optimize,
             };
             cmd_build(manifest_path, package, out, &opts)
         }
@@ -130,14 +132,14 @@ fn main() -> Result<()> {
             auto_guard,
             default_maxiter,
             allow_oversize,
-            optimize,
+            no_optimize,
         } => {
             let opts = Options {
                 api_version: api_version_from(api_version),
                 auto_guard,
                 default_maxiter,
                 allow_oversize,
-                optimize,
+                optimize: !no_optimize,
             };
             cmd_clean(&input, out, &opts)
         }
@@ -174,8 +176,8 @@ fn print_size_and_fee(bytes: &[u8]) {
     );
 }
 
-/// Prints the `--optimize` before/after comparison: `docs/DESIGN.md` M7 (see
-/// `hooks_build::OptimizeReport`).
+/// Prints the `wasm-opt -Oz` before/after comparison (skipped entirely with
+/// `--no-optimize`): `docs/DESIGN.md` M7 (see `hooks_build::OptimizeReport`).
 ///
 /// `arithmetic_side_effects` is allowed locally: `before_bytes`/`after_bytes`
 /// are both SetHook wasm sizes (bounded by the 65,535-byte SetHook limit —
@@ -190,7 +192,7 @@ fn print_optimize_summary(summary: &hooks_build::OptimizeReport) {
     } else {
         (delta_bytes as f64 / summary.before_bytes as f64) * 100.0
     };
-    println!("--optimize (wasm-opt -Oz):");
+    println!("wasm-opt -Oz:");
     println!(
         "  size: {} -> {} bytes ({delta_bytes:+} bytes, {pct:+.1}%)",
         summary.before_bytes, summary.after_bytes
