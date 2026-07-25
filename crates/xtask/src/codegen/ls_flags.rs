@@ -1,9 +1,10 @@
-//! Generates `crates/hooks-core/src/ls_flags.rs` from `ls_flags.h`.
+//! Generates `crates/hooks-core/src/ls_flags.rs` from `ls_flags.h`'s parsed
+//! [`ConstGroup`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
 
 use super::{push_const, with_generated_marker};
-use crate::parse::scan_enum_groups;
+use crate::ir::ConstGroup;
 use crate::render::render_literal;
 
 const MODULE_DOC: &str = "\
@@ -19,17 +20,17 @@ const MODULE_DOC: &str = "\
 //! name is kept verbatim with no disambiguation prefix.
 ";
 
-/// Renders `ls_flags.rs`'s full contents from `ls_flags.h`'s source text.
-pub fn generate(ls_flags_h: &str) -> Result<String> {
-    let groups = scan_enum_groups(ls_flags_h)?;
+/// Renders `ls_flags.rs`'s full contents from `ls_flags.h`'s parsed
+/// [`ConstGroup`]s.
+pub fn generate(groups: &[ConstGroup]) -> Result<String> {
     let mut body = String::new();
-    for group in &groups {
+    for group in groups {
         body.push('\n');
         body.push_str("// enum ");
         body.push_str(&group.name);
         body.push('\n');
-        for member in &group.members {
-            let value = render_literal(&member.value)?;
+        for member in &group.items {
+            let value = render_literal(&member.c_expr)?;
             let doc = vec![format!(
                 "C: `{}` (ls_flags.h, `enum {}`)",
                 member.name, group.name

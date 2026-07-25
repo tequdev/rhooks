@@ -49,21 +49,29 @@ macro_rules! guard_m {
 
 /// Terminate hook execution successfully. `accept!()` sends no message and
 /// error code `0`; `accept!(msg, code)` forwards both.
+///
+/// `code` may be a plain `i64` (including untyped integer literals like
+/// `-1`) or any value whose type implements `Into<i64>` — e.g. an enum
+/// defined with [`hook_errors!`](crate::hook_errors) — since it is passed
+/// through `i64::from(code)` before reaching the host call.
 #[macro_export]
 macro_rules! accept {
     () => {
         $crate::api::control::accept(&[], 0)
     };
     ($msg:expr, $code:expr) => {
-        $crate::api::control::accept($msg, $code)
+        $crate::api::control::accept($msg, i64::from($code))
     };
 }
 
 /// Terminate hook execution with a failure, rolling back state changes.
+///
+/// `code` accepts the same `i64`-literal-or-`Into<i64>` forms as
+/// [`accept!`] — see its doc comment for details.
 #[macro_export]
 macro_rules! rollback {
     ($msg:expr, $code:expr) => {
-        $crate::api::control::rollback($msg, $code)
+        $crate::api::control::rollback($msg, i64::from($code))
     };
 }
 
