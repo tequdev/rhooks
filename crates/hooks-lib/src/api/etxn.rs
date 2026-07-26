@@ -9,7 +9,7 @@
 //! plain values.
 
 use crate::error::{Result, res};
-use crate::types::{HASH_LEN, Hash, NONCE_LEN, Nonce};
+use crate::types::{Hash, Nonce};
 
 /// Burden of this hook's own emitted transactions so far.
 #[inline(always)]
@@ -27,7 +27,8 @@ pub fn etxn_burden() -> Result<u64> {
 /// Size `out` to [`crate::types::EMIT_DETAILS_MAX_LEN`] (the worst case) and
 /// trust the returned length, not `out.len()`, as the field's true size.
 #[inline(always)]
-pub fn etxn_details(out: &mut [u8]) -> Result<usize> {
+pub fn etxn_details<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::etxn_details(out.as_mut_ptr() as u32, out.len() as u32) })
         .map(|v| v as usize)
 }
@@ -56,7 +57,8 @@ pub fn etxn_generation() -> u32 {
 /// Returns the number of bytes written. [`etxn_nonce_buf`] is the fixed-size
 /// convenience twin.
 #[inline(always)]
-pub fn etxn_nonce(out: &mut [u8]) -> Result<usize> {
+pub fn etxn_nonce<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::etxn_nonce(out.as_mut_ptr() as u32, out.len() as u32) })
         .map(|v| v as usize)
 }
@@ -64,8 +66,8 @@ pub fn etxn_nonce(out: &mut [u8]) -> Result<usize> {
 /// A fresh nonce for use in an emitted transaction.
 #[inline(always)]
 pub fn etxn_nonce_buf() -> Result<Nonce> {
-    let mut buf: Nonce = [0u8; NONCE_LEN];
-    let _ = etxn_nonce(&mut buf)?;
+    let mut buf = Nonce::default();
+    let _ = etxn_nonce(buf.as_mut())?;
     Ok(buf)
 }
 
@@ -73,7 +75,8 @@ pub fn etxn_nonce_buf() -> Result<Nonce> {
 /// hash into `out`. Requires a prior [`etxn_reserve`] call. Returns the
 /// number of bytes written. [`emit_buf`] is the fixed-size convenience twin.
 #[inline(always)]
-pub fn emit(out: &mut [u8], tx_blob: &[u8]) -> Result<usize> {
+pub fn emit<B: AsMut<[u8]> + ?Sized>(out: &mut B, tx_blob: &[u8]) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::emit(
             out.as_mut_ptr() as u32,
@@ -89,15 +92,16 @@ pub fn emit(out: &mut [u8], tx_blob: &[u8]) -> Result<usize> {
 /// call. Returns the emitted transaction's hash.
 #[inline(always)]
 pub fn emit_buf(tx_blob: &[u8]) -> Result<Hash> {
-    let mut buf: Hash = [0u8; HASH_LEN];
-    let _ = emit(&mut buf, tx_blob)?;
+    let mut buf = Hash::default();
+    let _ = emit(buf.as_mut(), tx_blob)?;
     Ok(buf)
 }
 
 /// Prepare a transaction template (`template`) into `out`, substituting
 /// hook-computed fields. Returns the number of bytes written.
 #[inline(always)]
-pub fn prepare(out: &mut [u8], template: &[u8]) -> Result<usize> {
+pub fn prepare<B: AsMut<[u8]> + ?Sized>(out: &mut B, template: &[u8]) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::prepare(
             out.as_mut_ptr() as u32,

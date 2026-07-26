@@ -14,9 +14,88 @@
 //!   convention the `state-counter` example already uses by hand
 //!   (`u64::from_le_bytes`/`to_le_bytes` around a plain `state`/`state_set`
 //!   round-trip). These do not use the host's as-int64 mode at all.
+//!
+//! Every helper above is a standalone function keyed by a raw `&[u8]` — for
+//! a typed layer where the key itself is a compile-time-checked enum
+//! variant and the value can be any [`crate::convert::ToBytes`]/
+//! [`crate::convert::FromBytes`] type (including every `hooks_lib::types`
+//! newtype), see [`mod@crate::state`]'s `state_get`/`state_set_typed`/
+//! `state_update_typed` and the [`state_keys!`](crate::state_keys) macro,
+//! built on top of this module's [`state`]/[`state_set`]/[`state_exact`].
+//!
+//! ## Why every `key`/`out`/`data` parameter here is generic, not `&[u8]`/`&mut [u8]`
+//!
+//! Every key- or buffer-shaped parameter in this module (`state`'s `key`
+//! and `out`, `state_set`'s `key` and `data`, `state_foreign`'s `key` and
+//! `out`, ...) is generic instead of a bare `&[u8]`/`&mut [u8]`
+//! specifically so a [`crate::types::StateKey`] (or any other
+//! `hooks_lib::types` newtype a hook chooses to key or read/write state
+//! with) can be passed straight through as `&STATE_KEY`/`&mut raw`, with no
+//! `.as_ref()`/`.as_mut()` at the call site. A bare `&[u8]`/`&mut [u8]`
+//! parameter can't do this: `StateKey` only implements
+//! [`core::ops::Deref`]/[`core::ops::DerefMut`] with `[u8; 32]` as its
+//! target (not `[u8]` — see `crate::types`' module doc comment for why),
+//! and Rust does not chain that one `Deref` hop with the further built-in
+//! array-to-slice unsized coercion at a single call site, so `&STATE_KEY`
+//! alone never reaches a `&[u8]` parameter. Bounding the parameter by
+//! [`AsRef<[u8]>`](AsRef)/[`AsMut<[u8]>`](AsMut) instead sidesteps the
+//! coercion question entirely: every `crate::types` newtype already
+//! implements both directly, no coercion needed. This is zero-cost —
+//! `#[inline(always)]` plus one generic parameter monomorphized per call
+//! site compiles to the exact same code as the old concrete parameter did
+//! (verified: `mise run build-examples`'s per-example wasm size and
+//! worst-case instruction count are unchanged by this).
+//!
+//! `namespace`/`account` (`state_foreign`'s optional pair) are a special
+//! case, covered by [`ForeignRef`] below rather than a plain `AsRef<[u8]>`/
+//! `AsMut<[u8]>` bound — see that trait's doc comment for why.
 
+use crate::convert::FixedRead;
 use crate::error::{HookError, Result, res};
 use crate::xfl::XFL;
+
+/// Accepts either `None` (absent) or a bare reference to anything
+/// implementing [`AsRef<[u8]>`] (present) as `state_foreign`'s
+/// `namespace`/`account` arguments.
+///
+/// This is deliberately a different shape from `state`'s `key` parameter
+/// (`&(impl AsRef<[u8]> + ?Sized)`): `namespace`/`account` are *optional*,
+/// and a generic `Option<K: AsRef<[u8]>>` parameter cannot also accept a
+/// bare `None` literal — with nothing else in the call to pin down `K`,
+/// `None` is genuinely ambiguous and fails to compile
+/// (`error[E0283]: type annotations needed`, verified directly against
+/// rustc, not just reasoned about). `ForeignRef` sidesteps that by giving
+/// the "present" and "absent" cases two different shapes instead of one
+/// `Option<K>`: a bare `&value` (present, any `AsRef<[u8]>`) or `None`
+/// (absent — resolvable because this trait has exactly one
+/// `Option<...>`-shaped impl, so `None`'s type isn't ambiguous). The one
+/// thing this does **not** support, unlike `state`'s `key` — is
+/// `Some(&value)` for a `hooks_lib::types` newtype: `Option<&AccountId>`
+/// doesn't match either impl below (also verified against rustc).
+/// Supporting that too would mean adding a generic `Option<&'a T>` impl,
+/// which reintroduces exactly the `None`-ambiguity problem this trait
+/// exists to avoid. Pass the bare reference instead: `Some(&target)`
+/// becomes `&target`, `None` stays `None`. (`Some(raw)` for an
+/// already-`&[u8]` value, e.g. one produced by `.as_ref()`, still works —
+/// it matches the `Option<&'a [u8]>` impl exactly.)
+pub trait ForeignRef<'a> {
+    /// `self`, resolved to `Some(bytes)` (present) or `None` (absent).
+    fn foreign_ref(self) -> Option<&'a [u8]>;
+}
+
+impl<'a> ForeignRef<'a> for Option<&'a [u8]> {
+    #[inline(always)]
+    fn foreign_ref(self) -> Option<&'a [u8]> {
+        self
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + ?Sized> ForeignRef<'a> for &'a T {
+    #[inline(always)]
+    fn foreign_ref(self) -> Option<&'a [u8]> {
+        Some(self.as_ref())
+    }
+}
 
 /// Read this hook's own state, decoded as an optional-defaulting `(ptr, len)`
 /// pair — `None` becomes `(0, 0)`. Only ever used in the read direction,
@@ -44,7 +123,12 @@ fn opt_in(o: Option<&[u8]>) -> (u32, u32) {
 /// assert_eq!(state(&mut out, &key), Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn state(out: &mut [u8], key: &[u8]) -> Result<usize> {
+pub fn state<B: AsMut<[u8]> + ?Sized, K: AsRef<[u8]> + ?Sized>(
+    out: &mut B,
+    key: &K,
+) -> Result<usize> {
+    let out = out.as_mut();
+    let key = key.as_ref();
     // Testenv (native host only): see `crate::testenv_bridge`'s module doc.
     #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
     {
@@ -73,39 +157,40 @@ pub fn state(out: &mut [u8], key: &[u8]) -> Result<usize> {
 /// **big-endian**: an 8-byte little-endian counter read this way comes back
 /// byte-swapped.
 #[inline(always)]
-pub fn state_u64(key: &[u8]) -> Result<u64> {
+pub fn state_u64<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<u64> {
+    let key = key.as_ref();
     res(unsafe { hooks_core::state(0, 0, key.as_ptr() as u32, key.len() as u32) }).map(|v| v as u64)
 }
 
 /// Read this hook's own state entry for `key`, requiring it to be exactly
-/// `N` bytes.
+/// `T`'s length — any [`crate::convert::FixedRead`] type, most commonly a
+/// `hooks_lib::types` newtype or a raw `[u8; N]`.
 ///
-/// An entry longer than `N` already fails as
+/// An entry longer than that already fails as
 /// [`HookError::TooSmall`](crate::error::HookError::TooSmall) from the
-/// underlying host call (`out`'s capacity is exactly `N`); an entry shorter
-/// than `N` is caught here (the host call succeeds but writes fewer than `N`
-/// bytes) and mapped to the same [`HookError::TooSmall`] variant, since both
-/// cases are "the entry does not have the exact expected size". No loop, no
-/// panic: a fixed `[0u8; N]` buffer plus one length comparison.
+/// underlying host call (the buffer `T::read_exact` allocates has exactly
+/// that capacity); an entry shorter is caught by `T::read_exact` itself
+/// (the host call succeeds but writes fewer bytes) and mapped to the same
+/// [`HookError::TooSmall`] variant, since both cases are "the entry does
+/// not have the exact expected size". No loop, no panic.
+///
+/// `T` is inferred from context, not a turbofish — see
+/// [`crate::api::otxn::otxn_field_exact`]'s doc comment for the full
+/// story.
 ///
 /// # Examples
 ///
 /// ```
 /// use hooks_lib::api::state::state_exact;
-/// use hooks_lib::error::HookError;
+/// use hooks_lib::error::{HookError, Result};
 ///
 /// let key = [0u8; 32];
-/// assert_eq!(state_exact::<8>(&key), Err(HookError::NotImplemented));
+/// let value: Result<[u8; 8]> = state_exact(&key);
+/// assert_eq!(value, Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn state_exact<const N: usize>(key: &[u8]) -> Result<[u8; N]> {
-    let mut out = [0u8; N];
-    let written = state(&mut out, key)?;
-    if written == N {
-        Ok(out)
-    } else {
-        Err(HookError::TooSmall)
-    }
+pub fn state_exact<T: FixedRead>(key: &[u8]) -> Result<T> {
+    T::read_exact(|buf| state(buf, key))
 }
 
 /// Read this hook's own state entry for `key` as a little-endian `u32` (via
@@ -122,28 +207,28 @@ pub fn state_exact<const N: usize>(key: &[u8]) -> Result<[u8; N]> {
 /// assert_eq!(state_u32(&key), Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn state_u32(key: &[u8]) -> Result<u32> {
-    state_exact::<4>(key).map(u32::from_le_bytes)
+pub fn state_u32<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<u32> {
+    state_exact::<[u8; 4]>(key.as_ref()).map(u32::from_le_bytes)
 }
 
 /// Write this hook's own state entry for `key` as a little-endian `u32`.
 /// Returns the number of bytes written.
 #[inline(always)]
-pub fn state_set_u32(value: u32, key: &[u8]) -> Result<usize> {
+pub fn state_set_u32<K: AsRef<[u8]> + ?Sized>(value: u32, key: &K) -> Result<usize> {
     state_set(&value.to_le_bytes(), key)
 }
 
 /// Read this hook's own state entry for `key` as a little-endian `i64` (via
 /// [`state_exact`]; see the module doc comment).
 #[inline(always)]
-pub fn state_i64(key: &[u8]) -> Result<i64> {
-    state_exact::<8>(key).map(i64::from_le_bytes)
+pub fn state_i64<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<i64> {
+    state_exact::<[u8; 8]>(key.as_ref()).map(i64::from_le_bytes)
 }
 
 /// Write this hook's own state entry for `key` as a little-endian `i64`.
 /// Returns the number of bytes written.
 #[inline(always)]
-pub fn state_set_i64(value: i64, key: &[u8]) -> Result<usize> {
+pub fn state_set_i64<K: AsRef<[u8]> + ?Sized>(value: i64, key: &K) -> Result<usize> {
     state_set(&value.to_le_bytes(), key)
 }
 
@@ -151,8 +236,8 @@ pub fn state_set_i64(value: i64, key: &[u8]) -> Result<usize> {
 /// raw bit pattern (`i64`) in little-endian bytes (via [`state_exact`]; see
 /// the module doc comment).
 #[inline(always)]
-pub fn state_xfl(key: &[u8]) -> Result<XFL> {
-    state_exact::<8>(key)
+pub fn state_xfl<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<XFL> {
+    state_exact::<[u8; 8]>(key.as_ref())
         .map(i64::from_le_bytes)
         .map(XFL::from_raw_bits)
 }
@@ -160,7 +245,7 @@ pub fn state_xfl(key: &[u8]) -> Result<XFL> {
 /// Write this hook's own state entry for `key` as an [`XFL`]'s raw bit
 /// pattern (`i64`), little-endian. Returns the number of bytes written.
 #[inline(always)]
-pub fn state_set_xfl(value: XFL, key: &[u8]) -> Result<usize> {
+pub fn state_set_xfl<K: AsRef<[u8]> + ?Sized>(value: XFL, key: &K) -> Result<usize> {
     state_set(&value.raw_bits().to_le_bytes(), key)
 }
 
@@ -187,7 +272,10 @@ fn absent_as_none<T>(result: Result<T>) -> Result<Option<T>> {
 /// returned as `Ok`. A real read error (anything but "doesn't exist")
 /// short-circuits before `f` is called or anything is written.
 #[inline(always)]
-pub fn state_update_u64(key: &[u8], f: impl FnOnce(Option<u64>) -> u64) -> Result<u64> {
+pub fn state_update_u64<K: AsRef<[u8]> + ?Sized>(
+    key: &K,
+    f: impl FnOnce(Option<u64>) -> u64,
+) -> Result<u64> {
     let current = absent_as_none(state_u64(key))?;
     let next = f(current);
     let _ = state_set(&next.to_be_bytes(), key)?;
@@ -198,7 +286,10 @@ pub fn state_update_u64(key: &[u8], f: impl FnOnce(Option<u64>) -> u64) -> Resul
 /// (little-endian convention, matching [`state_u32`]). See
 /// [`state_update_u64`] for the `Option`/error-propagation semantics.
 #[inline(always)]
-pub fn state_update_u32(key: &[u8], f: impl FnOnce(Option<u32>) -> u32) -> Result<u32> {
+pub fn state_update_u32<K: AsRef<[u8]> + ?Sized>(
+    key: &K,
+    f: impl FnOnce(Option<u32>) -> u32,
+) -> Result<u32> {
     let current = absent_as_none(state_u32(key))?;
     let next = f(current);
     let _ = state_set_u32(next, key)?;
@@ -209,7 +300,10 @@ pub fn state_update_u32(key: &[u8], f: impl FnOnce(Option<u32>) -> u32) -> Resul
 /// (little-endian convention, matching [`state_i64`]). See
 /// [`state_update_u64`] for the `Option`/error-propagation semantics.
 #[inline(always)]
-pub fn state_update_i64(key: &[u8], f: impl FnOnce(Option<i64>) -> i64) -> Result<i64> {
+pub fn state_update_i64<K: AsRef<[u8]> + ?Sized>(
+    key: &K,
+    f: impl FnOnce(Option<i64>) -> i64,
+) -> Result<i64> {
     let current = absent_as_none(state_i64(key))?;
     let next = f(current);
     let _ = state_set_i64(next, key)?;
@@ -220,7 +314,10 @@ pub fn state_update_i64(key: &[u8], f: impl FnOnce(Option<i64>) -> i64) -> Resul
 /// (little-endian raw-bits convention, matching [`state_xfl`]). See
 /// [`state_update_u64`] for the `Option`/error-propagation semantics.
 #[inline(always)]
-pub fn state_update_xfl(key: &[u8], f: impl FnOnce(Option<XFL>) -> XFL) -> Result<XFL> {
+pub fn state_update_xfl<K: AsRef<[u8]> + ?Sized>(
+    key: &K,
+    f: impl FnOnce(Option<XFL>) -> XFL,
+) -> Result<XFL> {
     let current = absent_as_none(state_xfl(key))?;
     let next = f(current);
     let _ = state_set_xfl(next, key)?;
@@ -230,7 +327,8 @@ pub fn state_update_xfl(key: &[u8], f: impl FnOnce(Option<XFL>) -> XFL) -> Resul
 /// Write this hook's own state entry for `key`. Returns the number of bytes
 /// written.
 #[inline(always)]
-pub fn state_set(data: &[u8], key: &[u8]) -> Result<usize> {
+pub fn state_set<K: AsRef<[u8]> + ?Sized>(data: &[u8], key: &K) -> Result<usize> {
+    let key = key.as_ref();
     #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
     {
         if let Some(result) = hooks_core::backend::with_backend(|b| b.state_set(key, data)) {
@@ -255,12 +353,22 @@ pub fn state_set(data: &[u8], key: &[u8]) -> Result<usize> {
 /// zero-length Hook API sentinel) when omitted. Returns the number of bytes
 /// written to `out`.
 #[inline(always)]
-pub fn state_foreign(
-    out: &mut [u8],
-    key: &[u8],
-    namespace: Option<&[u8]>,
-    account: Option<&[u8]>,
-) -> Result<usize> {
+pub fn state_foreign<'ns, 'ac, B, K, N, A>(
+    out: &mut B,
+    key: &K,
+    namespace: N,
+    account: A,
+) -> Result<usize>
+where
+    B: AsMut<[u8]> + ?Sized,
+    K: AsRef<[u8]> + ?Sized,
+    N: ForeignRef<'ns>,
+    A: ForeignRef<'ac>,
+{
+    let out = out.as_mut();
+    let key = key.as_ref();
+    let namespace = namespace.foreign_ref();
+    let account = account.foreign_ref();
     #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
     {
         if let Some(result) =
@@ -290,13 +398,15 @@ pub fn state_foreign(
 /// [`state_u64`] for the size/top-bit rules and endianness caveat).
 /// `namespace`/`account` follow [`state_foreign`]'s `Option` convention.
 #[inline(always)]
-pub fn state_foreign_u64(
-    key: &[u8],
-    namespace: Option<&[u8]>,
-    account: Option<&[u8]>,
-) -> Result<u64> {
-    let (nptr, nlen) = opt_in(namespace);
-    let (aptr, alen) = opt_in(account);
+pub fn state_foreign_u64<'ns, 'ac, K, N, A>(key: &K, namespace: N, account: A) -> Result<u64>
+where
+    K: AsRef<[u8]> + ?Sized,
+    N: ForeignRef<'ns>,
+    A: ForeignRef<'ac>,
+{
+    let key = key.as_ref();
+    let (nptr, nlen) = opt_in(namespace.foreign_ref());
+    let (aptr, alen) = opt_in(account.foreign_ref());
     res(unsafe {
         hooks_core::state_foreign(
             0,
@@ -317,14 +427,20 @@ pub fn state_foreign_u64(
 /// depending on protocol rules). See [`state_foreign`] for the `Option`
 /// convention. Returns the number of bytes written.
 #[inline(always)]
-pub fn state_foreign_set(
+pub fn state_foreign_set<'ns, 'ac, K, N, A>(
     data: &[u8],
-    key: &[u8],
-    namespace: Option<&[u8]>,
-    account: Option<&[u8]>,
-) -> Result<usize> {
-    let (nptr, nlen) = opt_in(namespace);
-    let (aptr, alen) = opt_in(account);
+    key: &K,
+    namespace: N,
+    account: A,
+) -> Result<usize>
+where
+    K: AsRef<[u8]> + ?Sized,
+    N: ForeignRef<'ns>,
+    A: ForeignRef<'ac>,
+{
+    let key = key.as_ref();
+    let (nptr, nlen) = opt_in(namespace.foreign_ref());
+    let (aptr, alen) = opt_in(account.foreign_ref());
     res(unsafe {
         hooks_core::state_foreign_set(
             data.as_ptr() as u32,
@@ -361,10 +477,10 @@ mod tests {
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_foreign_set(&out, &key, Some(&key), Some(&key)),
+            state_foreign_set(&out, &key, &key, &key),
             Err(HookError::NotImplemented)
         );
-        assert_eq!(state_exact::<8>(&key), Err(HookError::NotImplemented));
+        assert_eq!(state_exact::<[u8; 8]>(&key), Err(HookError::NotImplemented));
         assert_eq!(state_u32(&key), Err(HookError::NotImplemented));
         assert_eq!(state_set_u32(1, &key), Err(HookError::NotImplemented));
         assert_eq!(state_i64(&key), Err(HookError::NotImplemented));
@@ -393,25 +509,67 @@ mod tests {
     }
 
     #[test]
-    fn exact_rejects_short_write() {
-        // Pure-logic check on the length comparison in `state_exact`,
-        // independent of the host call: a `state()` that reports fewer
-        // bytes written than the requested `N` must be `TooSmall`, not a
-        // silently zero-padded array. `state_exact` itself always goes
-        // through the host stub on this target (which returns
-        // `NotImplemented` before any length check happens), so this test
-        // exercises the same comparison the function performs, standalone.
-        fn exact_from_written<const N: usize>(written: usize) -> Result<[u8; N]> {
-            let out = [0u8; N];
-            if written == N {
-                Ok(out)
-            } else {
-                Err(HookError::TooSmall)
-            }
-        }
-        assert_eq!(exact_from_written::<8>(8), Ok([0u8; 8]));
-        assert_eq!(exact_from_written::<8>(4), Err(HookError::TooSmall));
+    fn state_accepts_newtype_key_and_out_buffer_by_reference() {
+        // `&STATE_KEY`/`&mut buf` where both are `hooks_lib::types` newtypes
+        // — no `.as_ref()`/`.as_mut()` needed — is the whole point of the
+        // generic `K`/`B` bounds on `state`/`state_foreign` (see the module
+        // doc comment). This test locks that call shape in.
+        use crate::types::{AccountId, StateKey};
+
+        let key = StateKey::default();
+        let mut out = AccountId::default();
+        assert_eq!(state(&mut out, &key), Err(HookError::NotImplemented));
+        assert_eq!(
+            state_foreign(&mut out, &key, None, None),
+            Err(HookError::NotImplemented)
+        );
     }
+
+    #[test]
+    fn state_foreign_accepts_bare_newtype_reference_for_namespace_and_account() {
+        // The `ForeignRef` half of the same story: `&target`/`&namespace`
+        // (bare, no `Some(..)`) for a `hooks_lib::types` newtype, `None` for
+        // absent — see `ForeignRef`'s doc comment for why `Some(&target)`
+        // itself isn't supported.
+        use crate::types::{AccountId, NameSpace};
+
+        let key = [0u8; 32];
+        let mut out = [0u8; 32];
+        let target = AccountId::default();
+        let ns = NameSpace::default();
+        assert_eq!(
+            state_foreign(&mut out, &key, &ns, &target),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            state_foreign(&mut out, &key, None, &target),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            state_foreign_u64(&key, &ns, None),
+            Err(HookError::NotImplemented)
+        );
+    }
+
+    #[test]
+    fn foreign_ref_resolves_present_and_absent() {
+        // Pure-logic check on `ForeignRef` itself, no host call involved.
+        let bytes = [1u8, 2, 3];
+        let some: Option<&[u8]> = Some(&bytes);
+        let none: Option<&[u8]> = None;
+        assert_eq!(some.foreign_ref(), Some(bytes.as_slice()));
+        assert_eq!(none.foreign_ref(), None);
+        assert_eq!((&bytes).foreign_ref(), Some(bytes.as_slice()));
+    }
+
+    // `state_exact` no longer performs its own length comparison —
+    // `T::read_exact` (the `FixedRead` impl, one per concrete `T`) does,
+    // and is exercised standalone by `convert.rs`'s
+    // `fixed_read_array_rejects_short_write`/`fixed_read_succeeds_on_exact_write`
+    // (and `types.rs`'s newtype-flavored equivalents). `state_exact` itself
+    // always goes through the host stub on this target (returning
+    // `NotImplemented` before any length check happens), so there is
+    // nothing left for a standalone, non-host-call test to exercise here.
 
     #[test]
     fn absent_as_none_distinguishes_doesnt_exist_from_real_errors() {

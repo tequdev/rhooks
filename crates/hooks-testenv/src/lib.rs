@@ -36,11 +36,11 @@
 //! use hooks_testenv::{ExitType, TestEnv};
 //!
 //! fn firewall_hook(_reserved: u32) -> i64 {
-//!     let mut sender: AccountId = [0u8; ACC_ID_LEN];
+//!     let mut sender = AccountId::default();
 //!     if otxn_field(&mut sender, sfAccount).is_err() {
 //!         rollback!(b"no sender", -1);
 //!     }
-//!     let mut blocked: AccountId = [0u8; ACC_ID_LEN];
+//!     let mut blocked = AccountId::default();
 //!     match hook_param(&mut blocked, b"BL") {
 //!         Ok(n) if n == ACC_ID_LEN => {}
 //!         _ => accept!(),
@@ -64,6 +64,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use hooks_core::backend::HostBackend;
+use hooks_lib::types::{AccountId, Hash};
 
 /// Serializes every [`TestEnv::invoke_hook`] call process-wide.
 ///
@@ -146,34 +147,47 @@ impl TestEnv {
 
     /// Set the AccountID this hook is considered installed on
     /// (`hook_account`).
-    pub fn set_hook_account(&self, account: &[u8]) {
-        self.lock().hook_account = Some(account.to_vec());
+    pub fn set_hook_account(&self, account: &AccountId) {
+        self.lock().hook_account = Some(account.as_ref().to_vec());
     }
 
     /// Set the hash of the hook definition (`hook_hash`).
-    pub fn set_hook_hash(&self, hash: &[u8]) {
-        self.lock().hook_hash = Some(hash.to_vec());
+    pub fn set_hook_hash(&self, hash: &Hash) {
+        self.lock().hook_hash = Some(hash.as_ref().to_vec());
     }
 
-    /// Set a hook parameter (`hook_param`).
-    pub fn set_hook_param(&self, name: &[u8], value: &[u8]) {
+    /// Set a hook parameter (`hook_param`). `name` is the raw parameter tag
+    /// (not a `hooks_lib::types` newtype — Hook parameter names are
+    /// arbitrary short byte strings); `value` accepts any
+    /// [`AsRef<[u8]>`](AsRef), so a `hooks_lib::types` newtype (e.g.
+    /// `&AccountId`) can be passed directly, matching a raw `&[u8]`.
+    pub fn set_hook_param<V: AsRef<[u8]> + ?Sized>(&self, name: &[u8], value: &V) {
         self.lock()
             .hook_params
-            .insert(name.to_vec(), value.to_vec());
+            .insert(name.to_vec(), value.as_ref().to_vec());
     }
 
     /// Set this hook's own state entry for `key` (as if written by a prior
     /// invocation's `state_set`). Useful for seeding state before
     /// [`invoke_hook`](Self::invoke_hook); use [`state`](Self::state)
-    /// afterward to read back what the hook wrote.
-    pub fn set_state(&self, key: &[u8], value: &[u8]) {
-        self.lock().state.insert(key.to_vec(), value.to_vec());
+    /// afterward to read back what the hook wrote. `key`/`value` accept any
+    /// [`AsRef<[u8]>`](AsRef), so a `hooks_lib::types::StateKey` (or any
+    /// other newtype) can be passed straight through, matching a raw
+    /// `&[u8]`.
+    pub fn set_state<K: AsRef<[u8]> + ?Sized, V: AsRef<[u8]> + ?Sized>(&self, key: &K, value: &V) {
+        self.lock()
+            .state
+            .insert(key.as_ref().to_vec(), value.as_ref().to_vec());
     }
 
     /// Set a field of the originating transaction (`otxn_field`), keyed by
-    /// its raw `sf*` field code.
-    pub fn set_otxn_field(&self, field_id: u32, value: &[u8]) {
-        self.lock().otxn_fields.insert(field_id, value.to_vec());
+    /// its raw `sf*` field code. `value` accepts any [`AsRef<[u8]>`](AsRef),
+    /// so a `hooks_lib::types` newtype matching the field's shape (e.g.
+    /// `&AccountId` for `sfAccount`) can be passed directly.
+    pub fn set_otxn_field<V: AsRef<[u8]> + ?Sized>(&self, field_id: u32, value: &V) {
+        self.lock()
+            .otxn_fields
+            .insert(field_id, value.as_ref().to_vec());
     }
 
     /// Set the originating transaction's `tt*` type code (`otxn_type`).
@@ -182,8 +196,8 @@ impl TestEnv {
     }
 
     /// Set the originating transaction's ID/hash (`otxn_id`).
-    pub fn set_otxn_id(&self, id: &[u8]) {
-        self.lock().otxn_id = Some(id.to_vec());
+    pub fn set_otxn_id(&self, id: &Hash) {
+        self.lock().otxn_id = Some(id.as_ref().to_vec());
     }
 
     /// Set the current ledger sequence (`ledger_seq`).
@@ -198,10 +212,11 @@ impl TestEnv {
 
     /// Read back this hook's own state entry for `key`, or `None` if unset.
     /// Use after [`invoke_hook`](Self::invoke_hook) to assert on state a
-    /// hook wrote via `state_set`.
+    /// hook wrote via `state_set`. `key` accepts any [`AsRef<[u8]>`](AsRef),
+    /// so a `hooks_lib::types::StateKey` can be passed straight through.
     #[must_use]
-    pub fn state(&self, key: &[u8]) -> Option<Vec<u8>> {
-        self.lock().state.get(key).cloned()
+    pub fn state<K: AsRef<[u8]> + ?Sized>(&self, key: &K) -> Option<Vec<u8>> {
+        self.lock().state.get(key.as_ref()).cloned()
     }
 
     /// Run `hook_fn` against this environment's configuration.
@@ -381,7 +396,7 @@ impl HostBackend for BackendHandle {
 mod tests {
     use super::*;
     use hooks_lib::prelude::*;
-    use hooks_lib::{accept, hook_errors, pad, rollback};
+    use hooks_lib::{accept, hook_errors, pad, rollback, state_keys};
 
     hook_errors! {
         /// `firewall`-equivalent rollback codes (see `examples/05_firewall`).
@@ -398,7 +413,7 @@ mod tests {
     /// defined inline: rolls back if the originating transaction's sender
     /// matches the `BL` hook parameter, accepts otherwise.
     fn firewall_hook(_reserved: u32) -> i64 {
-        let mut sender: AccountId = [0u8; ACC_ID_LEN];
+        let mut sender = AccountId::default();
         match otxn_field(&mut sender, hooks_core::sfcodes::sfAccount) {
             Ok(n) if n == ACC_ID_LEN => {}
             _ => rollback!(
@@ -407,7 +422,7 @@ mod tests {
             ),
         }
 
-        let mut blocked: AccountId = [0u8; ACC_ID_LEN];
+        let mut blocked = AccountId::default();
         match hook_param(&mut blocked, b"BL") {
             Ok(n) if n == ACC_ID_LEN => {}
             _ => accept!(),
@@ -428,7 +443,7 @@ mod tests {
     /// defined inline: reads an 8-byte little-endian counter from state
     /// (defaulting to zero), increments it, and writes it back.
     fn counter_hook(_reserved: u32) -> i64 {
-        let key: StateKey = pad!(b"counter");
+        let key: StateKey = StateKey(pad!(b"counter"));
 
         let mut raw = [0u8; 8];
         let count = match state(&mut raw, &key) {
@@ -481,7 +496,7 @@ mod tests {
 
     #[test]
     fn counter_increments_and_persists_in_state() {
-        let key: StateKey = pad!(b"counter");
+        let key: StateKey = StateKey(pad!(b"counter"));
         let env = TestEnv::new();
 
         let first = env.invoke_hook(counter_hook);
@@ -495,22 +510,67 @@ mod tests {
         assert_eq!(env.state(&key), Some(2u64.to_le_bytes().to_vec()));
     }
 
+    state_keys! {
+        /// Test-only key space for exercising `hooks_lib::state`'s typed
+        /// layer (`state_get`/`state_set_typed`) over the testenv backend.
+        enum TypedKey {
+            /// A single `u64` counter.
+            Counter,
+        }
+    }
+
+    /// `state_get`/`state_set_typed`-equivalent of `counter_hook`, proving
+    /// the typed state layer (built on top of `crate::api::state::state`/
+    /// `state_set`) routes through the testenv backend exactly like the raw
+    /// functions it's built on.
+    fn typed_counter_hook(_reserved: u32) -> i64 {
+        let current = state_get::<u64>(&TypedKey::Counter)
+            .unwrap_or(None)
+            .unwrap_or(0);
+        let next = current.wrapping_add(1);
+        if state_set_typed(&TypedKey::Counter, &next).is_err() {
+            rollback!(b"typed-state: state_set_typed failed", -1);
+        }
+        accept!(b"typed-state: incremented", next as i64)
+    }
+
+    #[test]
+    fn typed_state_layer_round_trips_through_testenv_backend() {
+        let env = TestEnv::new();
+
+        let first = env.invoke_hook(typed_counter_hook);
+        assert_eq!(first.exit, ExitType::Accept);
+        assert_eq!(first.code, 1);
+        assert_eq!(
+            env.state(&TypedKey::Counter.encode()),
+            Some(1u64.to_le_bytes().to_vec())
+        );
+
+        let second = env.invoke_hook(typed_counter_hook);
+        assert_eq!(second.exit, ExitType::Accept);
+        assert_eq!(second.code, 2);
+        assert_eq!(
+            env.state(&TypedKey::Counter.encode()),
+            Some(2u64.to_le_bytes().to_vec())
+        );
+    }
+
     #[test]
     fn ledger_and_hook_context_round_trip() {
         let env = TestEnv::new();
         env.set_ledger_seq(123);
         env.set_ledger_last_time(456);
-        env.set_hook_account(&[0x22u8; ACC_ID_LEN]);
-        env.set_hook_hash(&[0x33u8; 32]);
-        env.set_otxn_id(&[0x44u8; 32]);
+        env.set_hook_account(&AccountId([0x22u8; ACC_ID_LEN]));
+        env.set_hook_hash(&Hash([0x33u8; HASH_LEN]));
+        env.set_otxn_id(&Hash([0x44u8; HASH_LEN]));
         env.set_otxn_type(hooks_core::tts::ttPAYMENT);
 
         fn context_hook(_reserved: u32) -> i64 {
             let seq = ledger_seq();
             let time = ledger_last_time();
-            let acct = hook_account_buf().unwrap_or([0u8; ACC_ID_LEN]);
-            let hash = hook_hash_buf(0).unwrap_or([0u8; HASH_LEN]);
-            let mut id = [0u8; HASH_LEN];
+            let acct = hook_account_buf().unwrap_or_default();
+            let hash = hook_hash_buf(0).unwrap_or_default();
+            let mut id = Hash::default();
             let _ = otxn_id(&mut id, 0);
             let tt = otxn_type();
 
@@ -523,13 +583,13 @@ mod tests {
             if time == 456 {
                 mask |= 0b10;
             }
-            if acct == [0x22u8; ACC_ID_LEN] {
+            if acct == AccountId([0x22u8; ACC_ID_LEN]) {
                 mask |= 0b100;
             }
-            if hash == [0x33u8; HASH_LEN] {
+            if hash == Hash([0x33u8; HASH_LEN]) {
                 mask |= 0b1000;
             }
-            if id == [0x44u8; HASH_LEN] {
+            if id == Hash([0x44u8; HASH_LEN]) {
                 mask |= 0b1_0000;
             }
             if tt == 0 {
