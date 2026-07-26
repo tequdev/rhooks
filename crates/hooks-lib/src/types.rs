@@ -1,8 +1,67 @@
-//! Fixed-size protocol buffer aliases.
+//! Fixed-size protocol buffer newtypes.
+//!
+//! Each type below (`AccountId`, `Hash`, `Keylet`, ...) is a
+//! `#[repr(transparent)]` tuple struct wrapping a `[u8; N]` — not a bare
+//! type alias. `#[repr(transparent)]` guarantees the wrapper has *exactly*
+//! the same layout, size, and alignment as its inner array (zero-cost: no
+//! extra memory, no extra indirection, and it is FFI-compatible with a raw
+//! `[u8; N]` wherever that matters), so this newtype step only adds
+//! type-level distinctness (an `AccountId` and a `Hash` can no longer be
+//! passed to each other's slots by accident) at zero runtime cost.
+//!
+//! The inner field is `pub` (`AccountId(pub [u8; 20])`) and every type
+//! implements [`core::ops::Deref`]/[`core::ops::DerefMut`] (target
+//! `[u8; N]`), [`AsRef<[u8]>`]/[`AsMut<[u8]>`], and
+//! `From<[u8; N]>`/`Into<[u8; N]>`, to keep migration cost low: method
+//! calls (`.as_ptr()`, `.len()`, indexing, `.starts_with(..)`, ...) reach
+//! through to the inner array via auto-deref exactly as they did when
+//! these were plain array aliases. Passing a newtype by reference where a
+//! *bare* `&[u8]`/`&mut [u8]` parameter is expected does need an explicit
+//! conversion (`value.as_ref()` / `value.as_mut()`) — Rust does not chain a
+//! user `Deref` impl with the built-in array-to-slice unsized coercion at a
+//! call site — but every `hooks_lib::api` wrapper that takes a caller
+//! buffer or key/value byte slice (`state`, `otxn_field`, `hook_param`,
+//! `hook_account`, `ledger_last_hash`, `util_accid`, `etxn_details`, `slot`,
+//! ...) sidesteps that entirely by bounding the parameter with
+//! `AsRef<[u8]>`/`AsMut<[u8]>` instead of taking a bare `&[u8]`/`&mut [u8]`,
+//! so `otxn_field(&mut sender, sfAccount)` / `state(&mut raw, &STATE_KEY)`
+//! work as-is, no `.as_ref()`/`.as_mut()` needed (see `api::state`'s module
+//! doc comment for the full reasoning, and its `ForeignRef` trait for the
+//! one remaining exception — `state_foreign`'s `namespace`/`account`, which
+//! are `Option`-shaped and need a different trick). The explicit-conversion
+//! case above only still applies to genuinely bare `&[u8]`/`&mut [u8]`
+//! parameters outside that wrapper layer (e.g. a hook's own helper
+//! function, or `core`/`alloc` APIs).
+//!
+//! Every type here also implements [`crate::convert::ToBytes`]/
+//! [`crate::convert::FromBytes`] (a fixed-length passthrough to/from its
+//! inner array), so all ten work directly as
+//! [`crate::state::state_get`]/[`crate::state::state_set_typed`] value
+//! types.
 //!
 //! All of these are always zero-initialized as `[0u8; N]` at call sites —
 //! never via `MaybeUninit` (see `macros.rs` for why `uninit_buf!` is
-//! deliberately not provided).
+//! deliberately not provided). Every type provides two equivalent ways to
+//! get that zero value: [`Default::default`] (for ordinary `let`
+//! bindings — `AccountId::default()`) and a `const fn zeroed() -> Self`
+//! (for `const`/`static` contexts, where `Default::default` can't be
+//! called — `Default` is not, and cannot be, a `const fn` trait method on
+//! stable Rust). Both produce the identical all-zero value; reach for
+//! whichever the binding's context requires. The typical use for either is
+//! allocating a fixed-size scratch buffer to hand to a host call's
+//! caller-buffer output parameter, e.g. `let mut sender =
+//! AccountId::default(); otxn_field(&mut sender, sfAccount)?;` — see
+//! [`mod@crate::api`]'s wrapper functions.
+//!
+//! Every type also implements [`crate::convert::FixedRead`], so it works
+//! directly as the return type of `otxn_field_exact`/`hook_param_exact`/
+//! `slot_exact`/`state_exact` — `let sender: AccountId =
+//! otxn_field_exact(sfAccount)?;`, no turbofish, the expected length coming
+//! from the annotated return type rather than a caller-supplied `N`. See
+//! [`crate::convert::FixedRead`]'s doc comment for the full story.
+
+use crate::convert::{FixedRead, FromBytes, ToBytes};
+use crate::error::{HookError, Result};
 
 /// Length in bytes of an [`AccountId`].
 pub const ACC_ID_LEN: usize = 20;
@@ -33,23 +92,255 @@ pub const IOU_AMOUNT_LEN: usize = 48;
 /// and trust the returned length; do not assume it is always fully written.
 pub const EMIT_DETAILS_MAX_LEN: usize = 138;
 
-/// A 20-byte AccountID.
-pub type AccountId = [u8; ACC_ID_LEN];
-/// A 32-byte hash (transaction ID, ledger hash, ...).
-pub type Hash = [u8; HASH_LEN];
-/// A 34-byte Keylet.
-pub type Keylet = [u8; KEYLET_LEN];
-/// A 32-byte hook state key.
-pub type StateKey = [u8; STATE_KEY_LEN];
-/// A 32-byte hook state namespace.
-pub type NameSpace = [u8; NAMESPACE_LEN];
-/// A 32-byte nonce.
-pub type Nonce = [u8; NONCE_LEN];
-/// A 33-byte public key.
-pub type PublicKey = [u8; PUB_KEY_LEN];
-/// A 20-byte currency code.
-pub type CurrencyCode = [u8; CURRENCY_CODE_LEN];
-/// An 8-byte serialized native (XRP/XAH) amount.
-pub type NativeAmount = [u8; NATIVE_AMOUNT_LEN];
-/// A 48-byte serialized IOU amount.
-pub type IouAmount = [u8; IOU_AMOUNT_LEN];
+/// Defines one `#[repr(transparent)]` fixed-size buffer newtype, plus its
+/// `Deref`/`DerefMut`/`AsRef`/`AsMut`/`From`/`Default`/`zeroed`/`ToBytes`/
+/// `FromBytes`/`FixedRead` impls. See the module doc comment for the
+/// rationale.
+macro_rules! fixed_bytes_type {
+    ($(#[$meta:meta])* $name:ident, $len:expr) => {
+        $(#[$meta])*
+        #[repr(transparent)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct $name(pub [u8; $len]);
+
+        impl $name {
+            #[doc = concat!(
+                "An all-zero `", stringify!($name), "`, usable in `const`/",
+                "`static` contexts (unlike [`Default::default`], which ",
+                "this returns the same value as — `Default` cannot be a ",
+                "`const fn` on stable Rust). Typical use: a fixed-size ",
+                "scratch buffer for a host call's caller-buffer output ",
+                "parameter, e.g. `let mut sender = ", stringify!($name),
+                "::zeroed();` before `otxn_field(&mut sender, sfAccount)`."
+            )]
+            #[inline(always)]
+            #[must_use]
+            pub const fn zeroed() -> Self {
+                $name([0u8; $len])
+            }
+        }
+
+        impl core::ops::Deref for $name {
+            type Target = [u8; $len];
+
+            #[inline(always)]
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl core::ops::DerefMut for $name {
+            #[inline(always)]
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+
+        impl AsRef<[u8]> for $name {
+            #[inline(always)]
+            fn as_ref(&self) -> &[u8] {
+                &self.0
+            }
+        }
+
+        impl AsMut<[u8]> for $name {
+            #[inline(always)]
+            fn as_mut(&mut self) -> &mut [u8] {
+                &mut self.0
+            }
+        }
+
+        impl From<[u8; $len]> for $name {
+            #[inline(always)]
+            fn from(value: [u8; $len]) -> Self {
+                $name(value)
+            }
+        }
+
+        impl From<$name> for [u8; $len] {
+            #[inline(always)]
+            fn from(value: $name) -> Self {
+                value.0
+            }
+        }
+
+        impl Default for $name {
+            #[inline(always)]
+            fn default() -> Self {
+                Self::zeroed()
+            }
+        }
+
+        impl ToBytes for $name {
+            const MAX_LEN: usize = $len;
+
+            #[inline(always)]
+            fn write(&self, buf: &mut [u8]) -> usize {
+                self.0.write(buf)
+            }
+        }
+
+        impl FromBytes for $name {
+            #[inline(always)]
+            fn read(buf: &[u8]) -> Result<Self> {
+                <[u8; $len]>::read(buf).map($name)
+            }
+        }
+
+        impl FixedRead for $name {
+            #[inline(always)]
+            fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+                let mut out = Self::zeroed();
+                let written = read(out.as_mut())?;
+                if written == $len {
+                    Ok(out)
+                } else {
+                    Err(HookError::TooSmall)
+                }
+            }
+        }
+    };
+}
+
+fixed_bytes_type!(
+    /// A 20-byte AccountID.
+    AccountId,
+    ACC_ID_LEN
+);
+fixed_bytes_type!(
+    /// A 32-byte hash (transaction ID, ledger hash, ...).
+    Hash,
+    HASH_LEN
+);
+fixed_bytes_type!(
+    /// A 34-byte Keylet.
+    Keylet,
+    KEYLET_LEN
+);
+fixed_bytes_type!(
+    /// A 32-byte hook state key.
+    StateKey,
+    STATE_KEY_LEN
+);
+fixed_bytes_type!(
+    /// A 32-byte hook state namespace.
+    NameSpace,
+    NAMESPACE_LEN
+);
+fixed_bytes_type!(
+    /// A 32-byte nonce.
+    Nonce,
+    NONCE_LEN
+);
+fixed_bytes_type!(
+    /// A 33-byte public key.
+    PublicKey,
+    PUB_KEY_LEN
+);
+fixed_bytes_type!(
+    /// A 20-byte currency code.
+    CurrencyCode,
+    CURRENCY_CODE_LEN
+);
+fixed_bytes_type!(
+    /// An 8-byte serialized native (XRP/XAH) amount.
+    NativeAmount,
+    NATIVE_AMOUNT_LEN
+);
+fixed_bytes_type!(
+    /// A 48-byte serialized IOU amount.
+    IouAmount,
+    IOU_AMOUNT_LEN
+);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deref_reaches_inner_array_methods() {
+        let id = AccountId([0xAB; ACC_ID_LEN]);
+        assert_eq!(id.len(), ACC_ID_LEN);
+        assert!(id.starts_with(&[0xAB]));
+    }
+
+    #[test]
+    fn as_ref_as_mut_round_trip() {
+        let mut id = AccountId::default();
+        id.as_mut().copy_from_slice(&[7u8; ACC_ID_LEN]);
+        assert_eq!(id.as_ref(), &[7u8; ACC_ID_LEN]);
+    }
+
+    #[test]
+    fn from_into_array_round_trip() {
+        let arr = [9u8; ACC_ID_LEN];
+        let id = AccountId::from(arr);
+        let back: [u8; ACC_ID_LEN] = id.into();
+        assert_eq!(back, arr);
+    }
+
+    #[test]
+    fn default_is_all_zero() {
+        assert_eq!(AccountId::default(), AccountId([0u8; ACC_ID_LEN]));
+    }
+
+    #[test]
+    fn zeroed_is_all_zero_and_matches_default() {
+        assert_eq!(AccountId::zeroed(), AccountId([0u8; ACC_ID_LEN]));
+        assert_eq!(AccountId::zeroed(), AccountId::default());
+    }
+
+    // `zeroed()` must be usable in a `const`/`static` initializer — the
+    // whole reason it exists alongside `Default` (which cannot be `const`
+    // on stable Rust). A `const`/`static` that fails to compile would fail
+    // the crate build, not this test, but keeping one here documents the
+    // guarantee at the call site closest to it.
+    const _CONST_ZEROED: AccountId = AccountId::zeroed();
+    static _STATIC_ZEROED: Hash = Hash::zeroed();
+
+    #[test]
+    fn zeroed_works_in_const_and_static_context() {
+        assert_eq!(_CONST_ZEROED, AccountId([0u8; ACC_ID_LEN]));
+        assert_eq!(_STATIC_ZEROED, Hash([0u8; HASH_LEN]));
+    }
+
+    #[test]
+    fn fixed_read_succeeds_on_exact_write() {
+        let result: Result<AccountId> = AccountId::read_exact(|buf| {
+            buf.copy_from_slice(&[7u8; ACC_ID_LEN]);
+            Ok(ACC_ID_LEN)
+        });
+        assert_eq!(result, Ok(AccountId([7u8; ACC_ID_LEN])));
+    }
+
+    #[test]
+    fn fixed_read_passes_a_buffer_of_exactly_this_types_length() {
+        let _: Result<AccountId> = AccountId::read_exact(|buf| {
+            assert_eq!(buf.len(), ACC_ID_LEN);
+            Ok(buf.len())
+        });
+    }
+
+    #[test]
+    fn fixed_read_rejects_short_write() {
+        let result: Result<AccountId> = AccountId::read_exact(|_buf| Ok(ACC_ID_LEN - 1));
+        assert_eq!(result, Err(HookError::TooSmall));
+    }
+
+    #[test]
+    fn to_bytes_from_bytes_round_trip() {
+        let id = AccountId([5u8; ACC_ID_LEN]);
+        let mut buf = [0u8; ACC_ID_LEN];
+        assert_eq!(id.write(&mut buf), ACC_ID_LEN);
+        assert_eq!(AccountId::read(&buf), Ok(id));
+    }
+
+    #[test]
+    fn repr_transparent_matches_inner_array_size() {
+        assert_eq!(core::mem::size_of::<AccountId>(), ACC_ID_LEN);
+        assert_eq!(
+            core::mem::align_of::<AccountId>(),
+            core::mem::align_of::<[u8; ACC_ID_LEN]>()
+        );
+    }
+}
