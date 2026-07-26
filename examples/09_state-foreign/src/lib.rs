@@ -45,8 +45,8 @@ hook_errors! {
 /// entry exists and its first byte is nonzero.
 #[hook]
 fn my_hook() -> i64 {
-    let target: AccountId = match hook_param_exact::<ACC_ID_LEN>(ACCT_PARAM) {
-        Ok(t) => t.into(),
+    let target: AccountId = match hook_param_exact(ACCT_PARAM) {
+        Ok(t) => t,
         Err(_) => rollback!(
             b"state-foreign: ACCT parameter not configured",
             StateForeignError::AcctNotConfigured

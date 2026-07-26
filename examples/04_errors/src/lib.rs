@@ -71,7 +71,7 @@ impl RejectReason {
 /// check passes.
 #[hook]
 fn my_hook() -> i64 {
-    if otxn_field_exact::<ACC_ID_LEN>(sfAccount).is_err() {
+    if otxn_field_exact::<AccountId>(sfAccount).is_err() {
         RejectReason::BadAccountField.rollback();
     }
 
@@ -85,7 +85,7 @@ fn my_hook() -> i64 {
         _ => {}
     }
 
-    let drops = match otxn_field_exact::<8>(sfAmount) {
+    let drops = match otxn_field_exact(sfAmount) {
         Ok(raw) => u64::from_be_bytes(raw) & !NATIVE_AMOUNT_FLAG_BITS,
         Err(_) => RejectReason::NotNativeAmount.rollback(),
     };

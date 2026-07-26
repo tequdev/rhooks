@@ -89,8 +89,8 @@ fn accounts_equal(a: &AccountId, b: &AccountId) -> bool {
 #[hook]
 #[rustfmt::skip] // see the doc comment above: staying on one physical line is the point
 fn my_hook() -> i64 {
-    let sender: AccountId = match otxn_field_exact::<ACC_ID_LEN>(sfAccount) {
-        Ok(s) => s.into(),
+    let sender: AccountId = match otxn_field_exact(sfAccount) {
+        Ok(s) => s,
         Err(_) => rollback!(
             b"guard-patterns: could not read otxn sender",
             GuardPatternsError::CouldNotReadSender
@@ -98,7 +98,7 @@ fn my_hook() -> i64 {
     };
 
     // No (valid) blacklist parameter configured: nothing to block.
-    let Ok(blocked) = hook_param_exact::<ACC_ID_LEN>(BL_PARAM).map(AccountId::from) else {
+    let Ok(blocked) = hook_param_exact(BL_PARAM) else {
         accept!();
     };
 

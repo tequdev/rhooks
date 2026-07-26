@@ -182,6 +182,65 @@ impl<const N: usize> FromBytes for [u8; N] {
     }
 }
 
+/// A type whose value can be read in one shot as a fixed-size buffer from a
+/// caller-buffer Hook API wrapper (`otxn_field`, `hook_param`, `slot`,
+/// `state`) — the trait backing
+/// [`crate::api::otxn::otxn_field_exact`]/[`crate::api::hook_ctx::hook_param_exact`]/
+/// [`crate::api::slot::slot_exact`]/[`crate::api::state::state_exact`].
+///
+/// Implemented here for `[u8; N]` (any `N`), and — via the
+/// `fixed_bytes_type!` macro — in `types.rs` for every `hooks_lib::types`
+/// newtype. Each impl knows its *own* exact length, so
+/// `otxn_field_exact::<AccountId>(sfAccount)` reads exactly `ACC_ID_LEN`
+/// bytes without a caller-supplied `N`; with the return type inferred from
+/// a `let` binding's type annotation instead of a turbofish
+/// (`let sender: AccountId = otxn_field_exact(sfAccount)?;`), no turbofish
+/// is needed at all. A binding with no inferable type (no annotation, no
+/// other usage that pins the type down) is a compile error, same as any
+/// other unconstrained generic return type — annotate the binding.
+///
+/// # Why `read_exact` takes a closure, not a length
+///
+/// A single generic function can't allocate `[0u8; T::SOME_ASSOCIATED_LEN]`
+/// — using an associated constant as an array length needs
+/// `generic_const_exprs`, unstable on this crate's pinned stable toolchain.
+/// `read_exact` sidesteps that by moving the actual `[0u8; N]`/newtype
+/// buffer allocation into *this trait method's own implementation*, one
+/// per concrete `Self`, where the length is a literal the `impl` block
+/// already knows — never a generic parameter's associated constant. The
+/// caller-buffer wrapper function itself (`otxn_field`, `state`, ...) is
+/// passed in as a closure, so each `*_exact` function stays a single
+/// generic function (one per Hook API call), not one monomorphized-away
+/// non-generic function per concrete `T` written by hand.
+pub trait FixedRead: Sized {
+    /// Allocates this type's own fixed-size buffer, calls `read` with it,
+    /// and returns `Self` if `read` reports writing exactly that many
+    /// bytes.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error `read` returns. Returns
+    /// [`HookError::TooSmall`] if `read` succeeds but reports writing a
+    /// different number of bytes than this type's exact length (covers
+    /// both "wrote fewer bytes" — the common case, e.g. no such field — and
+    /// "wrote more," which `read`'s exactly-sized buffer argument should
+    /// already prevent at the host level, but isn't assumed here).
+    fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self>;
+}
+
+impl<const N: usize> FixedRead for [u8; N] {
+    #[inline(always)]
+    fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+        let mut out = [0u8; N];
+        let written = read(&mut out)?;
+        if written == N {
+            Ok(out)
+        } else {
+            Err(HookError::TooSmall)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,5 +299,34 @@ mod tests {
             crate::xfl::XFL::read(&buf).map(XFL::raw_bits),
             Ok(0x1234_5678_9ABC_DEF0i64)
         );
+    }
+
+    #[test]
+    fn fixed_read_array_succeeds_on_exact_write() {
+        let result: Result<[u8; 4]> = <[u8; 4]>::read_exact(|buf| {
+            buf.copy_from_slice(&[1, 2, 3, 4]);
+            Ok(4)
+        });
+        assert_eq!(result, Ok([1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn fixed_read_array_rejects_short_write() {
+        let result: Result<[u8; 4]> = <[u8; 4]>::read_exact(|_buf| Ok(3));
+        assert_eq!(result, Err(HookError::TooSmall));
+    }
+
+    #[test]
+    fn fixed_read_array_propagates_read_error() {
+        let result: Result<[u8; 4]> = <[u8; 4]>::read_exact(|_buf| Err(HookError::InternalError));
+        assert_eq!(result, Err(HookError::InternalError));
+    }
+
+    #[test]
+    fn fixed_read_passes_a_buffer_of_exactly_n_bytes() {
+        let _: Result<[u8; 7]> = <[u8; 7]>::read_exact(|buf| {
+            assert_eq!(buf.len(), 7);
+            Ok(buf.len())
+        });
     }
 }

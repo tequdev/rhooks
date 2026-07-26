@@ -50,6 +50,7 @@
 //! case, covered by [`ForeignRef`] below rather than a plain `AsRef<[u8]>`/
 //! `AsMut<[u8]>` bound — see that trait's doc comment for why.
 
+use crate::convert::FixedRead;
 use crate::error::{HookError, Result, res};
 use crate::xfl::XFL;
 
@@ -155,34 +156,34 @@ pub fn state_u64<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<u64> {
 }
 
 /// Read this hook's own state entry for `key`, requiring it to be exactly
-/// `N` bytes.
+/// `T`'s length — any [`crate::convert::FixedRead`] type, most commonly a
+/// `hooks_lib::types` newtype or a raw `[u8; N]`.
 ///
-/// An entry longer than `N` already fails as
+/// An entry longer than that already fails as
 /// [`HookError::TooSmall`](crate::error::HookError::TooSmall) from the
-/// underlying host call (`out`'s capacity is exactly `N`); an entry shorter
-/// than `N` is caught here (the host call succeeds but writes fewer than `N`
-/// bytes) and mapped to the same [`HookError::TooSmall`] variant, since both
-/// cases are "the entry does not have the exact expected size". No loop, no
-/// panic: a fixed `[0u8; N]` buffer plus one length comparison.
+/// underlying host call (the buffer `T::read_exact` allocates has exactly
+/// that capacity); an entry shorter is caught by `T::read_exact` itself
+/// (the host call succeeds but writes fewer bytes) and mapped to the same
+/// [`HookError::TooSmall`] variant, since both cases are "the entry does
+/// not have the exact expected size". No loop, no panic.
+///
+/// `T` is inferred from context, not a turbofish — see
+/// [`crate::api::otxn::otxn_field_exact`]'s doc comment for the full
+/// story.
 ///
 /// # Examples
 ///
 /// ```
 /// use hooks_lib::api::state::state_exact;
-/// use hooks_lib::error::HookError;
+/// use hooks_lib::error::{HookError, Result};
 ///
 /// let key = [0u8; 32];
-/// assert_eq!(state_exact::<8>(&key), Err(HookError::NotImplemented));
+/// let value: Result<[u8; 8]> = state_exact(&key);
+/// assert_eq!(value, Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn state_exact<const N: usize>(key: &[u8]) -> Result<[u8; N]> {
-    let mut out = [0u8; N];
-    let written = state(&mut out, key)?;
-    if written == N {
-        Ok(out)
-    } else {
-        Err(HookError::TooSmall)
-    }
+pub fn state_exact<T: FixedRead>(key: &[u8]) -> Result<T> {
+    T::read_exact(|buf| state(buf, key))
 }
 
 /// Read this hook's own state entry for `key` as a little-endian `u32` (via
@@ -200,7 +201,7 @@ pub fn state_exact<const N: usize>(key: &[u8]) -> Result<[u8; N]> {
 /// ```
 #[inline(always)]
 pub fn state_u32<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<u32> {
-    state_exact::<4>(key.as_ref()).map(u32::from_le_bytes)
+    state_exact::<[u8; 4]>(key.as_ref()).map(u32::from_le_bytes)
 }
 
 /// Write this hook's own state entry for `key` as a little-endian `u32`.
@@ -214,7 +215,7 @@ pub fn state_set_u32<K: AsRef<[u8]> + ?Sized>(value: u32, key: &K) -> Result<usi
 /// [`state_exact`]; see the module doc comment).
 #[inline(always)]
 pub fn state_i64<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<i64> {
-    state_exact::<8>(key.as_ref()).map(i64::from_le_bytes)
+    state_exact::<[u8; 8]>(key.as_ref()).map(i64::from_le_bytes)
 }
 
 /// Write this hook's own state entry for `key` as a little-endian `i64`.
@@ -229,7 +230,7 @@ pub fn state_set_i64<K: AsRef<[u8]> + ?Sized>(value: i64, key: &K) -> Result<usi
 /// the module doc comment).
 #[inline(always)]
 pub fn state_xfl<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<XFL> {
-    state_exact::<8>(key.as_ref())
+    state_exact::<[u8; 8]>(key.as_ref())
         .map(i64::from_le_bytes)
         .map(XFL::from_raw_bits)
 }
@@ -454,7 +455,7 @@ mod tests {
             state_foreign_set(&out, &key, &key, &key),
             Err(HookError::NotImplemented)
         );
-        assert_eq!(state_exact::<8>(&key), Err(HookError::NotImplemented));
+        assert_eq!(state_exact::<[u8; 8]>(&key), Err(HookError::NotImplemented));
         assert_eq!(state_u32(&key), Err(HookError::NotImplemented));
         assert_eq!(state_set_u32(1, &key), Err(HookError::NotImplemented));
         assert_eq!(state_i64(&key), Err(HookError::NotImplemented));
@@ -536,26 +537,14 @@ mod tests {
         assert_eq!((&bytes).foreign_ref(), Some(bytes.as_slice()));
     }
 
-    #[test]
-    fn exact_rejects_short_write() {
-        // Pure-logic check on the length comparison in `state_exact`,
-        // independent of the host call: a `state()` that reports fewer
-        // bytes written than the requested `N` must be `TooSmall`, not a
-        // silently zero-padded array. `state_exact` itself always goes
-        // through the host stub on this target (which returns
-        // `NotImplemented` before any length check happens), so this test
-        // exercises the same comparison the function performs, standalone.
-        fn exact_from_written<const N: usize>(written: usize) -> Result<[u8; N]> {
-            let out = [0u8; N];
-            if written == N {
-                Ok(out)
-            } else {
-                Err(HookError::TooSmall)
-            }
-        }
-        assert_eq!(exact_from_written::<8>(8), Ok([0u8; 8]));
-        assert_eq!(exact_from_written::<8>(4), Err(HookError::TooSmall));
-    }
+    // `state_exact` no longer performs its own length comparison —
+    // `T::read_exact` (the `FixedRead` impl, one per concrete `T`) does,
+    // and is exercised standalone by `convert.rs`'s
+    // `fixed_read_array_rejects_short_write`/`fixed_read_succeeds_on_exact_write`
+    // (and `types.rs`'s newtype-flavored equivalents). `state_exact` itself
+    // always goes through the host stub on this target (returning
+    // `NotImplemented` before any length check happens), so there is
+    // nothing left for a standalone, non-host-call test to exercise here.
 
     #[test]
     fn absent_as_none_distinguishes_doesnt_exist_from_real_errors() {

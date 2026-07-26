@@ -38,10 +38,12 @@ account would need an actual `namespace` value too (out of scope for this
 minimal example).
 
 `target` itself comes from a Hook parameter (`ACCT`), read with
-`hook_param_exact::<ACC_ID_LEN>` (`hooks_lib::api::hook_ctx::hook_param_exact`)
-— the same "config via `hook_param`" idiom as `examples/03_hook-params`, just
-requiring the result to be exactly 20 bytes instead of manually checking a
-buffer's written length. See that example's README for the
+`hook_param_exact` (`hooks_lib::api::hook_ctx::hook_param_exact`) — the
+same "config via `hook_param`" idiom as `examples/03_hook-params`, just
+requiring the result to be exactly `AccountId`'s length (20 bytes,
+inferred from `let target: AccountId = hook_param_exact(ACCT_PARAM)`, no
+turbofish) instead of manually checking a buffer's written length. See
+that example's README for the
 hex-encoding/`SetHook` details, which apply here unchanged (just a
 different parameter name and a 20-byte `AccountId` payload instead of an
 8-byte integer).

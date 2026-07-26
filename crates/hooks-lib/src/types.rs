@@ -52,9 +52,16 @@
 //! caller-buffer output parameter, e.g. `let mut sender =
 //! AccountId::default(); otxn_field(&mut sender, sfAccount)?;` — see
 //! [`mod@crate::api`]'s wrapper functions.
+//!
+//! Every type also implements [`crate::convert::FixedRead`], so it works
+//! directly as the return type of `otxn_field_exact`/`hook_param_exact`/
+//! `slot_exact`/`state_exact` — `let sender: AccountId =
+//! otxn_field_exact(sfAccount)?;`, no turbofish, the expected length coming
+//! from the annotated return type rather than a caller-supplied `N`. See
+//! [`crate::convert::FixedRead`]'s doc comment for the full story.
 
-use crate::convert::{FromBytes, ToBytes};
-use crate::error::Result;
+use crate::convert::{FixedRead, FromBytes, ToBytes};
+use crate::error::{HookError, Result};
 
 /// Length in bytes of an [`AccountId`].
 pub const ACC_ID_LEN: usize = 20;
@@ -87,7 +94,8 @@ pub const EMIT_DETAILS_MAX_LEN: usize = 138;
 
 /// Defines one `#[repr(transparent)]` fixed-size buffer newtype, plus its
 /// `Deref`/`DerefMut`/`AsRef`/`AsMut`/`From`/`Default`/`zeroed`/`ToBytes`/
-/// `FromBytes` impls. See the module doc comment for the rationale.
+/// `FromBytes`/`FixedRead` impls. See the module doc comment for the
+/// rationale.
 macro_rules! fixed_bytes_type {
     ($(#[$meta:meta])* $name:ident, $len:expr) => {
         $(#[$meta])*
@@ -176,6 +184,19 @@ macro_rules! fixed_bytes_type {
             #[inline(always)]
             fn read(buf: &[u8]) -> Result<Self> {
                 <[u8; $len]>::read(buf).map($name)
+            }
+        }
+
+        impl FixedRead for $name {
+            #[inline(always)]
+            fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+                let mut out = Self::zeroed();
+                let written = read(out.as_mut())?;
+                if written == $len {
+                    Ok(out)
+                } else {
+                    Err(HookError::TooSmall)
+                }
             }
         }
     };
@@ -281,6 +302,29 @@ mod tests {
     fn zeroed_works_in_const_and_static_context() {
         assert_eq!(_CONST_ZEROED, AccountId([0u8; ACC_ID_LEN]));
         assert_eq!(_STATIC_ZEROED, Hash([0u8; HASH_LEN]));
+    }
+
+    #[test]
+    fn fixed_read_succeeds_on_exact_write() {
+        let result: Result<AccountId> = AccountId::read_exact(|buf| {
+            buf.copy_from_slice(&[7u8; ACC_ID_LEN]);
+            Ok(ACC_ID_LEN)
+        });
+        assert_eq!(result, Ok(AccountId([7u8; ACC_ID_LEN])));
+    }
+
+    #[test]
+    fn fixed_read_passes_a_buffer_of_exactly_this_types_length() {
+        let _: Result<AccountId> = AccountId::read_exact(|buf| {
+            assert_eq!(buf.len(), ACC_ID_LEN);
+            Ok(buf.len())
+        });
+    }
+
+    #[test]
+    fn fixed_read_rejects_short_write() {
+        let result: Result<AccountId> = AccountId::read_exact(|_buf| Ok(ACC_ID_LEN - 1));
+        assert_eq!(result, Err(HookError::TooSmall));
     }
 
     #[test]

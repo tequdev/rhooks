@@ -63,8 +63,8 @@ fn my_hook() -> i64 {
             SlotLedgerError::NoDestinationField
         ),
     };
-    let dest: AccountId = match slot_exact::<ACC_ID_LEN>(dest_slot) {
-        Ok(d) => d.into(),
+    let dest: AccountId = match slot_exact(dest_slot) {
+        Ok(d) => d,
         Err(_) => rollback!(
             b"slot-ledger: Destination has unexpected size",
             SlotLedgerError::UnexpectedDestinationSize
@@ -97,8 +97,8 @@ fn my_hook() -> i64 {
         ),
     }
 
-    let amount_buf: NativeAmount = match slot_exact::<NATIVE_AMOUNT_LEN>(amount_slot) {
-        Ok(a) => a.into(),
+    let amount_buf: NativeAmount = match slot_exact(amount_slot) {
+        Ok(a) => a,
         Err(_) => rollback!(
             b"slot-ledger: reading Amount from its slot failed",
             SlotLedgerError::AmountReadFailed

@@ -1,7 +1,8 @@
 //! Information about the originating transaction (the transaction that
 //! triggered this hook invocation).
 
-use crate::error::{HookError, Result, res};
+use crate::convert::FixedRead;
+use crate::error::{Result, res};
 use crate::types::Hash;
 
 /// Burden of the originating transaction: `1` for a normal transaction, or
@@ -31,29 +32,33 @@ pub fn otxn_field_u64(field_id: u32) -> Result<u64> {
 }
 
 /// Read field `field_id` from the originating transaction, requiring it to
-/// be exactly `N` bytes. A field longer than `N` already fails as
-/// [`crate::error::HookError::TooSmall`] from the underlying host call
-/// (`out`'s capacity is exactly `N`); a field shorter than `N` is caught
-/// here and mapped to the same variant — see `state_exact` (`state.rs`) for
-/// the identical pattern and rationale. No loop, no panic.
+/// be exactly `T`'s length — any [`crate::convert::FixedRead`] type, most
+/// commonly a `hooks_lib::types` newtype or a raw `[u8; N]`. A field longer
+/// than that already fails as [`crate::error::HookError::TooSmall`] from the
+/// underlying host call (the buffer `T::read_exact` allocates has exactly
+/// that capacity); a field shorter is caught by `T::read_exact` itself and
+/// mapped to the same variant — see `state_exact` (`state.rs`) for the
+/// identical pattern and rationale. No loop, no panic.
+///
+/// `T` is inferred from context (a `let` binding's type annotation, a
+/// function's declared return type, ...), not a turbofish — e.g.
+/// `let sender: AccountId = otxn_field_exact(sfAccount)?;`. A call site
+/// with no way to infer `T` is a compile error; annotate it (or use
+/// `otxn_field_exact::<AccountId>(field_id)`/`::<[u8; 20]>(field_id)`
+/// explicitly).
 ///
 /// # Examples
 ///
 /// ```
 /// use hooks_lib::api::otxn::otxn_field_exact;
-/// use hooks_lib::error::HookError;
+/// use hooks_lib::error::{HookError, Result};
 ///
-/// assert_eq!(otxn_field_exact::<20>(0), Err(HookError::NotImplemented));
+/// let sender: Result<[u8; 20]> = otxn_field_exact(0);
+/// assert_eq!(sender, Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn otxn_field_exact<const N: usize>(field_id: u32) -> Result<[u8; N]> {
-    let mut out = [0u8; N];
-    let written = otxn_field(&mut out, field_id)?;
-    if written == N {
-        Ok(out)
-    } else {
-        Err(HookError::TooSmall)
-    }
+pub fn otxn_field_exact<T: FixedRead>(field_id: u32) -> Result<T> {
+    T::read_exact(|buf| otxn_field(buf, field_id))
 }
 
 /// Generation of the originating transaction: `0` for a normal transaction,
@@ -129,7 +134,10 @@ mod tests {
         assert_eq!(otxn_id(&mut buf, 0), Err(HookError::NotImplemented));
         assert_eq!(otxn_field(&mut buf, 0), Err(HookError::NotImplemented));
         assert_eq!(otxn_field_u64(0), Err(HookError::NotImplemented));
-        assert_eq!(otxn_field_exact::<20>(0), Err(HookError::NotImplemented));
+        assert_eq!(
+            otxn_field_exact::<[u8; 20]>(0),
+            Err(HookError::NotImplemented)
+        );
         assert_eq!(otxn_param(&mut buf, b"x"), Err(HookError::NotImplemented));
     }
 }
