@@ -18,7 +18,7 @@ const ACCT_PARAM: &[u8] = b"ACCT";
 /// `b"enabled"`, zero-padded at compile time to the full 32-byte state-key
 /// width (see `state-counter`'s use of `pad!` for the same trick — no
 /// runtime copy loop, hence no loop guard, is needed for it).
-const ENABLED_KEY: StateKey = pad!(b"enabled");
+const ENABLED_KEY: StateKey = StateKey(pad!(b"enabled"));
 
 hook_errors! {
     /// `state-foreign` rollback codes.
@@ -45,7 +45,7 @@ hook_errors! {
 /// entry exists and its first byte is nonzero.
 #[hook]
 fn my_hook() -> i64 {
-    let target = match hook_param_exact::<ACC_ID_LEN>(ACCT_PARAM) {
+    let target: AccountId = match hook_param_exact(ACCT_PARAM) {
         Ok(t) => t,
         Err(_) => rollback!(
             b"state-foreign: ACCT parameter not configured",
@@ -54,7 +54,7 @@ fn my_hook() -> i64 {
     };
 
     let mut flag = [0u8; 1];
-    match state_foreign(&mut flag, &ENABLED_KEY, None, Some(&target)) {
+    match state_foreign(&mut flag, &ENABLED_KEY, None, &target) {
         Ok(n) if n == flag.len() => {}
         // `DOESNT_EXIST`: the foreign account has no `enabled` entry in
         // this hook's namespace — treated as "not enabled", not a crash.
