@@ -162,7 +162,7 @@ fn encode_write<T: ToBytes>(value: &T) -> [u8; MAX_TYPED_STATE_LEN] {
 pub fn state_get<T: FromBytes>(key: &impl StateKeyEncode) -> Result<Option<T>> {
     let encoded = key.encode();
     let mut raw = [0u8; MAX_TYPED_STATE_LEN];
-    let result = crate::api::state::state(&mut raw, encoded.as_ref());
+    let result = crate::api::state::state(&mut raw, &encoded);
     decode_read(result, &raw)
 }
 
@@ -173,7 +173,7 @@ pub fn state_set_typed<T: ToBytes>(key: &impl StateKeyEncode, value: &T) -> Resu
     let encoded = key.encode();
     let raw = encode_write(value);
     let src = raw.get(..T::MAX_LEN).ok_or(HookError::TooBig)?;
-    crate::api::state::state_set(src, encoded.as_ref())
+    crate::api::state::state_set(src, &encoded)
 }
 
 /// Read-modify-write this hook's own state entry for `key`: reads the
@@ -202,7 +202,7 @@ pub fn state_foreign_get<T: FromBytes>(
 ) -> Result<Option<T>> {
     let encoded = key.encode();
     let mut raw = [0u8; MAX_TYPED_STATE_LEN];
-    let result = crate::api::state::state_foreign(&mut raw, encoded.as_ref(), namespace, account);
+    let result = crate::api::state::state_foreign(&mut raw, &encoded, namespace, account);
     decode_read(result, &raw)
 }
 
@@ -220,7 +220,7 @@ pub fn state_foreign_set_typed<T: ToBytes>(
     let encoded = key.encode();
     let raw = encode_write(value);
     let src = raw.get(..T::MAX_LEN).ok_or(HookError::TooBig)?;
-    crate::api::state::state_foreign_set(src, encoded.as_ref(), namespace, account)
+    crate::api::state::state_foreign_set(src, &encoded, namespace, account)
 }
 
 /// Read-modify-write a state entry belonging to another namespace/account:

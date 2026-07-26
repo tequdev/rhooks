@@ -10,7 +10,7 @@ by a separate "registry"/"oracle" account.
 ## Code walkthrough
 
 ```rust
-match state_foreign(&mut flag, &ENABLED_KEY, None, Some(&target)) {
+match state_foreign(&mut flag, &ENABLED_KEY, None, Some(target.as_ref())) {
     Ok(n) if n == flag.len() => {}
     Err(HookError::DoesntExist) => rollback!(b"...", StateForeignError::NotConfiguredOnTarget),
     _ => rollback!(b"...", StateForeignError::ReadFailed),
@@ -20,9 +20,15 @@ match state_foreign(&mut flag, &ENABLED_KEY, None, Some(&target)) {
 `state_foreign(out, key, namespace, account)` takes two `Option<&[u8]>`
 parameters beyond the plain `state` call: `namespace` and `account`, both
 defaulting to "this hook's own" when `None` (see
-`hooks_lib::api::state::state_foreign`'s doc comment). Passing
-`namespace = None` and `account = Some(&target)` reads the entry keyed
-`ENABLED_KEY` **in this hook's own namespace, but on `target`'s account** —
+`hooks_lib::api::state::state_foreign`'s doc comment). `key` accepts
+`&ENABLED_KEY` directly (no `.as_ref()` — `state_foreign`'s `key` parameter
+is generic over `AsRef<[u8]>`, see that function's doc comment); `namespace`/
+`account` stay a plain `Option<&[u8]>`, so passing an `AccountId` through
+`account` still needs the explicit `target.as_ref()` inside `Some(..)` (see
+`hooks_lib::types`' module doc comment for why `Option`-wrapped parameters
+are the one place this crate can't avoid it). Passing `namespace = None` and
+`account = Some(target.as_ref())` reads the entry keyed `ENABLED_KEY`
+**in this hook's own namespace, but on `target`'s account** —
 the natural shape for "the same hook code, installed on account A and
 account B, where A wants to read a flag B's copy of the hook maintains
 about itself." Reading a genuinely different hook's namespace on a foreign

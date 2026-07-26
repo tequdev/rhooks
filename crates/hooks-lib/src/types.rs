@@ -20,6 +20,12 @@
 //! `&[u8]`/`&mut [u8]` parameter is expected (Rust does not chain a
 //! user `Deref` impl with the built-in array-to-slice unsized coercion at
 //! a call site) — write `value.as_ref()` / `value.as_mut()` there.
+//! [`mod@crate::api::state`]'s key parameters are the deliberate exception:
+//! `state`/`state_set`/`state_foreign(_set)` bound their `key` parameter by
+//! `AsRef<[u8]>` instead of taking a bare `&[u8]`, specifically so
+//! `state(&mut raw, &STATE_KEY)` works with no `.as_ref()` at the call site
+//! (see that module's doc comment for why, and why `namespace`/`account`
+//! don't get the same treatment).
 //!
 //! Every type here also implements [`crate::convert::ToBytes`]/
 //! [`crate::convert::FromBytes`] (a fixed-length passthrough to/from its

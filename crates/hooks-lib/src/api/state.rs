@@ -22,6 +22,35 @@
 //! newtype), see [`mod@crate::state`]'s `state_get`/`state_set_typed`/
 //! `state_update_typed` and the [`state_keys!`](crate::state_keys) macro,
 //! built on top of this module's [`state`]/[`state_set`]/[`state_exact`].
+//!
+//! ## Why every `key` parameter here is `&(impl AsRef<[u8]> + ?Sized)`, not `&[u8]`
+//!
+//! Every key-shaped parameter in this module (`state`'s `key`, `state_set`'s
+//! `key`, `state_foreign`'s `key`, ...) is generic instead of a bare `&[u8]`
+//! specifically so a [`crate::types::StateKey`] (or any other
+//! `hooks_lib::types` newtype a hook chooses to key state with) can be
+//! passed straight through as `&STATE_KEY`, with no `.as_ref()` at the call
+//! site. A bare `&[u8]` parameter can't do this: `StateKey` only
+//! implements [`core::ops::Deref`] with `[u8; 32]` as its target (not
+//! `[u8]` — see `crate::types`' module doc comment for why), and Rust does
+//! not chain that one `Deref` hop with the further built-in array-to-slice
+//! unsized coercion at a single call site, so `&STATE_KEY` alone never
+//! reaches a `&[u8]` parameter. Bounding the parameter by
+//! [`AsRef<[u8]>`](AsRef) instead sidesteps the coercion question entirely:
+//! `StateKey` (and every other `crate::types` newtype) already implements
+//! `AsRef<[u8]>` directly, no coercion needed. This is zero-cost —
+//! `#[inline(always)]` plus one generic parameter monomorphized per call
+//! site compiles to the exact same code as the old concrete `&[u8]`
+//! parameter did (verified: `mise run build-examples`'s per-example wasm
+//! size and worst-case instruction count are unchanged by this).
+//!
+//! `namespace`/`account` (`state_foreign`'s `Option<&[u8]>` pair)
+//! deliberately stay a concrete `Option<&[u8]>`, not `Option<K: AsRef<[u8]>>`:
+//! a generic `Option<K>` parameter cannot also accept a bare `None`
+//! literal — with `K` unconstrained by anything else in the call, `None`
+//! never pins down a single `K`, so the call becomes ambiguous and fails to
+//! compile (verified directly against rustc, not just reasoned about).
+//! Passing a newtype through one of these still needs `Some(value.as_ref())`.
 
 use crate::error::{HookError, Result, res};
 use crate::xfl::XFL;
@@ -52,7 +81,8 @@ fn opt_in(o: Option<&[u8]>) -> (u32, u32) {
 /// assert_eq!(state(&mut out, &key), Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn state(out: &mut [u8], key: &[u8]) -> Result<usize> {
+pub fn state<K: AsRef<[u8]> + ?Sized>(out: &mut [u8], key: &K) -> Result<usize> {
+    let key = key.as_ref();
     res(unsafe {
         hooks_core::state(
             out.as_mut_ptr() as u32,
@@ -74,7 +104,8 @@ pub fn state(out: &mut [u8], key: &[u8]) -> Result<usize> {
 /// **big-endian**: an 8-byte little-endian counter read this way comes back
 /// byte-swapped.
 #[inline(always)]
-pub fn state_u64(key: &[u8]) -> Result<u64> {
+pub fn state_u64<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<u64> {
+    let key = key.as_ref();
     res(unsafe { hooks_core::state(0, 0, key.as_ptr() as u32, key.len() as u32) }).map(|v| v as u64)
 }
 
@@ -123,28 +154,28 @@ pub fn state_exact<const N: usize>(key: &[u8]) -> Result<[u8; N]> {
 /// assert_eq!(state_u32(&key), Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn state_u32(key: &[u8]) -> Result<u32> {
-    state_exact::<4>(key).map(u32::from_le_bytes)
+pub fn state_u32<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<u32> {
+    state_exact::<4>(key.as_ref()).map(u32::from_le_bytes)
 }
 
 /// Write this hook's own state entry for `key` as a little-endian `u32`.
 /// Returns the number of bytes written.
 #[inline(always)]
-pub fn state_set_u32(value: u32, key: &[u8]) -> Result<usize> {
+pub fn state_set_u32<K: AsRef<[u8]> + ?Sized>(value: u32, key: &K) -> Result<usize> {
     state_set(&value.to_le_bytes(), key)
 }
 
 /// Read this hook's own state entry for `key` as a little-endian `i64` (via
 /// [`state_exact`]; see the module doc comment).
 #[inline(always)]
-pub fn state_i64(key: &[u8]) -> Result<i64> {
-    state_exact::<8>(key).map(i64::from_le_bytes)
+pub fn state_i64<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<i64> {
+    state_exact::<8>(key.as_ref()).map(i64::from_le_bytes)
 }
 
 /// Write this hook's own state entry for `key` as a little-endian `i64`.
 /// Returns the number of bytes written.
 #[inline(always)]
-pub fn state_set_i64(value: i64, key: &[u8]) -> Result<usize> {
+pub fn state_set_i64<K: AsRef<[u8]> + ?Sized>(value: i64, key: &K) -> Result<usize> {
     state_set(&value.to_le_bytes(), key)
 }
 
@@ -152,8 +183,8 @@ pub fn state_set_i64(value: i64, key: &[u8]) -> Result<usize> {
 /// raw bit pattern (`i64`) in little-endian bytes (via [`state_exact`]; see
 /// the module doc comment).
 #[inline(always)]
-pub fn state_xfl(key: &[u8]) -> Result<XFL> {
-    state_exact::<8>(key)
+pub fn state_xfl<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<XFL> {
+    state_exact::<8>(key.as_ref())
         .map(i64::from_le_bytes)
         .map(XFL::from_raw_bits)
 }
@@ -161,7 +192,7 @@ pub fn state_xfl(key: &[u8]) -> Result<XFL> {
 /// Write this hook's own state entry for `key` as an [`XFL`]'s raw bit
 /// pattern (`i64`), little-endian. Returns the number of bytes written.
 #[inline(always)]
-pub fn state_set_xfl(value: XFL, key: &[u8]) -> Result<usize> {
+pub fn state_set_xfl<K: AsRef<[u8]> + ?Sized>(value: XFL, key: &K) -> Result<usize> {
     state_set(&value.raw_bits().to_le_bytes(), key)
 }
 
@@ -188,7 +219,10 @@ fn absent_as_none<T>(result: Result<T>) -> Result<Option<T>> {
 /// returned as `Ok`. A real read error (anything but "doesn't exist")
 /// short-circuits before `f` is called or anything is written.
 #[inline(always)]
-pub fn state_update_u64(key: &[u8], f: impl FnOnce(Option<u64>) -> u64) -> Result<u64> {
+pub fn state_update_u64<K: AsRef<[u8]> + ?Sized>(
+    key: &K,
+    f: impl FnOnce(Option<u64>) -> u64,
+) -> Result<u64> {
     let current = absent_as_none(state_u64(key))?;
     let next = f(current);
     let _ = state_set(&next.to_be_bytes(), key)?;
@@ -199,7 +233,10 @@ pub fn state_update_u64(key: &[u8], f: impl FnOnce(Option<u64>) -> u64) -> Resul
 /// (little-endian convention, matching [`state_u32`]). See
 /// [`state_update_u64`] for the `Option`/error-propagation semantics.
 #[inline(always)]
-pub fn state_update_u32(key: &[u8], f: impl FnOnce(Option<u32>) -> u32) -> Result<u32> {
+pub fn state_update_u32<K: AsRef<[u8]> + ?Sized>(
+    key: &K,
+    f: impl FnOnce(Option<u32>) -> u32,
+) -> Result<u32> {
     let current = absent_as_none(state_u32(key))?;
     let next = f(current);
     let _ = state_set_u32(next, key)?;
@@ -210,7 +247,10 @@ pub fn state_update_u32(key: &[u8], f: impl FnOnce(Option<u32>) -> u32) -> Resul
 /// (little-endian convention, matching [`state_i64`]). See
 /// [`state_update_u64`] for the `Option`/error-propagation semantics.
 #[inline(always)]
-pub fn state_update_i64(key: &[u8], f: impl FnOnce(Option<i64>) -> i64) -> Result<i64> {
+pub fn state_update_i64<K: AsRef<[u8]> + ?Sized>(
+    key: &K,
+    f: impl FnOnce(Option<i64>) -> i64,
+) -> Result<i64> {
     let current = absent_as_none(state_i64(key))?;
     let next = f(current);
     let _ = state_set_i64(next, key)?;
@@ -221,7 +261,10 @@ pub fn state_update_i64(key: &[u8], f: impl FnOnce(Option<i64>) -> i64) -> Resul
 /// (little-endian raw-bits convention, matching [`state_xfl`]). See
 /// [`state_update_u64`] for the `Option`/error-propagation semantics.
 #[inline(always)]
-pub fn state_update_xfl(key: &[u8], f: impl FnOnce(Option<XFL>) -> XFL) -> Result<XFL> {
+pub fn state_update_xfl<K: AsRef<[u8]> + ?Sized>(
+    key: &K,
+    f: impl FnOnce(Option<XFL>) -> XFL,
+) -> Result<XFL> {
     let current = absent_as_none(state_xfl(key))?;
     let next = f(current);
     let _ = state_set_xfl(next, key)?;
@@ -231,7 +274,8 @@ pub fn state_update_xfl(key: &[u8], f: impl FnOnce(Option<XFL>) -> XFL) -> Resul
 /// Write this hook's own state entry for `key`. Returns the number of bytes
 /// written.
 #[inline(always)]
-pub fn state_set(data: &[u8], key: &[u8]) -> Result<usize> {
+pub fn state_set<K: AsRef<[u8]> + ?Sized>(data: &[u8], key: &K) -> Result<usize> {
+    let key = key.as_ref();
     res(unsafe {
         hooks_core::state_set(
             data.as_ptr() as u32,
@@ -248,12 +292,13 @@ pub fn state_set(data: &[u8], key: &[u8]) -> Result<usize> {
 /// zero-length Hook API sentinel) when omitted. Returns the number of bytes
 /// written to `out`.
 #[inline(always)]
-pub fn state_foreign(
+pub fn state_foreign<K: AsRef<[u8]> + ?Sized>(
     out: &mut [u8],
-    key: &[u8],
+    key: &K,
     namespace: Option<&[u8]>,
     account: Option<&[u8]>,
 ) -> Result<usize> {
+    let key = key.as_ref();
     let (nptr, nlen) = opt_in(namespace);
     let (aptr, alen) = opt_in(account);
     res(unsafe {
@@ -275,11 +320,12 @@ pub fn state_foreign(
 /// [`state_u64`] for the size/top-bit rules and endianness caveat).
 /// `namespace`/`account` follow [`state_foreign`]'s `Option` convention.
 #[inline(always)]
-pub fn state_foreign_u64(
-    key: &[u8],
+pub fn state_foreign_u64<K: AsRef<[u8]> + ?Sized>(
+    key: &K,
     namespace: Option<&[u8]>,
     account: Option<&[u8]>,
 ) -> Result<u64> {
+    let key = key.as_ref();
     let (nptr, nlen) = opt_in(namespace);
     let (aptr, alen) = opt_in(account);
     res(unsafe {
@@ -302,12 +348,13 @@ pub fn state_foreign_u64(
 /// depending on protocol rules). See [`state_foreign`] for the `Option`
 /// convention. Returns the number of bytes written.
 #[inline(always)]
-pub fn state_foreign_set(
+pub fn state_foreign_set<K: AsRef<[u8]> + ?Sized>(
     data: &[u8],
-    key: &[u8],
+    key: &K,
     namespace: Option<&[u8]>,
     account: Option<&[u8]>,
 ) -> Result<usize> {
+    let key = key.as_ref();
     let (nptr, nlen) = opt_in(namespace);
     let (aptr, alen) = opt_in(account);
     res(unsafe {

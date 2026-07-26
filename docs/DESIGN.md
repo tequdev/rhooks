@@ -249,6 +249,22 @@ pub fn hook_account(out: &mut [u8]) -> Result<usize>;
 pub fn hook_account_buf() -> Result<AccountId>;   // fixed-size convenience
 ```
 
+- `api::state`'s key parameters (`state`/`state_set`/`state_foreign(_set)`)
+  are the one place a plain `&[u8]` in the signature above is written
+  `&(impl AsRef<[u8]> + ?Sized)` instead: a bare `&[u8]` parameter cannot
+  accept `&StateKey` directly (deref coercion to the newtype's `[u8; 32]`
+  `Deref::Target` does not chain with the further array-to-slice unsized
+  coercion at one call site — see `types.rs`'s module doc comment), so a
+  caller would otherwise have to write `STATE_KEY.as_ref()` at every call.
+  Bounding by `AsRef<[u8]>` instead — every `crate::types` newtype already
+  implements it — lets `state(&mut raw, &STATE_KEY)` work as-is, at zero
+  cost (monomorphized per call site, verified by `mise run build-examples`'
+  unchanged per-example wasm size/WCE). `namespace`/`account`
+  (`state_foreign`'s `Option<&[u8]>` pair) stay concrete, not generic: a
+  bare `None` cannot pin down an unconstrained generic parameter, so making
+  them generic would make the all-absent call ambiguous and fail to
+  compile.
+
 - Every wrapper is `#[inline(always)]` (extra internal functions are both a
   size cost and a validation risk — C7).
 - Buffers that have a protocol-fixed size get typed convenience wrappers
