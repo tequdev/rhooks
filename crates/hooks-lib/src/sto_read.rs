@@ -72,7 +72,6 @@ use core::ops::ControlFlow;
 use crate::error::{HookError, Result};
 use crate::types::{
     ACC_ID_LEN, AccountId, HASH_LEN, Hash, IOU_AMOUNT_LEN, IouAmount, NATIVE_AMOUNT_LEN,
-    NativeAmount,
 };
 
 // --- STI type codes this module knows about (rippled/xahaud's
@@ -497,13 +496,13 @@ impl<'a> StoReader<'a> {
                 value_start.wrapping_add(HASH160_LEN),
             ),
             STI_HASH256 => (
-                FieldValue::Hash256(read_array(buf, value_start)?),
+                FieldValue::Hash256(Hash(read_array(buf, value_start)?)),
                 value_start.wrapping_add(HASH_LEN),
             ),
             STI_AMOUNT => {
                 let b0 = buf.get(value_start).copied().ok_or(HookError::ParseError)?;
                 if b0 & 0x80 == 0 {
-                    let raw: NativeAmount = read_array(buf, value_start)?;
+                    let raw: [u8; NATIVE_AMOUNT_LEN] = read_array(buf, value_start)?;
                     // Top 2 bits are native-amount control flags (see
                     // `codec::encode_native_amount_const`), not part of
                     // the magnitude.
@@ -513,7 +512,7 @@ impl<'a> StoReader<'a> {
                         value_start.wrapping_add(NATIVE_AMOUNT_LEN),
                     )
                 } else {
-                    let raw: IouAmount = read_array(buf, value_start)?;
+                    let raw = IouAmount(read_array(buf, value_start)?);
                     (
                         FieldValue::Amount(AmountValue::Iou(raw)),
                         value_start.wrapping_add(IOU_AMOUNT_LEN),
@@ -535,7 +534,7 @@ impl<'a> StoReader<'a> {
                     return Err(HookError::ParseError);
                 }
                 let payload_start = value_start.wrapping_add(vl_hdr);
-                let id: AccountId = read_array(buf, payload_start)?;
+                let id = AccountId(read_array(buf, payload_start)?);
                 (
                     FieldValue::AccountId(id),
                     payload_start.wrapping_add(ACC_ID_LEN),
@@ -718,7 +717,7 @@ mod tests {
         bytes[1..].copy_from_slice(&[0xAA; 32]);
         let mut reader = StoReader::new(&bytes);
         let field = reader.next().expect("one field").expect("well-formed");
-        assert_eq!(field.value, FieldValue::Hash256([0xAA; 32]));
+        assert_eq!(field.value, FieldValue::Hash256(Hash([0xAA; 32])));
         assert!(reader.next().is_none());
     }
 
@@ -766,7 +765,10 @@ mod tests {
         let field = reader.next().expect("one field").expect("well-formed");
         let mut expected = [0u8; 48];
         expected[0] = 0x80;
-        assert_eq!(field.value, FieldValue::Amount(AmountValue::Iou(expected)));
+        assert_eq!(
+            field.value,
+            FieldValue::Amount(AmountValue::Iou(IouAmount(expected)))
+        );
     }
 
     #[test]
@@ -787,7 +789,7 @@ mod tests {
         bytes[2..].copy_from_slice(&[0xEE; 20]);
         let mut reader = StoReader::new(&bytes);
         let field = reader.next().expect("one field").expect("well-formed");
-        assert_eq!(field.value, FieldValue::AccountId([0xEE; 20]));
+        assert_eq!(field.value, FieldValue::AccountId(AccountId([0xEE; 20])));
     }
 
     #[test]
@@ -930,9 +932,9 @@ mod tests {
         tpl.set_flags(0x8000_0000);
         tpl.set_sequence(42);
         tpl.set_amount(123_456).expect("in range");
-        let dest: AccountId = [0xAB; ACC_ID_LEN];
+        let dest = AccountId([0xAB; ACC_ID_LEN]);
         tpl.set_destination(&dest);
-        let acct: AccountId = [0xCD; ACC_ID_LEN];
+        let acct = AccountId([0xCD; ACC_ID_LEN]);
         tpl.set_account(&acct);
 
         // Exercise every other generated method too (dead-code hygiene,
@@ -997,7 +999,7 @@ mod tests {
         tpl.set_first_ledger_sequence(0);
         tpl.set_last_ledger_sequence(0);
         tpl.set_fee(0).expect("0 drops is in range");
-        tpl.set_account(&[0u8; ACC_ID_LEN]);
+        tpl.set_account(&AccountId([0u8; ACC_ID_LEN]));
         let _ = tpl.emit_details_region();
         assert_eq!(
             tpl.prepare_for_emit()
