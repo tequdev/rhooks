@@ -9,11 +9,11 @@ release profile that must not leak into `hooks-core`/`hooks-lib`/
 Directories are numbered in **suggested reading order** — start at
 `01_accept-all` and work down; each one builds on ideas from the examples
 before it (state, then params, then errors, then a real filter, then
-guards, then XFL, then slots, then foreign state, then emission). The
-`example` column below is each crate's actual package name (unchanged by
-the numbering — Cargo package names can't start with a digit, so only the
-directory is prefixed) and matches what its own README, `Cargo.toml`, and
-`use` statements call it.
+guards, then XFL, then slots, then foreign state, then emission, then
+Gas-type). The `example` column below is each crate's actual package name
+(unchanged by the numbering — Cargo package names can't start with a
+digit, so only the directory is prefixed) and matches what its own
+README, `Cargo.toml`, and `use` statements call it.
 
 | # | example | demonstrates |
 |---|---|---|
@@ -27,6 +27,7 @@ directory is prefixed) and matches what its own README, `Cargo.toml`, and
 | 08 | [`slot-ledger`](08_slot-ledger) | `otxn_slot`/`slot_subfield`/`slot`/`slot_size`: transaction field access via slots |
 | 09 | [`state-foreign`](09_state-foreign) | `state_foreign`: reading another (hook-parameter-configured) account's hook state |
 | 10 | [`emit-txn`](10_emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
+| 11 | [`gas-counter`](11_gas-counter) | HookApiVersion 1 ("Gas"-type): same counter as `state-counter`, but with an unguarded loop/array comparison — see `docs/GAS-HOOKS.md` |
 
 ## Entry points: `#[hook]` / `#[cbak]`
 
@@ -59,7 +60,10 @@ mise run build-examples   # builds every example through hooks-build and checks 
 
 This is also the toolchain's end-to-end test: each example is built via
 `cargo run -p hooks-build -- build ...` from the root workspace, and the
-resulting `out/<name>.wasm` is re-validated with `hooks-build check`.
+resulting `out/<name>.wasm` is re-validated with `hooks-build check`. All
+but `gas-counter` build against the default HookApiVersion 0 (Guard-type)
+rule set; `gas-counter` passes `--api-version 1` on both `build` and `check`
+(see its own README and `docs/GAS-HOOKS.md`).
 
 Each example can also be built individually, e.g.:
 
@@ -163,7 +167,8 @@ node. Two source-level idioms avoid the compiler-generated loop (and the
   compiler-generated `memset`/`memcpy` loops the same way, for the
   initialization/copy case `buf_eq` doesn't cover.
 
-None of the ten examples need `--auto-guard` any more: `accept-all` and
+None of the ten Guard-type (HookApiVersion 0) examples need `--auto-guard`
+any more: `accept-all` and
 `state-counter` never had a compiler-generated loop to begin with (no
 buffer copy/compare in them is large enough, at this optimization level,
 for LLVM to prefer an out-of-line loop over inline stores); `emit-txn`
@@ -178,3 +183,9 @@ source (see its own README for why, including an empirical check of what
 available in `hooks-build` for cases none of these idioms cover — size
 `--default-maxiter` from the loop's true worst-case iteration count (found
 via disassembly), never trust the default.
+
+`gas-counter` (HookApiVersion 1, "Gas"-type) is not on this list because
+it doesn't need `--auto-guard` for a different reason: Gas-type hooks
+skip the flatten/unnest/guard passes and the guard checker entirely (see
+`docs/DESIGN.md` §6.3/§6.4), so it uses an ordinary, unguarded Rust `for`
+loop and array comparison on purpose — see its own README.

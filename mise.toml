@@ -80,6 +80,14 @@ cargo run -p hooks-build -- check examples/09_state-foreign/out/state_foreign.wa
 # output buffer, so no compiler-generated memset/memcpy loops exist.
 cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
 cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
+
+# gas-counter: HookApiVersion 1 ("Gas"-type) — both `build` and `check` need
+# --api-version 1, which skips the flatten/unnest/guard passes (no `_g`
+# import, no guard requirement) and applies the Gas-type validator rules
+# instead (see `docs/DESIGN.md` §6.3/§6.4). Uses an ordinary, unguarded Rust
+# `for` loop and array comparison on purpose — see its own README/source.
+cargo run -p hooks-build -- build --manifest-path examples/11_gas-counter/Cargo.toml --api-version 1
+cargo run -p hooks-build -- check examples/11_gas-counter/out/gas_counter.wasm --api-version 1
 """
 
 [tasks."e2e:node-up"]

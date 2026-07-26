@@ -31,6 +31,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "gas-counter"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
 name = "guard-patterns"
 version = "0.1.0"
 dependencies = [

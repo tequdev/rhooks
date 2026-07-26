@@ -27,6 +27,14 @@ pub const MAX_NESTING_DEPTH: u32 = 32;
 /// warning (api-version 0 only).
 pub const NESTING_DEPTH_WARNING_THRESHOLD: u32 = 28;
 
+/// The maximum number of WASM pages (64 KiB each) a Gas-type (API version 1)
+/// hook's exported memory may declare, for both the minimum and (if present)
+/// maximum limits. Matches `hook_api::max_memory_pages` (`Enum.h`) as enforced
+/// by `GasValidator.cpp`'s `validateExportSection()` — a rule with no
+/// api-version-0 counterpart (the guard checker does not check memory page
+/// counts).
+pub const GAS_MAX_MEMORY_PAGES: u64 = 8;
+
 /// The result of a successful validation: any non-fatal warnings found.
 #[derive(Debug, Clone, Default)]
 pub struct ValidationReport {
@@ -106,6 +114,24 @@ pub fn validate(wasm: &[u8], opts: &Options) -> Result<ValidationReport> {
         match (e.name, e.kind) {
             ("hook", wasmparser::ExternalKind::Func) => hook_idx = Some(e.index),
             ("cbak", wasmparser::ExternalKind::Func) => cbak_idx = Some(e.index),
+            // Gas-type (API version 1) hooks may export other `__`-prefixed
+            // functions (runtime-support symbols) — `GasValidator.cpp`'s
+            // `validateExportSection()` explicitly skips these
+            // (`nameStr.starts_with("__")`) rather than rejecting them. Our
+            // own `clean`/`build` pipeline never emits any (the cleaner
+            // restricts exports to `hook`/`cbak` unconditionally), so this
+            // only matters for `check` against externally-built wasm.
+            (name, wasmparser::ExternalKind::Func)
+                if opts.api_version == ApiVersion::V1 && name.starts_with("__") => {}
+            // Gas-type hooks may export their memory — `GasValidator.cpp`
+            // allows it, enforcing only the page-count limit. API-version-0
+            // modules have no such allowance: our cleaner always strips a
+            // memory export, and an exported memory reaching `validate()`
+            // for a v0 module is treated as unexpected (see
+            // `validator_rejects_extra_export`).
+            (_, wasmparser::ExternalKind::Memory) if opts.api_version == ApiVersion::V1 => {
+                check_gas_memory_export(&m, e.index, &mut errors);
+            }
             _ => errors.push(format!(
                 "unexpected export `{}` (only `hook` and `cbak` may be exported)",
                 e.name
@@ -355,6 +381,19 @@ pub fn validate(wasm: &[u8], opts: &Options) -> Result<ValidationReport> {
                 )),
             }
         }
+    } else {
+        // --- Gas-type (API version 1): `_g` must not be imported at all.
+        // `GasValidator.cpp`'s `validateImportSection()` explicitly rejects
+        // it ("Gas-type hooks cannot import _g (guard) function") — guard
+        // calls have no meaning once loop iteration is bounded by gas
+        // metering instead of a static instruction-count analysis.
+        if find_g_index(&m).is_some() {
+            errors.push(
+                "module imports `_g` (env::_g) — Gas-type (API version 1) hooks must not \
+                 import the guard function; guard calls are meaningless under gas metering"
+                    .to_string(),
+            );
+        }
     }
 
     // --- Nesting depth: computed for every defined function, for every api
@@ -417,6 +456,34 @@ pub fn validate(wasm: &[u8], opts: &Options) -> Result<ValidationReport> {
 /// proposal's concern).
 fn mvp_features() -> wasmparser::WasmFeatures {
     wasmparser::WasmFeatures::MUTABLE_GLOBAL
+}
+
+/// Validates a Gas-type (API version 1) hook's exported memory against
+/// [`GAS_MAX_MEMORY_PAGES`]: both the minimum and (if present) maximum page
+/// counts must not exceed the limit. Mirrors `GasValidator.cpp`'s
+/// `validateExportSection()`.
+fn check_gas_memory_export(m: &ir::ParsedModule, mem_index: u32, errors: &mut Vec<String>) {
+    let Some(mem) = m.memories.get(mem_index as usize) else {
+        errors.push(format!(
+            "exported memory {mem_index} has an invalid memory index"
+        ));
+        return;
+    };
+    if mem.initial > GAS_MAX_MEMORY_PAGES {
+        errors.push(format!(
+            "Gas-type hook exported memory minimum pages ({}) exceed limit of \
+             {GAS_MAX_MEMORY_PAGES}",
+            mem.initial
+        ));
+    }
+    if let Some(max) = mem.maximum
+        && max > GAS_MAX_MEMORY_PAGES
+    {
+        errors.push(format!(
+            "Gas-type hook exported memory maximum pages ({max}) exceed limit of \
+             {GAS_MAX_MEMORY_PAGES}"
+        ));
+    }
 }
 
 fn check_entry_signature(
