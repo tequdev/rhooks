@@ -102,7 +102,7 @@ fn my_hook() -> i64 {
     }
 
     let mut dest = AccountId([0u8; ACC_ID_LEN]);
-    match otxn_field(dest.as_mut(), sfAccount) {
+    match otxn_field(&mut dest, sfAccount) {
         Ok(n) if n == ACC_ID_LEN => {}
         _ => rollback!(
             b"emit-txn: could not read otxn sender",

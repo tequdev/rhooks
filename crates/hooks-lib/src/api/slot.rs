@@ -11,7 +11,8 @@ use crate::error::{HookError, Result, res};
 /// Serialize the object in `slot_no` into `out`. Returns the number of
 /// bytes written.
 #[inline(always)]
-pub fn slot(out: &mut [u8], slot_no: u32) -> Result<usize> {
+pub fn slot<B: AsMut<[u8]> + ?Sized>(out: &mut B, slot_no: u32) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::slot(out.as_mut_ptr() as u32, out.len() as u32, slot_no) })
         .map(|v| v as usize)
 }

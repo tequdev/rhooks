@@ -54,7 +54,7 @@ fn my_hook() -> i64 {
     };
 
     let mut flag = [0u8; 1];
-    match state_foreign(&mut flag, &ENABLED_KEY, None, Some(target.as_ref())) {
+    match state_foreign(&mut flag, &ENABLED_KEY, None, &target) {
         Ok(n) if n == flag.len() => {}
         // `DOESNT_EXIST`: the foreign account has no `enabled` entry in
         // this hook's namespace — treated as "not enabled", not a crash.

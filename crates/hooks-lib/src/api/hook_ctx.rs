@@ -8,7 +8,8 @@ use crate::types::{ACC_ID_LEN, AccountId, HASH_LEN, Hash};
 /// number of bytes written. [`hook_account_buf`] is the fixed-size
 /// convenience twin.
 #[inline(always)]
-pub fn hook_account(out: &mut [u8]) -> Result<usize> {
+pub fn hook_account<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::hook_account(out.as_mut_ptr() as u32, out.len() as u32) })
         .map(|v| v as usize)
 }
@@ -25,7 +26,8 @@ pub fn hook_account_buf() -> Result<AccountId> {
 /// `out`. Returns the number of bytes written. [`hook_hash_buf`] is the
 /// fixed-size convenience twin.
 #[inline(always)]
-pub fn hook_hash(out: &mut [u8], hook_no: i32) -> Result<usize> {
+pub fn hook_hash<B: AsMut<[u8]> + ?Sized>(out: &mut B, hook_no: i32) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::hook_hash(out.as_mut_ptr() as u32, out.len() as u32, hook_no) })
         .map(|v| v as usize)
 }
@@ -43,7 +45,8 @@ pub fn hook_hash_buf(hook_no: i32) -> Result<Hash> {
 /// Read this hook's own parameter `name` into `out`. Returns the number of
 /// bytes written.
 #[inline(always)]
-pub fn hook_param(out: &mut [u8], name: &[u8]) -> Result<usize> {
+pub fn hook_param<B: AsMut<[u8]> + ?Sized>(out: &mut B, name: &[u8]) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::hook_param(
             out.as_mut_ptr() as u32,

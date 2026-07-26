@@ -9,7 +9,8 @@ use crate::types::{ACC_ID_LEN, AccountId, HASH_LEN, Hash, KEYLET_LEN, Keylet};
 /// caller-buffer `Result<usize>` convention rather than a fixed-size
 /// convenience wrapper.
 #[inline(always)]
-pub fn util_raddr(out: &mut [u8], accid: &[u8]) -> Result<usize> {
+pub fn util_raddr<B: AsMut<[u8]> + ?Sized>(out: &mut B, accid: &[u8]) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::util_raddr(
             out.as_mut_ptr() as u32,
@@ -25,7 +26,8 @@ pub fn util_raddr(out: &mut [u8], accid: &[u8]) -> Result<usize> {
 /// into `out`. Returns the number of bytes written. [`util_accid_buf`] is
 /// the fixed-size convenience twin.
 #[inline(always)]
-pub fn util_accid(out: &mut [u8], r_address: &[u8]) -> Result<usize> {
+pub fn util_accid<B: AsMut<[u8]> + ?Sized>(out: &mut B, r_address: &[u8]) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::util_accid(
             out.as_mut_ptr() as u32,
@@ -64,7 +66,8 @@ pub fn util_verify(data: &[u8], signature: &[u8], public_key: &[u8]) -> Result<b
 /// SHA-512-Half of `data`, written into `out`. Returns the number of bytes
 /// written. [`util_sha512h_buf`] is the fixed-size convenience twin.
 #[inline(always)]
-pub fn util_sha512h(out: &mut [u8], data: &[u8]) -> Result<usize> {
+pub fn util_sha512h<B: AsMut<[u8]> + ?Sized>(out: &mut B, data: &[u8]) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::util_sha512h(
             out.as_mut_ptr() as u32,
@@ -89,8 +92,8 @@ pub fn util_sha512h_buf(data: &[u8]) -> Result<Hash> {
 /// [`util_keylet_buf`] is the fixed-size convenience twin.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-pub fn util_keylet(
-    out: &mut [u8],
+pub fn util_keylet<B: AsMut<[u8]> + ?Sized>(
+    out: &mut B,
     keylet_type: u32,
     a: u32,
     b: u32,
@@ -99,6 +102,7 @@ pub fn util_keylet(
     e: u32,
     f: u32,
 ) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::util_keylet(
             out.as_mut_ptr() as u32,

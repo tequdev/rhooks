@@ -123,7 +123,13 @@ pub fn sto_subarray_slice(array: &[u8], index: u32) -> Result<&[u8]> {
 /// `source`, writing the result to `out`. Returns the number of bytes
 /// written.
 #[inline(always)]
-pub fn sto_emplace(out: &mut [u8], source: &[u8], field: &[u8], field_id: u32) -> Result<usize> {
+pub fn sto_emplace<B: AsMut<[u8]> + ?Sized>(
+    out: &mut B,
+    source: &[u8],
+    field: &[u8],
+    field_id: u32,
+) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::sto_emplace(
             out.as_mut_ptr() as u32,
@@ -141,7 +147,12 @@ pub fn sto_emplace(out: &mut [u8], source: &[u8], field: &[u8], field_id: u32) -
 /// Remove field `field_id` from the STO `source`, writing the result to
 /// `out`. Returns the number of bytes written.
 #[inline(always)]
-pub fn sto_erase(out: &mut [u8], source: &[u8], field_id: u32) -> Result<usize> {
+pub fn sto_erase<B: AsMut<[u8]> + ?Sized>(
+    out: &mut B,
+    source: &[u8],
+    field_id: u32,
+) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::sto_erase(
             out.as_mut_ptr() as u32,

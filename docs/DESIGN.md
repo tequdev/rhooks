@@ -249,21 +249,35 @@ pub fn hook_account(out: &mut [u8]) -> Result<usize>;
 pub fn hook_account_buf() -> Result<AccountId>;   // fixed-size convenience
 ```
 
-- `api::state`'s key parameters (`state`/`state_set`/`state_foreign(_set)`)
-  are the one place a plain `&[u8]` in the signature above is written
-  `&(impl AsRef<[u8]> + ?Sized)` instead: a bare `&[u8]` parameter cannot
-  accept `&StateKey` directly (deref coercion to the newtype's `[u8; 32]`
-  `Deref::Target` does not chain with the further array-to-slice unsized
-  coercion at one call site — see `types.rs`'s module doc comment), so a
-  caller would otherwise have to write `STATE_KEY.as_ref()` at every call.
-  Bounding by `AsRef<[u8]>` instead — every `crate::types` newtype already
-  implements it — lets `state(&mut raw, &STATE_KEY)` work as-is, at zero
-  cost (monomorphized per call site, verified by `mise run build-examples`'
-  unchanged per-example wasm size/WCE). `namespace`/`account`
-  (`state_foreign`'s `Option<&[u8]>` pair) stay concrete, not generic: a
-  bare `None` cannot pin down an unconstrained generic parameter, so making
-  them generic would make the all-absent call ambiguous and fail to
-  compile.
+- Every `out: &mut [u8]`/key-or-value-shaped `&[u8]` parameter across the
+  `api::*` wrapper functions above (`state`, `state_set`,
+  `state_foreign(_set)`, `otxn_field`, `otxn_id`, `otxn_param`,
+  `hook_account`, `hook_hash`, `hook_param`, `ledger_last_hash`,
+  `ledger_nonce`, `ledger_keylet`, `util_raddr`, `util_accid`,
+  `util_sha512h`, `util_keylet`, `etxn_details`, `etxn_nonce`, `emit`,
+  `prepare`, `slot`, `sto_emplace`, `sto_erase`, `float_sto`, ...) is
+  written `&mut (impl AsMut<[u8]> + ?Sized)` / `&(impl AsRef<[u8]> +
+  ?Sized)` instead of a bare `&mut [u8]`/`&[u8]`: a bare one cannot accept
+  `&mut sender`/`&STATE_KEY` directly for a `types.rs` newtype (deref
+  coercion to the newtype's `[u8; N]` `Deref::Target` does not chain with
+  the further array-to-slice unsized coercion at one call site — see
+  `types.rs`'s module doc comment), so a caller would otherwise have to
+  write `sender.as_mut()`/`STATE_KEY.as_ref()` at every call. Bounding by
+  `AsMut<[u8]>`/`AsRef<[u8]>` instead — every `crate::types` newtype already
+  implements both — lets `otxn_field(&mut sender, sfAccount)`/
+  `state(&mut raw, &STATE_KEY)` work as-is, at zero cost (monomorphized per
+  call site, verified by `mise run build-examples`'s unchanged per-example
+  wasm size/WCE). `_exact::<const N>` functions (`otxn_field_exact`,
+  `hook_param_exact`, `slot_exact`, `state_exact`) are unaffected — they
+  already return an owned `[u8; N]`, no buffer parameter to genericize.
+  `state_foreign`'s `namespace`/`account` are the one pair that stay a
+  *different* generic shape (`impl api::state::ForeignRef<'_>`, not a plain
+  `AsRef<[u8]>` bound): they're `Option`-shaped, and a bare `None` cannot
+  pin down an unconstrained `Option<K: AsRef<[u8]>>`'s `K` — `ForeignRef`
+  resolves that by accepting `None` (absent) or a *bare* reference (present,
+  not `Some(&value)`) instead of one `Option<K>` — see `ForeignRef`'s doc
+  comment in `api/state.rs` for the full reasoning (verified against rustc,
+  not just argued about).
 
 - Every wrapper is `#[inline(always)]` (extra internal functions are both a
   size cost and a validation risk — C7).

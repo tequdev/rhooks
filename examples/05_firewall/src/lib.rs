@@ -31,7 +31,7 @@ hook_errors! {
 #[hook]
 fn my_hook() -> i64 {
     let mut sender = AccountId([0u8; ACC_ID_LEN]);
-    match otxn_field(sender.as_mut(), sfAccount) {
+    match otxn_field(&mut sender, sfAccount) {
         Ok(n) if n == ACC_ID_LEN => {}
         _ => rollback!(
             b"firewall: could not read otxn sender",
@@ -40,7 +40,7 @@ fn my_hook() -> i64 {
     }
 
     let mut blocked = AccountId([0u8; ACC_ID_LEN]);
-    match hook_param(blocked.as_mut(), BL_PARAM) {
+    match hook_param(&mut blocked, BL_PARAM) {
         // No (valid) blacklist parameter configured: nothing to block.
         Ok(n) if n == ACC_ID_LEN => {}
         _ => accept!(),

@@ -15,17 +15,23 @@
 //! `From<[u8; N]>`/`Into<[u8; N]>`, to keep migration cost low: method
 //! calls (`.as_ptr()`, `.len()`, indexing, `.starts_with(..)`, ...) reach
 //! through to the inner array via auto-deref exactly as they did when
-//! these were plain array aliases. The one place that *does* need an
-//! explicit conversion is passing a newtype by reference where a bare
-//! `&[u8]`/`&mut [u8]` parameter is expected (Rust does not chain a
-//! user `Deref` impl with the built-in array-to-slice unsized coercion at
-//! a call site) — write `value.as_ref()` / `value.as_mut()` there.
-//! [`mod@crate::api::state`]'s key parameters are the deliberate exception:
-//! `state`/`state_set`/`state_foreign(_set)` bound their `key` parameter by
-//! `AsRef<[u8]>` instead of taking a bare `&[u8]`, specifically so
-//! `state(&mut raw, &STATE_KEY)` works with no `.as_ref()` at the call site
-//! (see that module's doc comment for why, and why `namespace`/`account`
-//! don't get the same treatment).
+//! these were plain array aliases. Passing a newtype by reference where a
+//! *bare* `&[u8]`/`&mut [u8]` parameter is expected does need an explicit
+//! conversion (`value.as_ref()` / `value.as_mut()`) — Rust does not chain a
+//! user `Deref` impl with the built-in array-to-slice unsized coercion at a
+//! call site — but every `hooks_lib::api` wrapper that takes a caller
+//! buffer or key/value byte slice (`state`, `otxn_field`, `hook_param`,
+//! `hook_account`, `ledger_last_hash`, `util_accid`, `etxn_details`, `slot`,
+//! ...) sidesteps that entirely by bounding the parameter with
+//! `AsRef<[u8]>`/`AsMut<[u8]>` instead of taking a bare `&[u8]`/`&mut [u8]`,
+//! so `otxn_field(&mut sender, sfAccount)` / `state(&mut raw, &STATE_KEY)`
+//! work as-is, no `.as_ref()`/`.as_mut()` needed (see `api::state`'s module
+//! doc comment for the full reasoning, and its `ForeignRef` trait for the
+//! one remaining exception — `state_foreign`'s `namespace`/`account`, which
+//! are `Option`-shaped and need a different trick). The explicit-conversion
+//! case above only still applies to genuinely bare `&[u8]`/`&mut [u8]`
+//! parameters outside that wrapper layer (e.g. a hook's own helper
+//! function, or `core`/`alloc` APIs).
 //!
 //! Every type here also implements [`crate::convert::ToBytes`]/
 //! [`crate::convert::FromBytes`] (a fixed-length passthrough to/from its

@@ -30,7 +30,8 @@ pub fn ledger_last_time() -> u64 {
 /// number of bytes written. [`ledger_last_hash_buf`] is the fixed-size
 /// convenience twin.
 #[inline(always)]
-pub fn ledger_last_hash(out: &mut [u8]) -> Result<usize> {
+pub fn ledger_last_hash<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::ledger_last_hash(out.as_mut_ptr() as u32, out.len() as u32) })
         .map(|v| v as usize)
 }
@@ -46,7 +47,8 @@ pub fn ledger_last_hash_buf() -> Result<Hash> {
 /// A ledger-derived nonce value, written into `out`. Returns the number of
 /// bytes written. [`ledger_nonce_buf`] is the fixed-size convenience twin.
 #[inline(always)]
-pub fn ledger_nonce(out: &mut [u8]) -> Result<usize> {
+pub fn ledger_nonce<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::ledger_nonce(out.as_mut_ptr() as u32, out.len() as u32) })
         .map(|v| v as usize)
 }
@@ -64,7 +66,12 @@ pub fn ledger_nonce_buf() -> Result<Nonce> {
 /// the number of bytes written. [`ledger_keylet_buf`] is the fixed-size
 /// convenience twin.
 #[inline(always)]
-pub fn ledger_keylet(out: &mut [u8], low: &[u8], high: &[u8]) -> Result<usize> {
+pub fn ledger_keylet<B: AsMut<[u8]> + ?Sized>(
+    out: &mut B,
+    low: &[u8],
+    high: &[u8],
+) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::ledger_keylet(
             out.as_mut_ptr() as u32,

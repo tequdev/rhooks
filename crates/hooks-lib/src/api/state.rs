@@ -23,37 +23,78 @@
 //! `state_update_typed` and the [`state_keys!`](crate::state_keys) macro,
 //! built on top of this module's [`state`]/[`state_set`]/[`state_exact`].
 //!
-//! ## Why every `key` parameter here is `&(impl AsRef<[u8]> + ?Sized)`, not `&[u8]`
+//! ## Why every `key`/`out`/`data` parameter here is generic, not `&[u8]`/`&mut [u8]`
 //!
-//! Every key-shaped parameter in this module (`state`'s `key`, `state_set`'s
-//! `key`, `state_foreign`'s `key`, ...) is generic instead of a bare `&[u8]`
+//! Every key- or buffer-shaped parameter in this module (`state`'s `key`
+//! and `out`, `state_set`'s `key` and `data`, `state_foreign`'s `key` and
+//! `out`, ...) is generic instead of a bare `&[u8]`/`&mut [u8]`
 //! specifically so a [`crate::types::StateKey`] (or any other
-//! `hooks_lib::types` newtype a hook chooses to key state with) can be
-//! passed straight through as `&STATE_KEY`, with no `.as_ref()` at the call
-//! site. A bare `&[u8]` parameter can't do this: `StateKey` only
-//! implements [`core::ops::Deref`] with `[u8; 32]` as its target (not
-//! `[u8]` — see `crate::types`' module doc comment for why), and Rust does
-//! not chain that one `Deref` hop with the further built-in array-to-slice
-//! unsized coercion at a single call site, so `&STATE_KEY` alone never
-//! reaches a `&[u8]` parameter. Bounding the parameter by
-//! [`AsRef<[u8]>`](AsRef) instead sidesteps the coercion question entirely:
-//! `StateKey` (and every other `crate::types` newtype) already implements
-//! `AsRef<[u8]>` directly, no coercion needed. This is zero-cost —
+//! `hooks_lib::types` newtype a hook chooses to key or read/write state
+//! with) can be passed straight through as `&STATE_KEY`/`&mut raw`, with no
+//! `.as_ref()`/`.as_mut()` at the call site. A bare `&[u8]`/`&mut [u8]`
+//! parameter can't do this: `StateKey` only implements
+//! [`core::ops::Deref`]/[`core::ops::DerefMut`] with `[u8; 32]` as its
+//! target (not `[u8]` — see `crate::types`' module doc comment for why),
+//! and Rust does not chain that one `Deref` hop with the further built-in
+//! array-to-slice unsized coercion at a single call site, so `&STATE_KEY`
+//! alone never reaches a `&[u8]` parameter. Bounding the parameter by
+//! [`AsRef<[u8]>`](AsRef)/[`AsMut<[u8]>`](AsMut) instead sidesteps the
+//! coercion question entirely: every `crate::types` newtype already
+//! implements both directly, no coercion needed. This is zero-cost —
 //! `#[inline(always)]` plus one generic parameter monomorphized per call
-//! site compiles to the exact same code as the old concrete `&[u8]`
-//! parameter did (verified: `mise run build-examples`'s per-example wasm
-//! size and worst-case instruction count are unchanged by this).
+//! site compiles to the exact same code as the old concrete parameter did
+//! (verified: `mise run build-examples`'s per-example wasm size and
+//! worst-case instruction count are unchanged by this).
 //!
-//! `namespace`/`account` (`state_foreign`'s `Option<&[u8]>` pair)
-//! deliberately stay a concrete `Option<&[u8]>`, not `Option<K: AsRef<[u8]>>`:
-//! a generic `Option<K>` parameter cannot also accept a bare `None`
-//! literal — with `K` unconstrained by anything else in the call, `None`
-//! never pins down a single `K`, so the call becomes ambiguous and fails to
-//! compile (verified directly against rustc, not just reasoned about).
-//! Passing a newtype through one of these still needs `Some(value.as_ref())`.
+//! `namespace`/`account` (`state_foreign`'s optional pair) are a special
+//! case, covered by [`ForeignRef`] below rather than a plain `AsRef<[u8]>`/
+//! `AsMut<[u8]>` bound — see that trait's doc comment for why.
 
 use crate::error::{HookError, Result, res};
 use crate::xfl::XFL;
+
+/// Accepts either `None` (absent) or a bare reference to anything
+/// implementing [`AsRef<[u8]>`] (present) as `state_foreign`'s
+/// `namespace`/`account` arguments.
+///
+/// This is deliberately a different shape from `state`'s `key` parameter
+/// (`&(impl AsRef<[u8]> + ?Sized)`): `namespace`/`account` are *optional*,
+/// and a generic `Option<K: AsRef<[u8]>>` parameter cannot also accept a
+/// bare `None` literal — with nothing else in the call to pin down `K`,
+/// `None` is genuinely ambiguous and fails to compile
+/// (`error[E0283]: type annotations needed`, verified directly against
+/// rustc, not just reasoned about). `ForeignRef` sidesteps that by giving
+/// the "present" and "absent" cases two different shapes instead of one
+/// `Option<K>`: a bare `&value` (present, any `AsRef<[u8]>`) or `None`
+/// (absent — resolvable because this trait has exactly one
+/// `Option<...>`-shaped impl, so `None`'s type isn't ambiguous). The one
+/// thing this does **not** support, unlike `state`'s `key` — is
+/// `Some(&value)` for a `hooks_lib::types` newtype: `Option<&AccountId>`
+/// doesn't match either impl below (also verified against rustc).
+/// Supporting that too would mean adding a generic `Option<&'a T>` impl,
+/// which reintroduces exactly the `None`-ambiguity problem this trait
+/// exists to avoid. Pass the bare reference instead: `Some(&target)`
+/// becomes `&target`, `None` stays `None`. (`Some(raw)` for an
+/// already-`&[u8]` value, e.g. one produced by `.as_ref()`, still works —
+/// it matches the `Option<&'a [u8]>` impl exactly.)
+pub trait ForeignRef<'a> {
+    /// `self`, resolved to `Some(bytes)` (present) or `None` (absent).
+    fn foreign_ref(self) -> Option<&'a [u8]>;
+}
+
+impl<'a> ForeignRef<'a> for Option<&'a [u8]> {
+    #[inline(always)]
+    fn foreign_ref(self) -> Option<&'a [u8]> {
+        self
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + ?Sized> ForeignRef<'a> for &'a T {
+    #[inline(always)]
+    fn foreign_ref(self) -> Option<&'a [u8]> {
+        Some(self.as_ref())
+    }
+}
 
 /// Read this hook's own state, decoded as an optional-defaulting `(ptr, len)`
 /// pair — `None` becomes `(0, 0)`. Only ever used in the read direction,
@@ -81,7 +122,11 @@ fn opt_in(o: Option<&[u8]>) -> (u32, u32) {
 /// assert_eq!(state(&mut out, &key), Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn state<K: AsRef<[u8]> + ?Sized>(out: &mut [u8], key: &K) -> Result<usize> {
+pub fn state<B: AsMut<[u8]> + ?Sized, K: AsRef<[u8]> + ?Sized>(
+    out: &mut B,
+    key: &K,
+) -> Result<usize> {
+    let out = out.as_mut();
     let key = key.as_ref();
     res(unsafe {
         hooks_core::state(
@@ -292,15 +337,22 @@ pub fn state_set<K: AsRef<[u8]> + ?Sized>(data: &[u8], key: &K) -> Result<usize>
 /// zero-length Hook API sentinel) when omitted. Returns the number of bytes
 /// written to `out`.
 #[inline(always)]
-pub fn state_foreign<K: AsRef<[u8]> + ?Sized>(
-    out: &mut [u8],
+pub fn state_foreign<'ns, 'ac, B, K, N, A>(
+    out: &mut B,
     key: &K,
-    namespace: Option<&[u8]>,
-    account: Option<&[u8]>,
-) -> Result<usize> {
+    namespace: N,
+    account: A,
+) -> Result<usize>
+where
+    B: AsMut<[u8]> + ?Sized,
+    K: AsRef<[u8]> + ?Sized,
+    N: ForeignRef<'ns>,
+    A: ForeignRef<'ac>,
+{
+    let out = out.as_mut();
     let key = key.as_ref();
-    let (nptr, nlen) = opt_in(namespace);
-    let (aptr, alen) = opt_in(account);
+    let (nptr, nlen) = opt_in(namespace.foreign_ref());
+    let (aptr, alen) = opt_in(account.foreign_ref());
     res(unsafe {
         hooks_core::state_foreign(
             out.as_mut_ptr() as u32,
@@ -320,14 +372,15 @@ pub fn state_foreign<K: AsRef<[u8]> + ?Sized>(
 /// [`state_u64`] for the size/top-bit rules and endianness caveat).
 /// `namespace`/`account` follow [`state_foreign`]'s `Option` convention.
 #[inline(always)]
-pub fn state_foreign_u64<K: AsRef<[u8]> + ?Sized>(
-    key: &K,
-    namespace: Option<&[u8]>,
-    account: Option<&[u8]>,
-) -> Result<u64> {
+pub fn state_foreign_u64<'ns, 'ac, K, N, A>(key: &K, namespace: N, account: A) -> Result<u64>
+where
+    K: AsRef<[u8]> + ?Sized,
+    N: ForeignRef<'ns>,
+    A: ForeignRef<'ac>,
+{
     let key = key.as_ref();
-    let (nptr, nlen) = opt_in(namespace);
-    let (aptr, alen) = opt_in(account);
+    let (nptr, nlen) = opt_in(namespace.foreign_ref());
+    let (aptr, alen) = opt_in(account.foreign_ref());
     res(unsafe {
         hooks_core::state_foreign(
             0,
@@ -348,15 +401,20 @@ pub fn state_foreign_u64<K: AsRef<[u8]> + ?Sized>(
 /// depending on protocol rules). See [`state_foreign`] for the `Option`
 /// convention. Returns the number of bytes written.
 #[inline(always)]
-pub fn state_foreign_set<K: AsRef<[u8]> + ?Sized>(
+pub fn state_foreign_set<'ns, 'ac, K, N, A>(
     data: &[u8],
     key: &K,
-    namespace: Option<&[u8]>,
-    account: Option<&[u8]>,
-) -> Result<usize> {
+    namespace: N,
+    account: A,
+) -> Result<usize>
+where
+    K: AsRef<[u8]> + ?Sized,
+    N: ForeignRef<'ns>,
+    A: ForeignRef<'ac>,
+{
     let key = key.as_ref();
-    let (nptr, nlen) = opt_in(namespace);
-    let (aptr, alen) = opt_in(account);
+    let (nptr, nlen) = opt_in(namespace.foreign_ref());
+    let (aptr, alen) = opt_in(account.foreign_ref());
     res(unsafe {
         hooks_core::state_foreign_set(
             data.as_ptr() as u32,
@@ -393,7 +451,7 @@ mod tests {
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_foreign_set(&out, &key, Some(&key), Some(&key)),
+            state_foreign_set(&out, &key, &key, &key),
             Err(HookError::NotImplemented)
         );
         assert_eq!(state_exact::<8>(&key), Err(HookError::NotImplemented));
@@ -422,6 +480,60 @@ mod tests {
             state_update_xfl(&key, |cur| cur.unwrap_or(XFL::one())),
             Err(HookError::NotImplemented)
         ));
+    }
+
+    #[test]
+    fn state_accepts_newtype_key_and_out_buffer_by_reference() {
+        // `&STATE_KEY`/`&mut buf` where both are `hooks_lib::types` newtypes
+        // — no `.as_ref()`/`.as_mut()` needed — is the whole point of the
+        // generic `K`/`B` bounds on `state`/`state_foreign` (see the module
+        // doc comment). This test locks that call shape in.
+        use crate::types::{ACC_ID_LEN, AccountId, STATE_KEY_LEN, StateKey};
+
+        let key = StateKey([0u8; STATE_KEY_LEN]);
+        let mut out = AccountId([0u8; ACC_ID_LEN]);
+        assert_eq!(state(&mut out, &key), Err(HookError::NotImplemented));
+        assert_eq!(
+            state_foreign(&mut out, &key, None, None),
+            Err(HookError::NotImplemented)
+        );
+    }
+
+    #[test]
+    fn state_foreign_accepts_bare_newtype_reference_for_namespace_and_account() {
+        // The `ForeignRef` half of the same story: `&target`/`&namespace`
+        // (bare, no `Some(..)`) for a `hooks_lib::types` newtype, `None` for
+        // absent — see `ForeignRef`'s doc comment for why `Some(&target)`
+        // itself isn't supported.
+        use crate::types::{ACC_ID_LEN, AccountId, NAMESPACE_LEN, NameSpace};
+
+        let key = [0u8; 32];
+        let mut out = [0u8; 32];
+        let target = AccountId([0u8; ACC_ID_LEN]);
+        let ns = NameSpace([0u8; NAMESPACE_LEN]);
+        assert_eq!(
+            state_foreign(&mut out, &key, &ns, &target),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            state_foreign(&mut out, &key, None, &target),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            state_foreign_u64(&key, &ns, None),
+            Err(HookError::NotImplemented)
+        );
+    }
+
+    #[test]
+    fn foreign_ref_resolves_present_and_absent() {
+        // Pure-logic check on `ForeignRef` itself, no host call involved.
+        let bytes = [1u8, 2, 3];
+        let some: Option<&[u8]> = Some(&bytes);
+        let none: Option<&[u8]> = None;
+        assert_eq!(some.foreign_ref(), Some(bytes.as_slice()));
+        assert_eq!(none.foreign_ref(), None);
+        assert_eq!((&bytes).foreign_ref(), Some(bytes.as_slice()));
     }
 
     #[test]

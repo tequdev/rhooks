@@ -15,7 +15,8 @@ pub fn otxn_burden() -> u64 {
 /// Read a field from the originating transaction into `out`. Returns the
 /// number of bytes written.
 #[inline(always)]
-pub fn otxn_field(out: &mut [u8], field_id: u32) -> Result<usize> {
+pub fn otxn_field<B: AsMut<[u8]> + ?Sized>(out: &mut B, field_id: u32) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::otxn_field(out.as_mut_ptr() as u32, out.len() as u32, field_id) })
         .map(|v| v as usize)
 }
@@ -66,7 +67,8 @@ pub fn otxn_generation() -> u32 {
 /// Returns the number of bytes written. [`otxn_id_buf`] is the fixed-size
 /// convenience twin.
 #[inline(always)]
-pub fn otxn_id(out: &mut [u8], flags: u32) -> Result<usize> {
+pub fn otxn_id<B: AsMut<[u8]> + ?Sized>(out: &mut B, flags: u32) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::otxn_id(out.as_mut_ptr() as u32, out.len() as u32, flags) })
         .map(|v| v as usize)
 }
@@ -98,7 +100,8 @@ pub fn otxn_slot(slot_into: u32) -> Result<u32> {
 /// Read a Hook parameter attached to the originating transaction into `out`.
 /// Returns the number of bytes written.
 #[inline(always)]
-pub fn otxn_param(out: &mut [u8], name: &[u8]) -> Result<usize> {
+pub fn otxn_param<B: AsMut<[u8]> + ?Sized>(out: &mut B, name: &[u8]) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::otxn_param(
             out.as_mut_ptr() as u32,
