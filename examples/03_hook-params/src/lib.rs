@@ -42,7 +42,7 @@ hook_errors! {
 /// Hook parameter, or [`DEFAULT_MIN_DROPS`] if it isn't set (or is the
 /// wrong size to be a valid 8-byte value).
 fn min_drops() -> u64 {
-    hook_param_exact::<8>(MIN_PARAM)
+    hook_param_exact(MIN_PARAM)
         .map(u64::from_be_bytes)
         .unwrap_or(DEFAULT_MIN_DROPS)
 }
@@ -56,7 +56,7 @@ fn my_hook() -> i64 {
     // amount would fail this length check and fall into the `Err` arm
     // below. This example deliberately doesn't handle IOU amounts — see
     // `examples/07_xfl-math` for reading *any* Amount kind uniformly via XFL.
-    let drops = match otxn_field_exact::<8>(sfAmount) {
+    let drops = match otxn_field_exact(sfAmount) {
         Ok(raw) => u64::from_be_bytes(raw) & !NATIVE_AMOUNT_FLAG_BITS,
         Err(_) => rollback!(
             b"hook-params: unsupported (non-native) Amount",
