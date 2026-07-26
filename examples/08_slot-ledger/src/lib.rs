@@ -63,7 +63,7 @@ fn my_hook() -> i64 {
             SlotLedgerError::NoDestinationField
         ),
     };
-    let dest: AccountId = match slot_exact::<ACC_ID_LEN>(dest_slot) {
+    let dest: AccountId = match slot_exact(dest_slot) {
         Ok(d) => d,
         Err(_) => rollback!(
             b"slot-ledger: Destination has unexpected size",
@@ -97,7 +97,7 @@ fn my_hook() -> i64 {
         ),
     }
 
-    let amount_buf: NativeAmount = match slot_exact::<NATIVE_AMOUNT_LEN>(amount_slot) {
+    let amount_buf: NativeAmount = match slot_exact(amount_slot) {
         Ok(a) => a,
         Err(_) => rollback!(
             b"slot-ledger: reading Amount from its slot failed",
@@ -117,7 +117,14 @@ fn my_hook() -> i64 {
     // purely to prove both were actually read (real hook logic would
     // inspect the whole 20/8 bytes, e.g. against an allow-list — see
     // `firewall` — or decode the amount, e.g. `examples/03_hook-params`).
-    let marker = u16::from(dest[0]).wrapping_add(u16::from(amount_buf[0]));
+    // `.first()` (not `dest[0]`): indexing through the `AccountId`/
+    // `NativeAmount` newtypes' `Deref` reaches a `[u8; N]`, but clippy's
+    // `indexing_slicing` lint only recognizes a literal index as
+    // provably-in-bounds when the receiver's own type is the array (not a
+    // newtype wrapping one reached via `Deref`) — see `hooks_lib::types`'
+    // module doc comment.
+    let marker = u16::from(dest.first().copied().unwrap_or(0))
+        .wrapping_add(u16::from(amount_buf.first().copied().unwrap_or(0)));
     accept!(
         b"slot-ledger: read Destination and native Amount",
         i64::from(marker)

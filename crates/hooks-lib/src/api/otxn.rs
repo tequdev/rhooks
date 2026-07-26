@@ -1,8 +1,9 @@
 //! Information about the originating transaction (the transaction that
 //! triggered this hook invocation).
 
-use crate::error::{HookError, Result, res};
-use crate::types::{HASH_LEN, Hash};
+use crate::convert::FixedRead;
+use crate::error::{Result, res};
+use crate::types::Hash;
 
 /// Burden of the originating transaction: `1` for a normal transaction, or
 /// the `sfEmitBurden` value for an emitted transaction. A natural (unsigned)
@@ -15,7 +16,8 @@ pub fn otxn_burden() -> u64 {
 /// Read a field from the originating transaction into `out`. Returns the
 /// number of bytes written.
 #[inline(always)]
-pub fn otxn_field(out: &mut [u8], field_id: u32) -> Result<usize> {
+pub fn otxn_field<B: AsMut<[u8]> + ?Sized>(out: &mut B, field_id: u32) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::otxn_field(out.as_mut_ptr() as u32, out.len() as u32, field_id) })
         .map(|v| v as usize)
 }
@@ -30,29 +32,33 @@ pub fn otxn_field_u64(field_id: u32) -> Result<u64> {
 }
 
 /// Read field `field_id` from the originating transaction, requiring it to
-/// be exactly `N` bytes. A field longer than `N` already fails as
-/// [`crate::error::HookError::TooSmall`] from the underlying host call
-/// (`out`'s capacity is exactly `N`); a field shorter than `N` is caught
-/// here and mapped to the same variant — see `state_exact` (`state.rs`) for
-/// the identical pattern and rationale. No loop, no panic.
+/// be exactly `T`'s length — any [`crate::convert::FixedRead`] type, most
+/// commonly a `hooks_lib::types` newtype or a raw `[u8; N]`. A field longer
+/// than that already fails as [`crate::error::HookError::TooSmall`] from the
+/// underlying host call (the buffer `T::read_exact` allocates has exactly
+/// that capacity); a field shorter is caught by `T::read_exact` itself and
+/// mapped to the same variant — see `state_exact` (`state.rs`) for the
+/// identical pattern and rationale. No loop, no panic.
+///
+/// `T` is inferred from context (a `let` binding's type annotation, a
+/// function's declared return type, ...), not a turbofish — e.g.
+/// `let sender: AccountId = otxn_field_exact(sfAccount)?;`. A call site
+/// with no way to infer `T` is a compile error; annotate it (or use
+/// `otxn_field_exact::<AccountId>(field_id)`/`::<[u8; 20]>(field_id)`
+/// explicitly).
 ///
 /// # Examples
 ///
 /// ```
 /// use hooks_lib::api::otxn::otxn_field_exact;
-/// use hooks_lib::error::HookError;
+/// use hooks_lib::error::{HookError, Result};
 ///
-/// assert_eq!(otxn_field_exact::<20>(0), Err(HookError::NotImplemented));
+/// let sender: Result<[u8; 20]> = otxn_field_exact(0);
+/// assert_eq!(sender, Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn otxn_field_exact<const N: usize>(field_id: u32) -> Result<[u8; N]> {
-    let mut out = [0u8; N];
-    let written = otxn_field(&mut out, field_id)?;
-    if written == N {
-        Ok(out)
-    } else {
-        Err(HookError::TooSmall)
-    }
+pub fn otxn_field_exact<T: FixedRead>(field_id: u32) -> Result<T> {
+    T::read_exact(|buf| otxn_field(buf, field_id))
 }
 
 /// Generation of the originating transaction: `0` for a normal transaction,
@@ -66,7 +72,8 @@ pub fn otxn_generation() -> u32 {
 /// Returns the number of bytes written. [`otxn_id_buf`] is the fixed-size
 /// convenience twin.
 #[inline(always)]
-pub fn otxn_id(out: &mut [u8], flags: u32) -> Result<usize> {
+pub fn otxn_id<B: AsMut<[u8]> + ?Sized>(out: &mut B, flags: u32) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::otxn_id(out.as_mut_ptr() as u32, out.len() as u32, flags) })
         .map(|v| v as usize)
 }
@@ -77,8 +84,8 @@ pub fn otxn_id(out: &mut [u8], flags: u32) -> Result<usize> {
 /// API reference, so exposed as a plain `u32` rather than an invented enum).
 #[inline(always)]
 pub fn otxn_id_buf(flags: u32) -> Result<Hash> {
-    let mut buf: Hash = [0u8; HASH_LEN];
-    let _ = otxn_id(&mut buf, flags)?;
+    let mut buf = Hash::default();
+    let _ = otxn_id(buf.as_mut(), flags)?;
     Ok(buf)
 }
 
@@ -98,7 +105,8 @@ pub fn otxn_slot(slot_into: u32) -> Result<u32> {
 /// Read a Hook parameter attached to the originating transaction into `out`.
 /// Returns the number of bytes written.
 #[inline(always)]
-pub fn otxn_param(out: &mut [u8], name: &[u8]) -> Result<usize> {
+pub fn otxn_param<B: AsMut<[u8]> + ?Sized>(out: &mut B, name: &[u8]) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe {
         hooks_core::otxn_param(
             out.as_mut_ptr() as u32,
@@ -126,7 +134,10 @@ mod tests {
         assert_eq!(otxn_id(&mut buf, 0), Err(HookError::NotImplemented));
         assert_eq!(otxn_field(&mut buf, 0), Err(HookError::NotImplemented));
         assert_eq!(otxn_field_u64(0), Err(HookError::NotImplemented));
-        assert_eq!(otxn_field_exact::<20>(0), Err(HookError::NotImplemented));
+        assert_eq!(
+            otxn_field_exact::<[u8; 20]>(0),
+            Err(HookError::NotImplemented)
+        );
         assert_eq!(otxn_param(&mut buf, b"x"), Err(HookError::NotImplemented));
     }
 }

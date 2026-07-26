@@ -17,13 +17,14 @@ use crate::xfl::XFL;
 /// no meaning for one without the other, so the mixed case is rejected
 /// locally as [`HookError::InvalidArgument`] without making a host call.
 #[inline(always)]
-pub fn float_sto(
-    out: &mut [u8],
+pub fn float_sto<B: AsMut<[u8]> + ?Sized>(
+    out: &mut B,
     currency: Option<&CurrencyCode>,
     issuer: Option<&AccountId>,
     amount: XFL,
     field_code: u32,
 ) -> Result<usize> {
+    let out = out.as_mut();
     let (cptr, clen, iptr, ilen) = match (currency, issuer) {
         (Some(c), Some(i)) => (
             c.as_ptr() as u32,
@@ -87,7 +88,7 @@ mod tests {
     #[test]
     fn float_sto_rejects_mixed_options() {
         let mut out = [0u8; 48];
-        let currency: CurrencyCode = [0u8; 20];
+        let currency = CurrencyCode::default();
         let one = XFL::one();
         assert_eq!(
             float_sto(&mut out, Some(&currency), None, one, 0),

@@ -10,8 +10,10 @@ use hooks_lib::{accept, hook, hook_errors, pad, rollback};
 
 /// The 32-byte state key: the entry name, zero-padded at compile time.
 /// `pad!` expands in an inline `const` block, so no copy loop (and hence no
-/// loop guard) exists at runtime.
-const STATE_KEY: StateKey = pad!(b"counter");
+/// loop guard) exists at runtime. `StateKey` is a `#[repr(transparent)]`
+/// newtype over `[u8; 32]` (see `hooks_lib::types`), so its public tuple
+/// field wraps `pad!`'s plain-array output at zero cost.
+const STATE_KEY: StateKey = StateKey(pad!(b"counter"));
 
 hook_errors! {
     /// `state-counter` rollback codes.

@@ -3,11 +3,16 @@
 //! This is the crate Hook developers import directly. It provides:
 //! - [`error::HookError`] / [`error::Result`] — a typed error model over the
 //!   raw negative-`i64` Hook API error codes.
-//! - [`types`] — fixed-size buffer aliases for protocol-fixed shapes
-//!   (`AccountId`, `Hash`, `Keylet`, ...).
+//! - [`types`] — fixed-size, `#[repr(transparent)]` newtypes for
+//!   protocol-fixed shapes (`AccountId`, `Hash`, `Keylet`, ...).
+//! - [`convert::ToBytes`]/[`convert::FromBytes`] — boundary conversion
+//!   traits for encoding/decoding fixed-size values to/from byte buffers.
+//! - [`state`] — a typed layer over hook state (`state_get`,
+//!   `state_set_typed`, `state_update_typed`, and the [`state_keys!`] macro
+//!   for declaring a state-key enum) built on top of [`convert`].
 //! - [`buf_eq`] — loop-free, panic-free equality checks for those fixed-size
-//!   buffers (use instead of `==`, which can compile to an unguarded
-//!   `compiler_builtins` `bcmp` loop).
+//!   buffers/newtypes (use instead of `==`, which can compile to an
+//!   unguarded `compiler_builtins` `bcmp` loop).
 //! - [`xfl::XFL`] — the Xahau decimal floating-point type.
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
 //! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
@@ -37,9 +42,11 @@
 
 pub mod api;
 pub mod buf_eq;
+pub mod convert;
 pub mod error;
 mod errors;
 mod macros;
+pub mod state;
 pub mod static_cell;
 pub mod txn;
 pub mod types;
@@ -86,7 +93,12 @@ pub use hooks_macros::paste as __paste;
 pub mod prelude {
     pub use crate::api::*;
     pub use crate::buf_eq::*;
+    pub use crate::convert::{FixedRead, FromBytes, ToBytes};
     pub use crate::error::{HookError, Result};
+    pub use crate::state::{
+        StateKeyEncode, state_foreign_get, state_foreign_set_typed, state_foreign_update_typed,
+        state_get, state_set_typed, state_update_typed,
+    };
     pub use crate::static_cell::HookStatic;
     pub use crate::types::*;
     pub use crate::xfl::XFL;

@@ -18,25 +18,31 @@ isn't configured.
 
 ```rust
 fn min_drops() -> u64 {
-    hook_param_exact::<8>(MIN_PARAM)
+    hook_param_exact(MIN_PARAM)
         .map(u64::from_be_bytes)
         .unwrap_or(DEFAULT_MIN_DROPS)
 }
 ```
 
-`hook_param_exact::<N>` (`hooks_lib::api::hook_ctx::hook_param_exact`) wraps
-the caller-buffer `hook_param` call and requires the result to be exactly
-`N` bytes, collapsing "not configured at all"
+`hook_param_exact` (`hooks_lib::api::hook_ctx::hook_param_exact`) wraps the
+caller-buffer `hook_param` call and requires the result to be exactly as
+long as its return type — here inferred as `[u8; 8]` from
+`.map(u64::from_be_bytes)`, no turbofish needed (`hook_param_exact`'s
+return type is generic over any `hooks_lib::convert::FixedRead` type, most
+commonly a `hooks_lib::types` newtype or a raw `[u8; N]`; see that
+function's doc comment) — collapsing "not configured at all"
 (`Err(HookError::DoesntExist)`) and "configured with a value of the wrong
-size" into the same `Err` — both fall back to the default via
+size" into the same `Err`. Both fall back to the default via
 `.unwrap_or(DEFAULT_MIN_DROPS)`, without treating a malformed parameter as a
 hard error. This mirrors `firewall`'s `hook_param` pattern for its `BL`
 parameter, but reads a threshold instead of an `AccountId`.
 
 The originating transaction's `Amount` is read the same way, via
-`otxn_field_exact::<8>(sfAmount)`, and only accepted if it comes back as
-exactly 8 bytes (a native amount serializes as 8 bytes; an IOU amount is
-48). The top two bits of a serialized native amount are format flags, not
+`otxn_field_exact(sfAmount)` (again inferred as `[u8; 8]`, this time from
+the `u64::from_be_bytes(raw)` call in the match arm below), and only
+accepted if it comes back as exactly 8 bytes (a native amount serializes
+as 8 bytes; an IOU amount is 48). The top two bits of a serialized native
+amount are format flags, not
 part of the drops value (`0x80` = "not an IOU", `0xC0`'s low bit = sign,
 always set since XRP/XAH amounts are never negative) — see
 `hooks_lib::txn::codec::encode_native_amount_const`'s doc comment for the

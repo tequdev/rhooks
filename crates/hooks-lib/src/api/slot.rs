@@ -6,12 +6,14 @@
 //! (`slot_count`, `slot_size`) consistently return `Result<u32>` in this
 //! module.
 
-use crate::error::{HookError, Result, res};
+use crate::convert::FixedRead;
+use crate::error::{Result, res};
 
 /// Serialize the object in `slot_no` into `out`. Returns the number of
 /// bytes written.
 #[inline(always)]
-pub fn slot(out: &mut [u8], slot_no: u32) -> Result<usize> {
+pub fn slot<B: AsMut<[u8]> + ?Sized>(out: &mut B, slot_no: u32) -> Result<usize> {
+    let out = out.as_mut();
     res(unsafe { hooks_core::slot(out.as_mut_ptr() as u32, out.len() as u32, slot_no) })
         .map(|v| v as usize)
 }
@@ -26,29 +28,29 @@ pub fn slot_u64(slot_no: u32) -> Result<u64> {
 }
 
 /// Serialize the object in `slot_no`, requiring the serialization to be
-/// exactly `N` bytes. A serialization longer than `N` already fails as
-/// [`crate::error::HookError::TooSmall`] from the underlying host call
-/// (`out`'s capacity is exactly `N`); a serialization shorter than `N` is
-/// caught here and mapped to the same variant — see `state_exact`
-/// (`state.rs`) for the identical pattern and rationale. No loop, no panic.
+/// exactly `T`'s length — any [`crate::convert::FixedRead`] type. A
+/// serialization longer than that already fails as
+/// [`crate::error::HookError::TooSmall`] from the underlying host call; a
+/// serialization shorter is caught by `T::read_exact` itself and mapped to
+/// the same variant — see `state_exact` (`state.rs`) for the identical
+/// pattern and rationale. No loop, no panic.
+///
+/// `T` is inferred from context, not a turbofish — see
+/// [`crate::api::otxn::otxn_field_exact`]'s doc comment for the full
+/// story.
 ///
 /// # Examples
 ///
 /// ```
 /// use hooks_lib::api::slot::slot_exact;
-/// use hooks_lib::error::HookError;
+/// use hooks_lib::error::{HookError, Result};
 ///
-/// assert_eq!(slot_exact::<20>(1), Err(HookError::NotImplemented));
+/// let value: Result<[u8; 20]> = slot_exact(1);
+/// assert_eq!(value, Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn slot_exact<const N: usize>(slot_no: u32) -> Result<[u8; N]> {
-    let mut out = [0u8; N];
-    let written = slot(&mut out, slot_no)?;
-    if written == N {
-        Ok(out)
-    } else {
-        Err(HookError::TooSmall)
-    }
+pub fn slot_exact<T: FixedRead>(slot_no: u32) -> Result<T> {
+    T::read_exact(|buf| slot(buf, slot_no))
 }
 
 /// Free `slot_no`, making it available for reuse.
@@ -122,7 +124,7 @@ mod tests {
         let mut out = [0u8; 32];
         assert_eq!(slot(&mut out, 1), Err(HookError::NotImplemented));
         assert_eq!(slot_u64(1), Err(HookError::NotImplemented));
-        assert_eq!(slot_exact::<20>(1), Err(HookError::NotImplemented));
+        assert_eq!(slot_exact::<[u8; 20]>(1), Err(HookError::NotImplemented));
         assert_eq!(slot_clear(1), Err(HookError::NotImplemented));
         assert_eq!(slot_count(1), Err(HookError::NotImplemented));
         assert_eq!(slot_set(&out, 0), Err(HookError::NotImplemented));
