@@ -2,7 +2,7 @@
 //! triggered this hook invocation).
 
 use crate::error::{HookError, Result, res};
-use crate::types::{HASH_LEN, Hash};
+use crate::types::Hash;
 
 /// Burden of the originating transaction: `1` for a normal transaction, or
 /// the `sfEmitBurden` value for an emitted transaction. A natural (unsigned)
@@ -79,7 +79,7 @@ pub fn otxn_id<B: AsMut<[u8]> + ?Sized>(out: &mut B, flags: u32) -> Result<usize
 /// API reference, so exposed as a plain `u32` rather than an invented enum).
 #[inline(always)]
 pub fn otxn_id_buf(flags: u32) -> Result<Hash> {
-    let mut buf = Hash([0u8; HASH_LEN]);
+    let mut buf = Hash::default();
     let _ = otxn_id(buf.as_mut(), flags)?;
     Ok(buf)
 }

@@ -488,10 +488,10 @@ mod tests {
         // — no `.as_ref()`/`.as_mut()` needed — is the whole point of the
         // generic `K`/`B` bounds on `state`/`state_foreign` (see the module
         // doc comment). This test locks that call shape in.
-        use crate::types::{ACC_ID_LEN, AccountId, STATE_KEY_LEN, StateKey};
+        use crate::types::{AccountId, StateKey};
 
-        let key = StateKey([0u8; STATE_KEY_LEN]);
-        let mut out = AccountId([0u8; ACC_ID_LEN]);
+        let key = StateKey::default();
+        let mut out = AccountId::default();
         assert_eq!(state(&mut out, &key), Err(HookError::NotImplemented));
         assert_eq!(
             state_foreign(&mut out, &key, None, None),
@@ -505,12 +505,12 @@ mod tests {
         // (bare, no `Some(..)`) for a `hooks_lib::types` newtype, `None` for
         // absent — see `ForeignRef`'s doc comment for why `Some(&target)`
         // itself isn't supported.
-        use crate::types::{ACC_ID_LEN, AccountId, NAMESPACE_LEN, NameSpace};
+        use crate::types::{AccountId, NameSpace};
 
         let key = [0u8; 32];
         let mut out = [0u8; 32];
-        let target = AccountId([0u8; ACC_ID_LEN]);
-        let ns = NameSpace([0u8; NAMESPACE_LEN]);
+        let target = AccountId::default();
+        let ns = NameSpace::default();
         assert_eq!(
             state_foreign(&mut out, &key, &ns, &target),
             Err(HookError::NotImplemented)

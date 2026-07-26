@@ -6,7 +6,7 @@
 //! from the `i64` wire type to their natural unsigned widths.
 
 use crate::error::{Result, res};
-use crate::types::{HASH_LEN, Hash, KEYLET_LEN, Keylet, NONCE_LEN, Nonce};
+use crate::types::{Hash, Keylet, Nonce};
 
 /// The reference transaction fee (in drops) for the current ledger.
 #[inline(always)]
@@ -39,7 +39,7 @@ pub fn ledger_last_hash<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
 /// The hash of the previous (parent) ledger.
 #[inline(always)]
 pub fn ledger_last_hash_buf() -> Result<Hash> {
-    let mut buf = Hash([0u8; HASH_LEN]);
+    let mut buf = Hash::default();
     let _ = ledger_last_hash(buf.as_mut())?;
     Ok(buf)
 }
@@ -57,7 +57,7 @@ pub fn ledger_nonce<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
 /// which is per-emission).
 #[inline(always)]
 pub fn ledger_nonce_buf() -> Result<Nonce> {
-    let mut buf = Nonce([0u8; NONCE_LEN]);
+    let mut buf = Nonce::default();
     let _ = ledger_nonce(buf.as_mut())?;
     Ok(buf)
 }
@@ -89,7 +89,7 @@ pub fn ledger_keylet<B: AsMut<[u8]> + ?Sized>(
 /// ledger entries).
 #[inline(always)]
 pub fn ledger_keylet_buf(low: &[u8], high: &[u8]) -> Result<Keylet> {
-    let mut buf = Keylet([0u8; KEYLET_LEN]);
+    let mut buf = Keylet::default();
     let _ = ledger_keylet(buf.as_mut(), low, high)?;
     Ok(buf)
 }

@@ -2,7 +2,7 @@
 //! parameters.
 
 use crate::error::{HookError, Result, res};
-use crate::types::{ACC_ID_LEN, AccountId, HASH_LEN, Hash};
+use crate::types::{AccountId, Hash};
 
 /// The AccountID this hook is installed on, written into `out`. Returns the
 /// number of bytes written. [`hook_account_buf`] is the fixed-size
@@ -17,7 +17,7 @@ pub fn hook_account<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
 /// The AccountID this hook is installed on.
 #[inline(always)]
 pub fn hook_account_buf() -> Result<AccountId> {
-    let mut buf = AccountId([0u8; ACC_ID_LEN]);
+    let mut buf = AccountId::default();
     let _ = hook_account(buf.as_mut())?;
     Ok(buf)
 }
@@ -37,7 +37,7 @@ pub fn hook_hash<B: AsMut<[u8]> + ?Sized>(out: &mut B, hook_no: i32) -> Result<u
 /// per Hook API convention).
 #[inline(always)]
 pub fn hook_hash_buf(hook_no: i32) -> Result<Hash> {
-    let mut buf = Hash([0u8; HASH_LEN]);
+    let mut buf = Hash::default();
     let _ = hook_hash(buf.as_mut(), hook_no)?;
     Ok(buf)
 }

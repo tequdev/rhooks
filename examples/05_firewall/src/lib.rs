@@ -30,7 +30,7 @@ hook_errors! {
 /// the blacklisted account; accepts otherwise.
 #[hook]
 fn my_hook() -> i64 {
-    let mut sender = AccountId([0u8; ACC_ID_LEN]);
+    let mut sender = AccountId::default();
     match otxn_field(&mut sender, sfAccount) {
         Ok(n) if n == ACC_ID_LEN => {}
         _ => rollback!(
@@ -39,7 +39,7 @@ fn my_hook() -> i64 {
         ),
     }
 
-    let mut blocked = AccountId([0u8; ACC_ID_LEN]);
+    let mut blocked = AccountId::default();
     match hook_param(&mut blocked, BL_PARAM) {
         // No (valid) blacklist parameter configured: nothing to block.
         Ok(n) if n == ACC_ID_LEN => {}

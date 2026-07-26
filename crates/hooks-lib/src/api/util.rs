@@ -2,7 +2,7 @@
 //! computation utilities.
 
 use crate::error::{Result, res};
-use crate::types::{ACC_ID_LEN, AccountId, HASH_LEN, Hash, KEYLET_LEN, Keylet};
+use crate::types::{AccountId, Hash, Keylet};
 
 /// Convert an AccountID (`accid`) to its base58 r-address text form,
 /// written into `out`. Variable-length text output, so this stays on the
@@ -42,7 +42,7 @@ pub fn util_accid<B: AsMut<[u8]> + ?Sized>(out: &mut B, r_address: &[u8]) -> Res
 /// Convert a base58 r-address (`r_address`) to its AccountID form.
 #[inline(always)]
 pub fn util_accid_buf(r_address: &[u8]) -> Result<AccountId> {
-    let mut buf = AccountId([0u8; ACC_ID_LEN]);
+    let mut buf = AccountId::default();
     let _ = util_accid(buf.as_mut(), r_address)?;
     Ok(buf)
 }
@@ -82,7 +82,7 @@ pub fn util_sha512h<B: AsMut<[u8]> + ?Sized>(out: &mut B, data: &[u8]) -> Result
 /// SHA-512-Half of `data`.
 #[inline(always)]
 pub fn util_sha512h_buf(data: &[u8]) -> Result<Hash> {
-    let mut buf = Hash([0u8; HASH_LEN]);
+    let mut buf = Hash::default();
     let _ = util_sha512h(buf.as_mut(), data)?;
     Ok(buf)
 }
@@ -133,7 +133,7 @@ pub fn util_keylet_buf(
     e: u32,
     f: u32,
 ) -> Result<Keylet> {
-    let mut buf = Keylet([0u8; KEYLET_LEN]);
+    let mut buf = Keylet::default();
     let _ = util_keylet(buf.as_mut(), keylet_type, a, b, c, d, e, f)?;
     Ok(buf)
 }

@@ -41,7 +41,17 @@
 //!
 //! All of these are always zero-initialized as `[0u8; N]` at call sites —
 //! never via `MaybeUninit` (see `macros.rs` for why `uninit_buf!` is
-//! deliberately not provided).
+//! deliberately not provided). Every type provides two equivalent ways to
+//! get that zero value: [`Default::default`] (for ordinary `let`
+//! bindings — `AccountId::default()`) and a `const fn zeroed() -> Self`
+//! (for `const`/`static` contexts, where `Default::default` can't be
+//! called — `Default` is not, and cannot be, a `const fn` trait method on
+//! stable Rust). Both produce the identical all-zero value; reach for
+//! whichever the binding's context requires. The typical use for either is
+//! allocating a fixed-size scratch buffer to hand to a host call's
+//! caller-buffer output parameter, e.g. `let mut sender =
+//! AccountId::default(); otxn_field(&mut sender, sfAccount)?;` — see
+//! [`mod@crate::api`]'s wrapper functions.
 
 use crate::convert::{FromBytes, ToBytes};
 use crate::error::Result;
@@ -76,14 +86,31 @@ pub const IOU_AMOUNT_LEN: usize = 48;
 pub const EMIT_DETAILS_MAX_LEN: usize = 138;
 
 /// Defines one `#[repr(transparent)]` fixed-size buffer newtype, plus its
-/// `Deref`/`DerefMut`/`AsRef`/`AsMut`/`From`/`Default`/`ToBytes`/`FromBytes`
-/// impls. See the module doc comment for the rationale.
+/// `Deref`/`DerefMut`/`AsRef`/`AsMut`/`From`/`Default`/`zeroed`/`ToBytes`/
+/// `FromBytes` impls. See the module doc comment for the rationale.
 macro_rules! fixed_bytes_type {
     ($(#[$meta:meta])* $name:ident, $len:expr) => {
         $(#[$meta])*
         #[repr(transparent)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub struct $name(pub [u8; $len]);
+
+        impl $name {
+            #[doc = concat!(
+                "An all-zero `", stringify!($name), "`, usable in `const`/",
+                "`static` contexts (unlike [`Default::default`], which ",
+                "this returns the same value as — `Default` cannot be a ",
+                "`const fn` on stable Rust). Typical use: a fixed-size ",
+                "scratch buffer for a host call's caller-buffer output ",
+                "parameter, e.g. `let mut sender = ", stringify!($name),
+                "::zeroed();` before `otxn_field(&mut sender, sfAccount)`."
+            )]
+            #[inline(always)]
+            #[must_use]
+            pub const fn zeroed() -> Self {
+                $name([0u8; $len])
+            }
+        }
 
         impl core::ops::Deref for $name {
             type Target = [u8; $len];
@@ -132,7 +159,7 @@ macro_rules! fixed_bytes_type {
         impl Default for $name {
             #[inline(always)]
             fn default() -> Self {
-                $name([0u8; $len])
+                Self::zeroed()
             }
         }
 
@@ -218,7 +245,7 @@ mod tests {
 
     #[test]
     fn as_ref_as_mut_round_trip() {
-        let mut id = AccountId([0u8; ACC_ID_LEN]);
+        let mut id = AccountId::default();
         id.as_mut().copy_from_slice(&[7u8; ACC_ID_LEN]);
         assert_eq!(id.as_ref(), &[7u8; ACC_ID_LEN]);
     }
@@ -234,6 +261,26 @@ mod tests {
     #[test]
     fn default_is_all_zero() {
         assert_eq!(AccountId::default(), AccountId([0u8; ACC_ID_LEN]));
+    }
+
+    #[test]
+    fn zeroed_is_all_zero_and_matches_default() {
+        assert_eq!(AccountId::zeroed(), AccountId([0u8; ACC_ID_LEN]));
+        assert_eq!(AccountId::zeroed(), AccountId::default());
+    }
+
+    // `zeroed()` must be usable in a `const`/`static` initializer — the
+    // whole reason it exists alongside `Default` (which cannot be `const`
+    // on stable Rust). A `const`/`static` that fails to compile would fail
+    // the crate build, not this test, but keeping one here documents the
+    // guarantee at the call site closest to it.
+    const _CONST_ZEROED: AccountId = AccountId::zeroed();
+    static _STATIC_ZEROED: Hash = Hash::zeroed();
+
+    #[test]
+    fn zeroed_works_in_const_and_static_context() {
+        assert_eq!(_CONST_ZEROED, AccountId([0u8; ACC_ID_LEN]));
+        assert_eq!(_STATIC_ZEROED, Hash([0u8; HASH_LEN]));
     }
 
     #[test]

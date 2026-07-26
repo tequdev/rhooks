@@ -1640,7 +1640,7 @@ mod tests {
         tpl.set_first_ledger_sequence(0);
         tpl.set_last_ledger_sequence(0);
         tpl.set_fee(0).expect("0 drops is in range");
-        tpl.set_account(&AccountId([0u8; ACC_ID_LEN]));
+        tpl.set_account(&AccountId::default());
         let _ = tpl.emit_details_region();
         assert_eq!(tpl.bytes().len(), QualifiedPathAccount::LEN);
         assert_eq!(

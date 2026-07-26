@@ -9,7 +9,7 @@
 //! plain values.
 
 use crate::error::{Result, res};
-use crate::types::{HASH_LEN, Hash, NONCE_LEN, Nonce};
+use crate::types::{Hash, Nonce};
 
 /// Burden of this hook's own emitted transactions so far.
 #[inline(always)]
@@ -66,7 +66,7 @@ pub fn etxn_nonce<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
 /// A fresh nonce for use in an emitted transaction.
 #[inline(always)]
 pub fn etxn_nonce_buf() -> Result<Nonce> {
-    let mut buf = Nonce([0u8; NONCE_LEN]);
+    let mut buf = Nonce::default();
     let _ = etxn_nonce(buf.as_mut())?;
     Ok(buf)
 }
@@ -92,7 +92,7 @@ pub fn emit<B: AsMut<[u8]> + ?Sized>(out: &mut B, tx_blob: &[u8]) -> Result<usiz
 /// call. Returns the emitted transaction's hash.
 #[inline(always)]
 pub fn emit_buf(tx_blob: &[u8]) -> Result<Hash> {
-    let mut buf = Hash([0u8; HASH_LEN]);
+    let mut buf = Hash::default();
     let _ = emit(buf.as_mut(), tx_blob)?;
     Ok(buf)
 }
