@@ -11,9 +11,9 @@ even though this example only reads two top-level scalar fields.
 ## Code walkthrough
 
 ```rust
-let txn_slot = otxn_slot(0)?;                             // whole otxn → a slot
+let txn_slot = otxn_slot(0)?;                              // whole otxn → a slot
 let dest_slot = slot_subfield(txn_slot, sfDestination, 0)?; // navigate to a field
-let dest: AccountId = slot_exact::<ACC_ID_LEN>(dest_slot)?; // serialize that field out
+let dest: AccountId = slot_exact(dest_slot)?;                // serialize that field out
 ```
 
 (the real code matches on each `Result` individually and rolls back with a
@@ -25,10 +25,14 @@ auto-assigned slot (`slot_into = 0` means "auto-assign", used consistently
 across the Slot API — see `slot_set`, `slot_subarray`, `slot_subfield`
 too). `slot_subfield(parent_slot, field_id, 0)` then extracts one field
 from the object in `parent_slot` into its *own* new slot;
-`slot_exact::<N>(slot_no)` (`hooks_lib::api::slot::slot_exact`) finally
-serializes whatever's in a slot into a fixed-size `[u8; N]`, requiring the
-result to be exactly `N` bytes — the same exact-length convention as
-`otxn_field_exact`/`state_exact`/`hook_param_exact`.
+`slot_exact(slot_no)` (`hooks_lib::api::slot::slot_exact`) finally
+serializes whatever's in a slot into any `hooks_lib::convert::FixedRead`
+type — here `AccountId`, inferred from the `let dest: AccountId = ...`
+annotation, no turbofish — requiring the result to be exactly that type's
+length (`ACC_ID_LEN` for `AccountId`): the same exact-length convention as
+`otxn_field_exact`/`state_exact`/`hook_param_exact`, all of which now infer
+their return type from context the same way instead of a `::<N>`
+turbofish.
 
 This example does that twice from the same `txn_slot`: once for
 `sfDestination` (always exactly 20 bytes — an `AccountId`), once for

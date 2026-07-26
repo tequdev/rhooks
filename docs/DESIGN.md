@@ -191,7 +191,11 @@ unsafe extern "C" {
 src/
 ├── lib.rs         # prelude, panic handler (feature), re-export of hooks-core as `raw`
 ├── error.rs       # HookError + Result<T>
-├── types.rs       # AccountId, Hash, Keylet, ... fixed-size buffer aliases
+├── types.rs       # AccountId, Hash, Keylet, ... #[repr(transparent)] fixed-size newtypes
+├── convert.rs     # ToBytes/FromBytes boundary conversion traits
+├── state.rs       # typed state layer (state_get/state_set_typed/state_update_typed) + state_keys!
+├── buf_eq.rs      # loop-free, panic-free fixed-size buffer equality (buf_eq_8/20/32/...)
+├── errors.rs      # hook_errors! user error enum -> rollback code mapping
 ├── xfl.rs         # XFL newtype over i64
 ├── txn.rs         # txn_template! macro + generic field-encoding primitives
 ├── static_cell.rs # HookStatic: take-once cell for static hook buffers
@@ -245,11 +249,45 @@ pub fn hook_account(out: &mut [u8]) -> Result<usize>;
 pub fn hook_account_buf() -> Result<AccountId>;   // fixed-size convenience
 ```
 
+- Every `out: &mut [u8]`/key-or-value-shaped `&[u8]` parameter across the
+  `api::*` wrapper functions above (`state`, `state_set`,
+  `state_foreign(_set)`, `otxn_field`, `otxn_id`, `otxn_param`,
+  `hook_account`, `hook_hash`, `hook_param`, `ledger_last_hash`,
+  `ledger_nonce`, `ledger_keylet`, `util_raddr`, `util_accid`,
+  `util_sha512h`, `util_keylet`, `etxn_details`, `etxn_nonce`, `emit`,
+  `prepare`, `slot`, `sto_emplace`, `sto_erase`, `float_sto`, ...) is
+  written `&mut (impl AsMut<[u8]> + ?Sized)` / `&(impl AsRef<[u8]> +
+  ?Sized)` instead of a bare `&mut [u8]`/`&[u8]`: a bare one cannot accept
+  `&mut sender`/`&STATE_KEY` directly for a `types.rs` newtype (deref
+  coercion to the newtype's `[u8; N]` `Deref::Target` does not chain with
+  the further array-to-slice unsized coercion at one call site — see
+  `types.rs`'s module doc comment), so a caller would otherwise have to
+  write `sender.as_mut()`/`STATE_KEY.as_ref()` at every call. Bounding by
+  `AsMut<[u8]>`/`AsRef<[u8]>` instead — every `crate::types` newtype already
+  implements both — lets `otxn_field(&mut sender, sfAccount)`/
+  `state(&mut raw, &STATE_KEY)` work as-is, at zero cost (monomorphized per
+  call site, verified by `mise run build-examples`'s unchanged per-example
+  wasm size/WCE). `_exact::<const N>` functions (`otxn_field_exact`,
+  `hook_param_exact`, `slot_exact`, `state_exact`) are unaffected — they
+  already return an owned `[u8; N]`, no buffer parameter to genericize.
+  `state_foreign`'s `namespace`/`account` are the one pair that stay a
+  *different* generic shape (`impl api::state::ForeignRef<'_>`, not a plain
+  `AsRef<[u8]>` bound): they're `Option`-shaped, and a bare `None` cannot
+  pin down an unconstrained `Option<K: AsRef<[u8]>>`'s `K` — `ForeignRef`
+  resolves that by accepting `None` (absent) or a *bare* reference (present,
+  not `Some(&value)`) instead of one `Option<K>` — see `ForeignRef`'s doc
+  comment in `api/state.rs` for the full reasoning (verified against rustc,
+  not just argued about).
+
 - Every wrapper is `#[inline(always)]` (extra internal functions are both a
   size cost and a validation risk — C7).
 - Buffers that have a protocol-fixed size get typed convenience wrappers
-  returning arrays (`AccountId = [u8; 20]`, `Hash = [u8; 32]`,
-  `Keylet = [u8; 34]`, `Nonce = [u8; 32]`, …). The caller-buffer form keeps
+  returning `types.rs`' `#[repr(transparent)]` newtypes (`AccountId`
+  wrapping `[u8; 20]`, `Hash`/`Keylet`/`Nonce` wrapping `[u8; 32]`/
+  `[u8; 34]`/`[u8; 32]`, …) rather than bare arrays — same layout, size,
+  and FFI-compatibility as the array, but distinct at the type level so an
+  `AccountId` and a `Hash` can no longer be passed to each other's slots by
+  accident (see `types.rs`'s module doc comment). The caller-buffer form keeps
   the standard name (`hook_account(out: &mut [u8], ...) -> Result<usize>`,
   matching the raw Hook API's write_ptr/write_len shape and the crate's
   other caller-buffer functions like `state`); the array-returning

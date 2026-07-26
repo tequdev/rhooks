@@ -99,6 +99,18 @@
 //! [`crate::types`]. A hook comparing a buffer of some other fixed size can
 //! follow the same pattern by hand: word-sized chunks built from literal
 //! indices via `from_ne_bytes`, XOR'd and OR-folded, `== 0` at the end.
+//!
+//! ## Calling with a `crate::types` newtype
+//!
+//! Each `buf_eq_*` function takes `&[u8; N]`, not a newtype, but every
+//! `crate::types` newtype (`AccountId`, `Hash`, ...) implements
+//! [`core::ops::Deref`] with that same `[u8; N]` as its target, and passing
+//! a `&AccountId` where a `&[u8; 20]` parameter is expected is exactly the
+//! one hop of deref coercion the compiler performs automatically (see
+//! `crate::types`' module doc comment on the difference between this and
+//! coercing to `&[u8]`) — so `buf_eq_20(&sender, &blocked)` for
+//! `sender, blocked: AccountId` compiles as-is, no `.as_ref()`/`&sender.0`
+//! needed (`examples/05_firewall` does exactly this).
 
 /// Computes `u64((a's word at literal indices) ^ (b's word at literal
 /// indices))` for one word-sized chunk, where the word width is `u64`,
