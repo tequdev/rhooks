@@ -33,7 +33,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-firewall'
 // hooks-build's printed worst case for firewall.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 714
+const WORST_CASE_INSTRUCTIONS = 134
 
 function accountIdHex(classicAddress: string): string {
   return Buffer.from(decodeAccountID(classicAddress)).toString('hex').toUpperCase()

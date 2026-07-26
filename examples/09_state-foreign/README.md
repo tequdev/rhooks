@@ -10,18 +10,26 @@ by a separate "registry"/"oracle" account.
 ## Code walkthrough
 
 ```rust
-match state_foreign(&mut flag, &ENABLED_KEY, None, Some(&target)) {
+match state_foreign(&mut flag, &ENABLED_KEY, None, &target) {
     Ok(n) if n == flag.len() => {}
     Err(HookError::DoesntExist) => rollback!(b"...", StateForeignError::NotConfiguredOnTarget),
     _ => rollback!(b"...", StateForeignError::ReadFailed),
 }
 ```
 
-`state_foreign(out, key, namespace, account)` takes two `Option<&[u8]>`
+`state_foreign(out, key, namespace, account)` takes two optional
 parameters beyond the plain `state` call: `namespace` and `account`, both
 defaulting to "this hook's own" when `None` (see
-`hooks_lib::api::state::state_foreign`'s doc comment). Passing
-`namespace = None` and `account = Some(&target)` reads the entry keyed
+`hooks_lib::api::state::state_foreign`'s doc comment). `key` accepts
+`&ENABLED_KEY` directly, no `.as_ref()` needed (`state_foreign`'s `key`
+parameter is generic over `AsRef<[u8]>`); `namespace`/`account` accept
+either `None` (absent) or a bare reference like `&target` (present, any
+`AsRef<[u8]>` type — no `.as_ref()` needed there either), via the
+`hooks_lib::api::state::ForeignRef` trait — see its doc comment for why
+that's a bare reference and not `Some(&target)` (a generic `Option<...>`
+parameter can't also accept a bare `None` literal without becoming
+ambiguous). Passing
+`namespace = None` and `account = &target` reads the entry keyed
 `ENABLED_KEY` **in this hook's own namespace, but on `target`'s account** —
 the natural shape for "the same hook code, installed on account A and
 account B, where A wants to read a flag B's copy of the hook maintains
@@ -30,10 +38,12 @@ account would need an actual `namespace` value too (out of scope for this
 minimal example).
 
 `target` itself comes from a Hook parameter (`ACCT`), read with
-`hook_param_exact::<ACC_ID_LEN>` (`hooks_lib::api::hook_ctx::hook_param_exact`)
-— the same "config via `hook_param`" idiom as `examples/03_hook-params`, just
-requiring the result to be exactly 20 bytes instead of manually checking a
-buffer's written length. See that example's README for the
+`hook_param_exact` (`hooks_lib::api::hook_ctx::hook_param_exact`) — the
+same "config via `hook_param`" idiom as `examples/03_hook-params`, just
+requiring the result to be exactly `AccountId`'s length (20 bytes,
+inferred from `let target: AccountId = hook_param_exact(ACCT_PARAM)`, no
+turbofish) instead of manually checking a buffer's written length. See
+that example's README for the
 hex-encoding/`SetHook` details, which apply here unchanged (just a
 different parameter name and a 20-byte `AccountId` payload instead of an
 8-byte integer).
