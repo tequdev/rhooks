@@ -85,20 +85,40 @@
 //! chains where per-step `Result` handling is itself the measured cost
 //! problem.
 //!
-//! # Comparison: methods, not `PartialEq`/`PartialOrd`
+//! # Comparison: both methods and operators, both via `float_compare`
 //!
 //! [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/[`XFL::compare`] all return
 //! `Result<bool>` — comparison is a fallible `float_compare` host round
 //! trip (an invalid operand is a real, reachable failure mode, e.g.
 //! `INVALID_FLOAT`), and `core::cmp::PartialEq`/`PartialOrd` cannot express
 //! that: their methods return a bare `bool`/`Option<Ordering>`, with no room
-//! for an `Err` case. Implementing them anyway would force silently
-//! treating a comparison failure as `false`/`None` (or panicking) — both
-//! unacceptable for financial logic. `core::ops::Neg`, by contrast, is
-//! implemented for `XFL` despite also being a fallible host round trip,
-//! because unlike `PartialEq`/`PartialOrd` its `Output` type is not fixed
-//! by the trait — `Result<XFL, HookError>` is a perfectly valid `Neg::
-//! Output`, so there is no analogous obstacle to implementing it.
+//! for an `Err` case. `XFL` implements both anyway: `PartialEq`/
+//! `PartialOrd` are thin forwarding wrappers over the very same
+//! `float_compare`-backed methods (so `a == b`/`a < b`/... work, still
+//! backed by the real host comparison, not a local bit trick), and on a
+//! `float_compare` failure they fall back to `false`/`None` — the same
+//! convention `f64`'s own `PartialEq`/`PartialOrd` use for `NaN`:
+//! "couldn't establish equality/order" is represented as "not equal"/"not
+//! comparable," not a panic, and not a hidden `rollback!` from inside what
+//! looks like an ordinary boolean expression (an early draft of this tried
+//! exactly that — call `rollback!` on a `float_compare` failure from
+//! inside `PartialEq`/`PartialOrd` — and rejected it: on `not(target_arch =
+//! "wasm32")`, `crate::api::control::rollback` loops forever rather than
+//! returning, since there is no host to actually terminate the process, so
+//! that design would hang any host-target test/doctest that ever hit a
+//! `float_compare` failure — trivially reachable, since **every**
+//! `float_compare` call fails deterministically on a host build, per the
+//! `NOT_IMPLEMENTED` host stub). Use [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/
+//! [`XFL::compare`] directly — not `==`/`<`/`>` — anywhere a
+//! `float_compare` failure needs to be distinguished from a genuine
+//! inequality/incomparability (which, unlike `f64`, never actually happens
+//! between two valid XFLs — every pair of valid XFLs is totally ordered, so
+//! `None`/`false` from the operators is, in practice, always a signal that
+//! one operand was invalid). `core::ops::Neg` does not have this
+//! false/None fallback story at all: unlike `PartialEq`/`PartialOrd`, its
+//! `Output` type is not fixed by the trait — `Result<XFL, HookError>` is a
+//! perfectly valid `Neg::Output`, so a `float_negate` failure propagates as
+//! a real `Err`, the same as every other arithmetic operator here.
 
 use crate::api;
 use crate::error::{Result, res};
@@ -121,10 +141,12 @@ const EXPONENT_MASK: i64 = 0xFF;
 /// were a value. [`XFL::from_raw_bits`] / [`XFL::raw_bits`] are the explicit,
 /// documented escape hatches for unchecked representation access.
 ///
-/// No `PartialEq`/`PartialOrd` impls: comparison is a fallible host call
-/// (see the module doc comment's "Comparison: methods, not `PartialEq`/
-/// `PartialOrd`" section) — use [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/
-/// [`XFL::compare`], all of which return `Result<bool>`.
+/// `PartialEq`/`PartialOrd` are implemented, backed by the fallible
+/// `float_compare` host call, with a `false`/`None` fallback on failure
+/// (see the module doc comment's "Comparison: both methods and operators,
+/// both via `float_compare`" section for why, and for when to use
+/// [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/[`XFL::compare`] — all of which
+/// return `Result<bool>` — instead of `==`/`<`/`>`).
 ///
 /// # Examples
 ///
@@ -367,6 +389,40 @@ impl core::ops::Div for XFL {
     }
 }
 
+impl PartialEq for XFL {
+    /// `self == other`, forwarding to [`XFL::eq`] (`float_compare` under
+    /// `COMPARE_EQUAL`). Falls back to `false` on a `float_compare`
+    /// failure — see the module doc comment's "Comparison: both methods
+    /// and operators, both via `float_compare`" section for why, and for
+    /// when to call [`XFL::eq`] directly instead.
+    #[inline(always)]
+    fn eq(&self, other: &XFL) -> bool {
+        XFL::eq(*self, *other).unwrap_or(false)
+    }
+}
+
+impl PartialOrd for XFL {
+    /// `self.partial_cmp(other)`, via up to two `float_compare` host calls
+    /// (`COMPARE_LESS`, then — only if that came back `false` — `COMPARE_
+    /// GREATER`; a `false` result for both means `Ordering::Equal`).
+    /// Falls back to `None` on a `float_compare` failure at either step —
+    /// see the module doc comment's "Comparison: both methods and
+    /// operators, both via `float_compare`" section for why, and for when
+    /// to call [`XFL::lt`]/[`XFL::gt`]/[`XFL::compare`] directly instead.
+    #[inline(always)]
+    fn partial_cmp(&self, other: &XFL) -> Option<core::cmp::Ordering> {
+        match XFL::lt(*self, *other) {
+            Ok(true) => Some(core::cmp::Ordering::Less),
+            Ok(false) => match XFL::gt(*self, *other) {
+                Ok(true) => Some(core::cmp::Ordering::Greater),
+                Ok(false) => Some(core::cmp::Ordering::Equal),
+                Err(_) => None,
+            },
+            Err(_) => None,
+        }
+    }
+}
+
 // Generates `impl $Trait<XFL> for Result<XFL, HookError>` and
 // `impl $Trait<Result<XFL, HookError>> for XFL` for each listed
 // `$Trait::$method`, so a chain of `+`/`-`/`*`/`/` that alternates a plain
@@ -432,10 +488,18 @@ mod tests {
 
     #[test]
     fn smoke_not_implemented_on_host() {
-        // `XFL` deliberately has no `PartialEq` (see the module doc
-        // comment), so `Result<XFL, HookError>` can't be compared with
-        // `assert_eq!`. `matches!` sidesteps that without needing
-        // `unwrap`/`expect`.
+        // `matches!`, not `assert_eq!`, for every `Result<XFL, _>` here —
+        // every assertion below only ever needs to distinguish `Err(...)`
+        // from `Ok(...)` (never compares two `Ok(XFL)`s against each
+        // other), so plain `assert_eq!` against an `Err(...)` pattern
+        // would actually work today (`Result`'s derived `PartialEq`
+        // short-circuits on the `Ok`/`Err` discriminant before ever
+        // calling `XFL::eq`) — but `matches!` is used consistently
+        // throughout this file regardless, so no assertion here
+        // accidentally depends on `XFL`'s `PartialEq` impl (which forwards
+        // to the fallible `float_compare`-backed `XFL::eq` and falls back
+        // to `false` on failure — see the module doc comment — a real
+        // trap for an `assert_eq!` that *does* compare two `Ok(XFL)`s).
         let one = XFL::one();
         assert!(matches!(XFL::new(0, 1), Err(HookError::NotImplemented)));
         assert!(matches!(one + one, Err(HookError::NotImplemented)));
@@ -470,9 +534,8 @@ mod tests {
         // and, given an `Err` input, never reach the host stub (host builds
         // have no way to observe that directly, but a mismatched-code
         // assertion here would fail if the wrong error propagated).
-        // `matches!`, not `assert_eq!`: `XFL` has no `PartialEq` (see the
-        // module doc comment), so `Result<XFL, HookError>` can't be
-        // compared with `==`.
+        // `matches!`, not `assert_eq!`, for the same reason as
+        // `smoke_not_implemented_on_host` above.
         let one = XFL::one();
         let err: Result<XFL> = Err(HookError::DoesntExist);
         assert!(matches!(err + one, Err(HookError::DoesntExist)));
@@ -483,6 +546,35 @@ mod tests {
         assert!(matches!(one * err, Err(HookError::DoesntExist)));
         assert!(matches!(err / one, Err(HookError::DoesntExist)));
         assert!(matches!(one / err, Err(HookError::DoesntExist)));
+    }
+
+    #[test]
+    // `one == one`/`one < one`/`one > one` below are all `false` given the
+    // host stub (checked via a bound variable + `assert!`, not
+    // `assert_eq!(..., false)` — `clippy::bool_assert_comparison` wants
+    // `assert!(!(...))`  for that, but `clippy::neg_cmp_op_on_partial_ord`
+    // simultaneously objects to negating `<`/`>` directly, since the
+    // operands could genuinely be incomparable; binding first sidesteps
+    // both).
+    fn comparison_operators_fall_back_like_f64_nan_on_host() {
+        // `float_compare`'s host stub is deterministic `NOT_IMPLEMENTED`
+        // (an `Err`) regardless of operands, so every `PartialEq`/
+        // `PartialOrd` call here exercises the `false`/`None` fallback —
+        // and, crucially, returns promptly rather than hanging (an
+        // earlier design that rolled the hook back on a `float_compare`
+        // failure from inside these trait impls would have looped forever
+        // right here, since `rollback` never returns on a host target).
+        let one = XFL::one();
+        let is_eq = one == one;
+        let is_lt = one < one;
+        let is_gt = one > one;
+        assert!(!is_eq);
+        assert_eq!(one.partial_cmp(&one), None);
+        assert!(!is_lt);
+        assert!(!is_gt);
+        // The `Result<bool>`-returning inherent methods these forward to
+        // still report the real failure explicitly.
+        assert_eq!(one.eq(one), Err(HookError::NotImplemented));
     }
 
     #[test]

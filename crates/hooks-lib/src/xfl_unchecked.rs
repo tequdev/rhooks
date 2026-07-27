@@ -96,15 +96,18 @@
 //!
 //! # No `PartialEq`/`PartialOrd`
 //!
-//! Deliberately not implemented, for the same two reasons as
-//! [`crate::xfl::XFL`] (see its module doc comment's "Comparison: methods,
-//! not `PartialEq`/`PartialOrd`" section): comparison here would have to be
-//! a fallible `float_compare` host round trip, which `PartialEq`/
-//! `PartialOrd`'s fixed `bool`/`Option<Ordering>` return types cannot
-//! express — and on top of that, comparing two values that might each be
-//! poisoned invites exactly the kind of silent-wrong-answer bug this type
-//! otherwise avoids by construction. Call [`XFLUnchecked::validate`] first
-//! and compare the resulting `XFL`s with [`crate::xfl::XFL::eq`]/
+//! Deliberately not implemented, unlike [`crate::xfl::XFL`] (see its module
+//! doc comment's "Comparison: both methods and operators, both via
+//! `float_compare`" section, which covers why `XFL` accepts a `false`/
+//! `None`-on-failure fallback the same way `f64` does for `NaN`). That
+//! reasoning does not transfer here: comparing two values that might each
+//! be **poisoned** (not merely "occasionally an edge case like `NaN`", but
+//! routinely — that's this type's entire premise) would make `false`/
+//! `None` indistinguishable from "these are honestly different/
+//! incomparable values," inviting exactly the kind of silent-wrong-answer
+//! bug this type otherwise avoids by construction. Call
+//! [`XFLUnchecked::validate`] first and compare the resulting `XFL`s with
+//! `==`/`<`/`>`/[`crate::xfl::XFL::eq`]/
 //! [`crate::xfl::XFL::lt`]/[`crate::xfl::XFL::gt`]/
 //! [`crate::xfl::XFL::compare`].
 
