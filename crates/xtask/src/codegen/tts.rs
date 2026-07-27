@@ -20,7 +20,7 @@ pub fn generate(tts: &[ConstSpec]) -> Result<String> {
     for d in tts {
         let value = expect_decimal(&d.name, &d.c_expr)?;
         let doc = vec![format!("C: `{}` (tts.h)", d.name)];
-        push_const(&mut body, &doc, &d.name, "u32", &value);
+        push_const(&mut body, &doc, &d.name, "u16", &value);
     }
     Ok(with_generated_marker("tts.h", MODULE_DOC) + &body)
 }

@@ -3,6 +3,7 @@
 
 use crate::convert::FixedRead;
 use crate::error::{Result, res};
+use crate::tx_type::TxType;
 use crate::types::Hash;
 
 /// Burden of the originating transaction: `1` for a normal transaction, or
@@ -89,10 +90,10 @@ pub fn otxn_id_buf(flags: u32) -> Result<Hash> {
     Ok(buf)
 }
 
-/// The `TxType` of the originating transaction (see `hooks_core::tts`).
+/// The [`TxType`] of the originating transaction.
 #[inline(always)]
-pub fn otxn_type() -> u16 {
-    unsafe { hooks_core::otxn_type() as u16 }
+pub fn otxn_type() -> TxType {
+    TxType::from(unsafe { hooks_core::otxn_type() as u16 })
 }
 
 /// Load the originating transaction into a slot. `slot_into = 0` auto-assigns
@@ -127,7 +128,13 @@ mod tests {
     fn smoke_not_implemented_on_host() {
         assert_eq!(otxn_burden(), hooks_core::NOT_IMPLEMENTED as u64);
         assert_eq!(otxn_generation(), hooks_core::NOT_IMPLEMENTED as u32);
-        assert_eq!(otxn_type(), hooks_core::NOT_IMPLEMENTED as u16);
+        // The host stub's `NOT_IMPLEMENTED` (a negative i64) doesn't match
+        // any real `tt*` code once truncated to `u16`, so this decodes to
+        // `TxType::Unknown` rather than a specific known variant.
+        assert_eq!(
+            otxn_type(),
+            TxType::Unknown(hooks_core::NOT_IMPLEMENTED as u16)
+        );
         assert_eq!(otxn_slot(0), Err(HookError::NotImplemented));
         assert_eq!(otxn_id_buf(0), Err(HookError::NotImplemented));
         let mut buf = [0u8; 32];

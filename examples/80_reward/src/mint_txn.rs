@@ -257,7 +257,7 @@ impl MintTxn {
     /// `SigningPubKey` (35-byte zero blob), and `Account = GENESIS_ACCOUNT`.
     pub fn start(&mut self) {
         self.push_field_header(HDR_TRANSACTION_TYPE);
-        self.push(&(ttGENESIS_MINT as u16).to_be_bytes());
+        self.push(&ttGENESIS_MINT.to_be_bytes());
 
         self.push_u32_field(HDR_FLAGS, tfCANONICAL);
         self.push_u32_field(HDR_SEQUENCE, 0);

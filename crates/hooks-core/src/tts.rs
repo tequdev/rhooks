@@ -5,150 +5,150 @@
 //! `crates/hooks-core/vendor/xahaud-hook/tts.h`.
 
 /// C: `ttPAYMENT` (tts.h)
-pub const ttPAYMENT: u32 = 0;
+pub const ttPAYMENT: u16 = 0;
 /// C: `ttESCROW_CREATE` (tts.h)
-pub const ttESCROW_CREATE: u32 = 1;
+pub const ttESCROW_CREATE: u16 = 1;
 /// C: `ttESCROW_FINISH` (tts.h)
-pub const ttESCROW_FINISH: u32 = 2;
+pub const ttESCROW_FINISH: u16 = 2;
 /// C: `ttACCOUNT_SET` (tts.h)
-pub const ttACCOUNT_SET: u32 = 3;
+pub const ttACCOUNT_SET: u16 = 3;
 /// C: `ttESCROW_CANCEL` (tts.h)
-pub const ttESCROW_CANCEL: u32 = 4;
+pub const ttESCROW_CANCEL: u16 = 4;
 /// C: `ttREGULAR_KEY_SET` (tts.h)
-pub const ttREGULAR_KEY_SET: u32 = 5;
+pub const ttREGULAR_KEY_SET: u16 = 5;
 /// C: `ttOFFER_CREATE` (tts.h)
-pub const ttOFFER_CREATE: u32 = 7;
+pub const ttOFFER_CREATE: u16 = 7;
 /// C: `ttOFFER_CANCEL` (tts.h)
-pub const ttOFFER_CANCEL: u32 = 8;
+pub const ttOFFER_CANCEL: u16 = 8;
 /// C: `ttTICKET_CREATE` (tts.h)
-pub const ttTICKET_CREATE: u32 = 10;
+pub const ttTICKET_CREATE: u16 = 10;
 /// C: `ttSIGNER_LIST_SET` (tts.h)
-pub const ttSIGNER_LIST_SET: u32 = 12;
+pub const ttSIGNER_LIST_SET: u16 = 12;
 /// C: `ttPAYCHAN_CREATE` (tts.h)
-pub const ttPAYCHAN_CREATE: u32 = 13;
+pub const ttPAYCHAN_CREATE: u16 = 13;
 /// C: `ttPAYCHAN_FUND` (tts.h)
-pub const ttPAYCHAN_FUND: u32 = 14;
+pub const ttPAYCHAN_FUND: u16 = 14;
 /// C: `ttPAYCHAN_CLAIM` (tts.h)
-pub const ttPAYCHAN_CLAIM: u32 = 15;
+pub const ttPAYCHAN_CLAIM: u16 = 15;
 /// C: `ttCHECK_CREATE` (tts.h)
-pub const ttCHECK_CREATE: u32 = 16;
+pub const ttCHECK_CREATE: u16 = 16;
 /// C: `ttCHECK_CASH` (tts.h)
-pub const ttCHECK_CASH: u32 = 17;
+pub const ttCHECK_CASH: u16 = 17;
 /// C: `ttCHECK_CANCEL` (tts.h)
-pub const ttCHECK_CANCEL: u32 = 18;
+pub const ttCHECK_CANCEL: u16 = 18;
 /// C: `ttDEPOSIT_PREAUTH` (tts.h)
-pub const ttDEPOSIT_PREAUTH: u32 = 19;
+pub const ttDEPOSIT_PREAUTH: u16 = 19;
 /// C: `ttTRUST_SET` (tts.h)
-pub const ttTRUST_SET: u32 = 20;
+pub const ttTRUST_SET: u16 = 20;
 /// C: `ttACCOUNT_DELETE` (tts.h)
-pub const ttACCOUNT_DELETE: u32 = 21;
+pub const ttACCOUNT_DELETE: u16 = 21;
 /// C: `ttHOOK_SET` (tts.h)
-pub const ttHOOK_SET: u32 = 22;
+pub const ttHOOK_SET: u16 = 22;
 /// C: `ttNFTOKEN_MINT` (tts.h)
-pub const ttNFTOKEN_MINT: u32 = 25;
+pub const ttNFTOKEN_MINT: u16 = 25;
 /// C: `ttNFTOKEN_BURN` (tts.h)
-pub const ttNFTOKEN_BURN: u32 = 26;
+pub const ttNFTOKEN_BURN: u16 = 26;
 /// C: `ttNFTOKEN_CREATE_OFFER` (tts.h)
-pub const ttNFTOKEN_CREATE_OFFER: u32 = 27;
+pub const ttNFTOKEN_CREATE_OFFER: u16 = 27;
 /// C: `ttNFTOKEN_CANCEL_OFFER` (tts.h)
-pub const ttNFTOKEN_CANCEL_OFFER: u32 = 28;
+pub const ttNFTOKEN_CANCEL_OFFER: u16 = 28;
 /// C: `ttNFTOKEN_ACCEPT_OFFER` (tts.h)
-pub const ttNFTOKEN_ACCEPT_OFFER: u32 = 29;
+pub const ttNFTOKEN_ACCEPT_OFFER: u16 = 29;
 /// C: `ttCLAWBACK` (tts.h)
-pub const ttCLAWBACK: u32 = 30;
+pub const ttCLAWBACK: u16 = 30;
 /// C: `ttAMM_CLAWBACK` (tts.h)
-pub const ttAMM_CLAWBACK: u32 = 31;
+pub const ttAMM_CLAWBACK: u16 = 31;
 /// C: `ttAMM_CREATE` (tts.h)
-pub const ttAMM_CREATE: u32 = 35;
+pub const ttAMM_CREATE: u16 = 35;
 /// C: `ttAMM_DEPOSIT` (tts.h)
-pub const ttAMM_DEPOSIT: u32 = 36;
+pub const ttAMM_DEPOSIT: u16 = 36;
 /// C: `ttAMM_WITHDRAW` (tts.h)
-pub const ttAMM_WITHDRAW: u32 = 37;
+pub const ttAMM_WITHDRAW: u16 = 37;
 /// C: `ttAMM_VOTE` (tts.h)
-pub const ttAMM_VOTE: u32 = 38;
+pub const ttAMM_VOTE: u16 = 38;
 /// C: `ttAMM_BID` (tts.h)
-pub const ttAMM_BID: u32 = 39;
+pub const ttAMM_BID: u16 = 39;
 /// C: `ttAMM_DELETE` (tts.h)
-pub const ttAMM_DELETE: u32 = 40;
+pub const ttAMM_DELETE: u16 = 40;
 /// C: `ttURITOKEN_MINT` (tts.h)
-pub const ttURITOKEN_MINT: u32 = 45;
+pub const ttURITOKEN_MINT: u16 = 45;
 /// C: `ttURITOKEN_BURN` (tts.h)
-pub const ttURITOKEN_BURN: u32 = 46;
+pub const ttURITOKEN_BURN: u16 = 46;
 /// C: `ttURITOKEN_BUY` (tts.h)
-pub const ttURITOKEN_BUY: u32 = 47;
+pub const ttURITOKEN_BUY: u16 = 47;
 /// C: `ttURITOKEN_CREATE_SELL_OFFER` (tts.h)
-pub const ttURITOKEN_CREATE_SELL_OFFER: u32 = 48;
+pub const ttURITOKEN_CREATE_SELL_OFFER: u16 = 48;
 /// C: `ttURITOKEN_CANCEL_SELL_OFFER` (tts.h)
-pub const ttURITOKEN_CANCEL_SELL_OFFER: u32 = 49;
+pub const ttURITOKEN_CANCEL_SELL_OFFER: u16 = 49;
 /// C: `ttXCHAIN_CREATE_CLAIM_ID` (tts.h)
-pub const ttXCHAIN_CREATE_CLAIM_ID: u32 = 50;
+pub const ttXCHAIN_CREATE_CLAIM_ID: u16 = 50;
 /// C: `ttXCHAIN_COMMIT` (tts.h)
-pub const ttXCHAIN_COMMIT: u32 = 51;
+pub const ttXCHAIN_COMMIT: u16 = 51;
 /// C: `ttXCHAIN_CLAIM` (tts.h)
-pub const ttXCHAIN_CLAIM: u32 = 52;
+pub const ttXCHAIN_CLAIM: u16 = 52;
 /// C: `ttXCHAIN_ACCOUNT_CREATE_COMMIT` (tts.h)
-pub const ttXCHAIN_ACCOUNT_CREATE_COMMIT: u32 = 53;
+pub const ttXCHAIN_ACCOUNT_CREATE_COMMIT: u16 = 53;
 /// C: `ttXCHAIN_ADD_CLAIM_ATTESTATION` (tts.h)
-pub const ttXCHAIN_ADD_CLAIM_ATTESTATION: u32 = 54;
+pub const ttXCHAIN_ADD_CLAIM_ATTESTATION: u16 = 54;
 /// C: `ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION` (tts.h)
-pub const ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION: u32 = 55;
+pub const ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION: u16 = 55;
 /// C: `ttXCHAIN_MODIFY_BRIDGE` (tts.h)
-pub const ttXCHAIN_MODIFY_BRIDGE: u32 = 56;
+pub const ttXCHAIN_MODIFY_BRIDGE: u16 = 56;
 /// C: `ttXCHAIN_CREATE_BRIDGE` (tts.h)
-pub const ttXCHAIN_CREATE_BRIDGE: u32 = 57;
+pub const ttXCHAIN_CREATE_BRIDGE: u16 = 57;
 /// C: `ttDID_SET` (tts.h)
-pub const ttDID_SET: u32 = 58;
+pub const ttDID_SET: u16 = 58;
 /// C: `ttDID_DELETE` (tts.h)
-pub const ttDID_DELETE: u32 = 59;
+pub const ttDID_DELETE: u16 = 59;
 /// C: `ttORACLE_SET` (tts.h)
-pub const ttORACLE_SET: u32 = 60;
+pub const ttORACLE_SET: u16 = 60;
 /// C: `ttORACLE_DELETE` (tts.h)
-pub const ttORACLE_DELETE: u32 = 61;
+pub const ttORACLE_DELETE: u16 = 61;
 /// C: `ttLEDGER_STATE_FIX` (tts.h)
-pub const ttLEDGER_STATE_FIX: u32 = 62;
+pub const ttLEDGER_STATE_FIX: u16 = 62;
 /// C: `ttMPTOKEN_ISSUANCE_CREATE` (tts.h)
-pub const ttMPTOKEN_ISSUANCE_CREATE: u32 = 63;
+pub const ttMPTOKEN_ISSUANCE_CREATE: u16 = 63;
 /// C: `ttMPTOKEN_ISSUANCE_DESTROY` (tts.h)
-pub const ttMPTOKEN_ISSUANCE_DESTROY: u32 = 64;
+pub const ttMPTOKEN_ISSUANCE_DESTROY: u16 = 64;
 /// C: `ttMPTOKEN_ISSUANCE_SET` (tts.h)
-pub const ttMPTOKEN_ISSUANCE_SET: u32 = 65;
+pub const ttMPTOKEN_ISSUANCE_SET: u16 = 65;
 /// C: `ttMPTOKEN_AUTHORIZE` (tts.h)
-pub const ttMPTOKEN_AUTHORIZE: u32 = 66;
+pub const ttMPTOKEN_AUTHORIZE: u16 = 66;
 /// C: `ttCREDENTIAL_CREATE` (tts.h)
-pub const ttCREDENTIAL_CREATE: u32 = 67;
+pub const ttCREDENTIAL_CREATE: u16 = 67;
 /// C: `ttCREDENTIAL_ACCEPT` (tts.h)
-pub const ttCREDENTIAL_ACCEPT: u32 = 68;
+pub const ttCREDENTIAL_ACCEPT: u16 = 68;
 /// C: `ttCREDENTIAL_DELETE` (tts.h)
-pub const ttCREDENTIAL_DELETE: u32 = 69;
+pub const ttCREDENTIAL_DELETE: u16 = 69;
 /// C: `ttNFTOKEN_MODIFY` (tts.h)
-pub const ttNFTOKEN_MODIFY: u32 = 70;
+pub const ttNFTOKEN_MODIFY: u16 = 70;
 /// C: `ttPERMISSIONED_DOMAIN_SET` (tts.h)
-pub const ttPERMISSIONED_DOMAIN_SET: u32 = 71;
+pub const ttPERMISSIONED_DOMAIN_SET: u16 = 71;
 /// C: `ttPERMISSIONED_DOMAIN_DELETE` (tts.h)
-pub const ttPERMISSIONED_DOMAIN_DELETE: u32 = 72;
+pub const ttPERMISSIONED_DOMAIN_DELETE: u16 = 72;
 /// C: `ttCRON` (tts.h)
-pub const ttCRON: u32 = 92;
+pub const ttCRON: u16 = 92;
 /// C: `ttCRON_SET` (tts.h)
-pub const ttCRON_SET: u32 = 93;
+pub const ttCRON_SET: u16 = 93;
 /// C: `ttREMARKS_SET` (tts.h)
-pub const ttREMARKS_SET: u32 = 94;
+pub const ttREMARKS_SET: u16 = 94;
 /// C: `ttREMIT` (tts.h)
-pub const ttREMIT: u32 = 95;
+pub const ttREMIT: u16 = 95;
 /// C: `ttGENESIS_MINT` (tts.h)
-pub const ttGENESIS_MINT: u32 = 96;
+pub const ttGENESIS_MINT: u16 = 96;
 /// C: `ttIMPORT` (tts.h)
-pub const ttIMPORT: u32 = 97;
+pub const ttIMPORT: u16 = 97;
 /// C: `ttCLAIM_REWARD` (tts.h)
-pub const ttCLAIM_REWARD: u32 = 98;
+pub const ttCLAIM_REWARD: u16 = 98;
 /// C: `ttINVOKE` (tts.h)
-pub const ttINVOKE: u32 = 99;
+pub const ttINVOKE: u16 = 99;
 /// C: `ttAMENDMENT` (tts.h)
-pub const ttAMENDMENT: u32 = 100;
+pub const ttAMENDMENT: u16 = 100;
 /// C: `ttFEE` (tts.h)
-pub const ttFEE: u32 = 101;
+pub const ttFEE: u16 = 101;
 /// C: `ttUNL_MODIFY` (tts.h)
-pub const ttUNL_MODIFY: u32 = 102;
+pub const ttUNL_MODIFY: u16 = 102;
 /// C: `ttEMIT_FAILURE` (tts.h)
-pub const ttEMIT_FAILURE: u32 = 103;
+pub const ttEMIT_FAILURE: u16 = 103;
 /// C: `ttUNL_REPORT` (tts.h)
-pub const ttUNL_REPORT: u32 = 104;
+pub const ttUNL_REPORT: u16 = 104;

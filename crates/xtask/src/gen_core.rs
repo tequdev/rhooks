@@ -17,8 +17,8 @@ use anyhow::{Context, Result, bail};
 use crate::codegen;
 use crate::ir::{self, HookApiSpec};
 
-/// The set of `src/`-relative `.rs` files this generator owns. `lib.rs` is
-/// deliberately excluded (`docs/DESIGN.md` §4): it's hand-wired
+/// The set of `hooks-core/src/`-relative `.rs` files this generator owns.
+/// `lib.rs` is deliberately excluded (`docs/DESIGN.md` §4): it's hand-wired
 /// module/re-export plumbing, not a header translation, and the spec calls
 /// it out as NOT generated.
 const GENERATED_FILES: &[&str] = &[
@@ -31,6 +31,12 @@ const GENERATED_FILES: &[&str] = &[
     "api.rs",
     "host.rs",
 ];
+
+/// The set of `hooks-lib/src/`-relative `.rs` files this generator owns —
+/// disjoint from [`GENERATED_FILES`] (which are all `hooks-core/src/`-
+/// relative): [`codegen::tx_type`]'s typed `TxType` enum is the one
+/// generated file that lands in `hooks-lib` instead of `hooks-core`.
+const GENERATED_FILES_HOOKS_LIB: &[&str] = &["tx_type.rs"];
 
 /// The generated intermediate-representation file, checked in at the
 /// `hooks-core` crate root (not under `src/`, since it isn't Rust source):
@@ -59,6 +65,13 @@ fn crate_dir() -> PathBuf {
 
 fn src_dir() -> PathBuf {
     crate_dir().join("src")
+}
+
+/// `crates/hooks-lib`'s `src/` directory — where [`codegen::tx_type`]'s
+/// output lands (the one generated file outside `hooks-core`; see its own
+/// module doc comment for why).
+fn hooks_lib_src_dir() -> PathBuf {
+    repo_root().join("crates/hooks-lib/src")
 }
 
 fn read(path: &Path) -> Result<String> {
@@ -133,6 +146,25 @@ fn generate_rust_files(hook_api_json: &str) -> Result<BTreeMap<&'static str, Str
     Ok(out)
 }
 
+/// Generates every `hooks-lib`-targeted file's *unformatted* content, keyed
+/// by its `hooks-lib/src/`-relative filename, from the same `hook_api_json`
+/// [`generate_rust_files`] consumes — currently just [`codegen::tx_type`]'s
+/// `tx_type.rs`.
+fn generate_hooks_lib_files(hook_api_json: &str) -> Result<BTreeMap<&'static str, String>> {
+    let spec: HookApiSpec =
+        serde_json::from_str(hook_api_json).context("deserializing hook_api.json")?;
+
+    let mut out = BTreeMap::new();
+    out.insert("tx_type.rs", codegen::tx_type::generate(&spec.tts)?);
+
+    for name in GENERATED_FILES_HOOKS_LIB {
+        if !out.contains_key(name) {
+            bail!("internal error: generator produced no content for {name}");
+        }
+    }
+    Ok(out)
+}
+
 /// A scratch directory, auto-removed on drop, carrying a copy of the repo's
 /// `rustfmt.toml` so `rustfmt` (run directly, not through `cargo fmt`)
 /// discovers the same style config it would inside the real tree.
@@ -194,13 +226,16 @@ fn format_all(
 }
 
 /// `cargo xtask gen-core`: writes `hook_api.json`, then the generated +
-/// `rustfmt`-formatted `.rs` files, into `crates/hooks-core/`, then runs
-/// `cargo fmt -p hooks-core` as a belt-and-braces final pass over the real
-/// files.
+/// `rustfmt`-formatted `.rs` files, into `crates/hooks-core/` and (for
+/// [`codegen::tx_type`]'s output) `crates/hooks-lib/`, then runs `cargo fmt
+/// -p hooks-core -p hooks-lib` as a belt-and-braces final pass over the
+/// real files.
 pub fn run_update() -> Result<()> {
     let hook_api_json = build_hook_api_json()?;
     let generated = generate_rust_files(&hook_api_json)?;
     let formatted = format_all(&generated)?;
+    let generated_hooks_lib = generate_hooks_lib_files(&hook_api_json)?;
+    let formatted_hooks_lib = format_all(&generated_hooks_lib)?;
 
     let json_path = crate_dir().join(HOOK_API_JSON);
     fs::write(&json_path, &hook_api_json)
@@ -214,27 +249,37 @@ pub fn run_update() -> Result<()> {
         println!("wrote {}", path.display());
     }
 
+    let hooks_lib_dir = hooks_lib_src_dir();
+    for (name, content) in &formatted_hooks_lib {
+        let path = hooks_lib_dir.join(name);
+        fs::write(&path, content).with_context(|| format!("writing {}", path.display()))?;
+        println!("wrote {}", path.display());
+    }
+
     let status = Command::new("cargo")
-        .args(["fmt", "-p", "hooks-core"])
+        .args(["fmt", "-p", "hooks-core", "-p", "hooks-lib"])
         .current_dir(repo_root())
         .status()
-        .context("running `cargo fmt -p hooks-core`")?;
+        .context("running `cargo fmt -p hooks-core -p hooks-lib`")?;
     if !status.success() {
-        bail!("`cargo fmt -p hooks-core` failed");
+        bail!("`cargo fmt -p hooks-core -p hooks-lib` failed");
     }
     Ok(())
 }
 
 /// `cargo xtask gen-core --check`: regenerates `hook_api.json` and formats
 /// the `.rs` files in a scratch directory, then byte-compares both against
-/// `crates/hooks-core/hook_api.json` and `crates/hooks-core/src/*.rs`,
-/// without writing anything there. Returns an error naming every mismatched
-/// file if any differ (the CI-facing exit-1 path); prints a confirmation and
-/// returns `Ok(())` when everything matches.
+/// `crates/hooks-core/hook_api.json`, `crates/hooks-core/src/*.rs`, and
+/// [`codegen::tx_type`]'s `crates/hooks-lib/src/tx_type.rs`, without writing
+/// anything there. Returns an error naming every mismatched file if any
+/// differ (the CI-facing exit-1 path); prints a confirmation and returns
+/// `Ok(())` when everything matches.
 pub fn run_check() -> Result<()> {
     let hook_api_json = build_hook_api_json()?;
     let generated = generate_rust_files(&hook_api_json)?;
     let formatted = format_all(&generated)?;
+    let generated_hooks_lib = generate_hooks_lib_files(&hook_api_json)?;
+    let formatted_hooks_lib = format_all(&generated_hooks_lib)?;
 
     let mut mismatched = Vec::new();
 
@@ -251,9 +296,17 @@ pub fn run_check() -> Result<()> {
         }
     }
 
+    let hooks_lib_dir = hooks_lib_src_dir();
+    for (name, content) in &formatted_hooks_lib {
+        let on_disk = read(&hooks_lib_dir.join(name)).unwrap_or_default();
+        if *content != on_disk {
+            mismatched.push(*name);
+        }
+    }
+
     if mismatched.is_empty() {
         println!(
-            "cargo xtask gen-core --check: crates/hooks-core/hook_api.json and src/*.rs are up to date"
+            "cargo xtask gen-core --check: crates/hooks-core/hook_api.json, crates/hooks-core/src/*.rs, and crates/hooks-lib/src/tx_type.rs are up to date"
         );
         Ok(())
     } else {

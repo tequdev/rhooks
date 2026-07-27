@@ -18,6 +18,10 @@ pub mod sfcodes;
 pub mod tts;
 /// Generates `crates/hooks-core/src/tx_flags.rs` from `tx_flags.h`.
 pub mod tx_flags;
+/// Generates `crates/hooks-lib/src/tx_type.rs` (a typed `TxType` enum) from
+/// `tts.h` — the one generator in this module whose output lands outside
+/// `hooks-core`; see its own module doc comment for why.
+pub mod tx_type;
 
 /// Prepends the required `// @generated ...` marker to a module's `//!`
 /// doc-comment body, per `docs/DESIGN.md` §4 / the xtask spec: every

@@ -325,7 +325,7 @@ pub fn emit_l1_vote_forward(
 ) -> bool {
     let txn = take_txn_buf();
     let cls = ledger_seq();
-    let fee_offset = txn.write_common_header(ttINVOKE as u16, cls, hook_accid);
+    let fee_offset = txn.write_common_header(ttINVOKE, cls, hook_accid);
     txn.push_destination(genesis);
 
     // `Parameters`: two `HookParameter`-shaped objects, `T` (2-byte
@@ -360,7 +360,7 @@ pub fn emit_l1_vote_forward(
 pub fn emit_hookset(hook_accid: &AccountId, slot_index: u8, hash: Option<&[u8; 32]>) -> bool {
     let txn = take_txn_buf();
     let cls = ledger_seq();
-    let fee_offset = txn.write_common_header(ttHOOK_SET as u16, cls, hook_accid);
+    let fee_offset = txn.write_common_header(ttHOOK_SET, cls, hook_accid);
 
     // `EmitDetails`, reserved worst-case then trimmed to the actually
     // written length — see `mint_txn::MintTxn::write_emit_details`'s
