@@ -64,6 +64,56 @@ pub trait FromBytes: Sized {
     fn read(buf: &[u8]) -> Result<Self>;
 }
 
+impl ToBytes for u8 {
+    const MAX_LEN: usize = 1;
+
+    #[inline(always)]
+    fn write(&self, buf: &mut [u8]) -> usize {
+        match buf.get_mut(..1) {
+            Some(dst) => {
+                dst.copy_from_slice(&self.to_le_bytes());
+                1
+            }
+            None => 0,
+        }
+    }
+}
+
+impl FromBytes for u8 {
+    #[inline(always)]
+    fn read(buf: &[u8]) -> Result<Self> {
+        let src = buf.get(..1).ok_or(HookError::TooSmall)?;
+        let mut arr = [0u8; 1];
+        arr.copy_from_slice(src);
+        Ok(u8::from_le_bytes(arr))
+    }
+}
+
+impl ToBytes for u16 {
+    const MAX_LEN: usize = 2;
+
+    #[inline(always)]
+    fn write(&self, buf: &mut [u8]) -> usize {
+        match buf.get_mut(..2) {
+            Some(dst) => {
+                dst.copy_from_slice(&self.to_le_bytes());
+                2
+            }
+            None => 0,
+        }
+    }
+}
+
+impl FromBytes for u16 {
+    #[inline(always)]
+    fn read(buf: &[u8]) -> Result<Self> {
+        let src = buf.get(..2).ok_or(HookError::TooSmall)?;
+        let mut arr = [0u8; 2];
+        arr.copy_from_slice(src);
+        Ok(u16::from_le_bytes(arr))
+    }
+}
+
 impl ToBytes for u32 {
     const MAX_LEN: usize = 4;
 
@@ -244,6 +294,45 @@ impl<const N: usize> FixedRead for [u8; N] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn u8_round_trips() {
+        let mut buf = [0u8; 1];
+        assert_eq!(0xABu8.write(&mut buf), 1);
+        assert_eq!(buf, [0xAB]);
+        assert_eq!(u8::read(&buf), Ok(0xABu8));
+    }
+
+    #[test]
+    fn u8_write_into_empty_buffer_writes_nothing() {
+        let mut buf: [u8; 0] = [];
+        assert_eq!(0xABu8.write(&mut buf), 0);
+    }
+
+    #[test]
+    fn u8_read_from_empty_buffer_fails() {
+        assert_eq!(u8::read(&[]), Err(HookError::TooSmall));
+    }
+
+    #[test]
+    fn u16_round_trips() {
+        let mut buf = [0u8; 2];
+        assert_eq!(0x0102u16.write(&mut buf), 2);
+        assert_eq!(buf, 0x0102u16.to_le_bytes());
+        assert_eq!(u16::read(&buf), Ok(0x0102u16));
+    }
+
+    #[test]
+    fn u16_write_into_short_buffer_writes_nothing() {
+        let mut buf = [0xFFu8; 1];
+        assert_eq!(0x0102u16.write(&mut buf), 0);
+        assert_eq!(buf, [0xFF]);
+    }
+
+    #[test]
+    fn u16_read_from_short_buffer_fails() {
+        assert_eq!(u16::read(&[0u8; 1]), Err(HookError::TooSmall));
+    }
 
     #[test]
     fn u32_round_trips() {
