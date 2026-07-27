@@ -25,12 +25,12 @@
 //! `float_sum`, `float_invert`, `float_divide`, `float_one`,
 //! `float_mantissa`, `float_sign`, `float_int`, `float_log`, `float_root`.
 //! **`Neg` and comparisons are host round trips, not local bit
-//! manipulation** — see those impls' doc comments below for why a
-//! guest-side sign-bit flip or a guest-side bit/order comparison is *not*
-//! a sound substitute for `float_negate`/`float_compare` (this module
-//! originally tried the local-only route; it does not correctly capture
-//! XFL's actual comparison/negation semantics, so it was reverted in favor
-//! of the host round trip). The remaining 3 buffer-shaped float functions
+//! manipulation**: this crate treats the host's `float_*` implementations
+//! as the sole authority on XFL bit-pattern semantics and never maintains
+//! a parallel guest-side reimplementation of them, so a guest-side
+//! sign-bit flip or a guest-side bit/order comparison is not a sound
+//! substitute for `float_negate`/`float_compare` — see those impls' doc
+//! comments below for the specifics. The remaining 3 buffer-shaped float functions
 //! (`float_sto`, `float_sto_set`, `slot_float`) live in `api::float` and
 //! are forwarded to by [`XFL::sto`], [`XFL::sto_set`], and
 //! [`XFL::from_slot`].
@@ -100,15 +100,13 @@
 //! convention `f64`'s own `PartialEq`/`PartialOrd` use for `NaN`:
 //! "couldn't establish equality/order" is represented as "not equal"/"not
 //! comparable," not a panic, and not a hidden `rollback!` from inside what
-//! looks like an ordinary boolean expression (an early draft of this tried
-//! exactly that — call `rollback!` on a `float_compare` failure from
-//! inside `PartialEq`/`PartialOrd` — and rejected it: on `not(target_arch =
-//! "wasm32")`, `crate::api::control::rollback` loops forever rather than
-//! returning, since there is no host to actually terminate the process, so
-//! that design would hang any host-target test/doctest that ever hit a
-//! `float_compare` failure — trivially reachable, since **every**
-//! `float_compare` call fails deterministically on a host build, per the
-//! `NOT_IMPLEMENTED` host stub). Use [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/
+//! looks like an ordinary boolean expression: `crate::api::control::rollback`
+//! loops forever rather than returning on `not(target_arch = "wasm32")`
+//! (there is no host to actually terminate the process on a host build),
+//! and **every** `float_compare` call fails deterministically on a host
+//! build (per the `NOT_IMPLEMENTED` host stub) — so routing a comparison
+//! failure through `rollback!` would hang every host-target test/doctest
+//! that exercises `==`/`<`/`>`. Use [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/
 //! [`XFL::compare`] directly — not `==`/`<`/`>` — anywhere a
 //! `float_compare` failure needs to be distinguished from a genuine
 //! inequality/incomparability (which, unlike `f64`, never actually happens
@@ -384,15 +382,8 @@ impl From<XFL> for u64 {
 impl core::ops::Neg for XFL {
     type Output = Result<XFL>;
 
-    /// `-self`, via the `float_negate` host call.
-    ///
-    /// This is **not** a local sign-bit flip. An earlier version of this
-    /// impl tried exactly that (flip bit 62, leave canonical zero alone) on
-    /// the theory that XFL's sign-magnitude layout makes negation "just"
-    /// flipping the sign bit — that theory does not hold up against XFL's
-    /// actual negation semantics, so `Neg` routes through the host
-    /// `float_negate` call instead, the same way every other arithmetic
-    /// operator here does. `Output` is `Result<XFL, HookError>` (not a bare
+    /// `-self`, via the `float_negate` host call — **not** a local
+    /// sign-bit flip. `Output` is `Result<XFL, HookError>` (not a bare
     /// `XFL`) to make room for that call failing, e.g. on an already-invalid
     /// `self`.
     #[inline(always)]
@@ -639,10 +630,11 @@ mod tests {
         // `float_compare`'s host stub is deterministic `NOT_IMPLEMENTED`
         // (an `Err`) regardless of operands, so every `PartialEq`/
         // `PartialOrd` call here exercises the `false`/`None` fallback —
-        // and, crucially, returns promptly rather than hanging (an
-        // earlier design that rolled the hook back on a `float_compare`
-        // failure from inside these trait impls would have looped forever
-        // right here, since `rollback` never returns on a host target).
+        // and, crucially, returns promptly rather than hanging: rolling
+        // the hook back on a `float_compare` failure from inside these
+        // trait impls (instead of falling back to `false`/`None`) would
+        // loop forever right here, since `rollback` never returns on a
+        // host target.
         let one = XFL::one();
         let is_eq = one == one;
         let is_lt = one < one;

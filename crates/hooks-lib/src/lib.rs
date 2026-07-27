@@ -14,8 +14,8 @@
 //!   buffers/newtypes (use instead of `==`, which can compile to an
 //!   unguarded `compiler_builtins` `bcmp` loop).
 //! - [`xfl::XFL`] — the Xahau decimal floating-point type, with
-//!   `Result`-returning `Add`/`Sub`/`Mul`/`Div` operators and a local,
-//!   infallible `Neg`.
+//!   `Result`-returning `Add`/`Sub`/`Mul`/`Div`/`Neg` operators plus
+//!   `PartialEq`/`PartialOrd`.
 //! - [`xfl_unchecked::XFLUnchecked`] — a poison-propagating hot-path
 //!   counterpart to `XFL`: unchecked operators, one `validate()` call at
 //!   the end of a chain.

@@ -255,11 +255,9 @@ In practice this means: default to `Err(_) => ...`/`.is_err()` at every Hook
 API call site, and reserve `Err(HookError::SpecificVariant) => ...` for the
 rare case that genuinely needs to distinguish one failure from another —
 budget for at most one such site per crate before nesting depth becomes a
-build-time concern. (Originally isolated independently in two example
-crates' READMEs, `examples/80_reward` and `examples/81_govern`, each of
-which needed exactly one specific-variant match site and is worth reading
-for the concrete before/after nesting-depth numbers; promoted here as the
-general rule.)
+build-time concern. See `examples/80_reward` and `examples/81_govern`'s
+READMEs for concrete before/after nesting-depth numbers from real crates,
+each of which needs exactly one specific-variant match site.
 
 ### 5.2 API wrapper conventions
 
@@ -368,34 +366,26 @@ error codes onto XFL's return channel, not a property of the bit pattern
 itself. `XFLUnchecked` (below) deliberately keeps `i64` instead — it exists
 specifically to hold values that might *be* negative error codes.
 
-Revised from the original no-operators design: `XFL` still has **no
-panicking arithmetic** — the original design avoided `core::ops` entirely
-specifically to avoid a panicking `Add`/`Mul`/...; the fix that keeps
-operators without introducing a panic is a fallible `Output` type, not a
-change to the "must not panic" constraint itself. `XFL` now implements
-`core::ops::{Add, Sub, Mul, Div, Neg}`, all with `Output = Result<XFL,
-HookError>` — every one of these, including `Neg`, is a fallible host round
-trip (`float_sum`/`float_multiply`/`float_divide`/`float_negate`; `Sub` is
-`self + (-rhs)?`: one `float_negate` call plus one `float_sum` call, since
-there is no dedicated `float_subtract` function). `mul`/`add`/`div`/`neg` —
-the original named-method surface for arithmetic — are gone; the operators
-replace them exactly (`a.mul(b)` → `a * b`, `a.neg()` → `-a`). Comparison
-keeps its named methods (`eq`/`lt`/`gt`/`compare`, all `Result<bool>` via
-`float_compare`) *and* gains `PartialEq`/`PartialOrd` (`==`/`<`/`>`/...),
+`XFL` has **no panicking arithmetic**: `core::ops` is not implemented with
+an infallible `Output` for any operator that can fail, since that would
+force a panic (or a silently wrong answer) on the failure path. `XFL`
+implements `core::ops::{Add, Sub, Mul, Div, Neg}`, all with `Output =
+Result<XFL, HookError>` — every one of these, including `Neg`, is a
+fallible host round trip (`float_sum`/`float_multiply`/`float_divide`/
+`float_negate`; `Sub` is `self + (-rhs)?`: one `float_negate` call plus one
+`float_sum` call, since there is no dedicated `float_subtract` function).
+`Neg` and comparison are host round trips rather than local bit
+manipulation on principle, not just for `Neg`/comparison specifically:
+this crate treats the host's `float_*` implementations as the sole
+authority on XFL bit-pattern semantics, and never maintains a parallel
+guest-side reimplementation of them — [`XFL::exponent`]'s local bit-field
+extraction is not an exception to this, since it only unpacks an
+already-host-produced value's fields rather than computing a new,
+independently-derived value the way negation or comparison would.
+Comparison has named methods (`eq`/`lt`/`gt`/`compare`, all `Result<bool>`
+via `float_compare`) *and* `PartialEq`/`PartialOrd` (`==`/`<`/`>`/...),
 both backed by the same `float_compare` calls — see below for the fallback
 story that makes offering both possible.
-
-An earlier revision of this section tried making `Neg` a pure local
-sign-bit flip (flip bit 62, leave canonical zero alone, no host call) and
-comparison a pure local bit/order comparison (no host call), on the theory
-that XFL's sign-magnitude bit layout makes both fully computable from the
-bit pattern alone. **That theory does not hold up against XFL's actual
-negation/comparison semantics** — both were reverted to host round trips
-(`float_negate`, `float_compare`) as a direct correction. The `+3`/`+14`
-instructions-per-op cost story below is unaffected for `Add`/`Mul`/`Div`
-(none of which ever touched `Neg` or comparison); `Sub` specifically got
-more expensive across the board (`Neg` is a real host call now), and
-comparison is back to being fallible everywhere it's used.
 
 To keep multi-step arithmetic ergonomic despite `Add`/`Sub`/`Mul`/`Div`'s
 fallible `Output`, hooks-lib additionally implements each of those traits
@@ -439,23 +429,18 @@ an `Err` case, so on a `float_compare` failure the operators fall back to
 `false`/`None` — the same convention `f64`'s own `PartialEq`/`PartialOrd`
 use for `NaN` ("couldn't establish equality/order" represented as "not
 equal"/"not comparable," not fabricated as a specific wrong answer, and not
-a panic). An earlier draft instead had `PartialEq`/`PartialOrd` call
-`rollback!` on a `float_compare` failure (treating it the same as an
-unrecoverable error, matching how this crate's panic handler already turns
-a panic into a rollback) — rejected once it became clear that
-`crate::api::control::rollback` loops forever rather than returning on
-`not(target_arch = "wasm32")` (there is no host to actually terminate the
-process on a host build), which would hang any host-target test/doctest
-that ever hit a `float_compare` failure — and `float_compare`'s host stub
-fails *deterministically*, so this was not a rare edge case but an
-immediate, guaranteed hang the moment any host-target test compared two
-`XFL`s with `==`/`<`/etc. The `Result<bool>`-returning `eq`/`lt`/`gt`/
-`compare` methods remain the way to get the real failure explicitly, for
-call sites that need to distinguish "genuinely not equal" from "couldn't
-tell." `Neg`, unlike `PartialEq`/`PartialOrd`, does not need this
-fallback story at all: its `Output` type isn't fixed by the trait, so a
-`float_negate` failure just propagates as a real `Err`, the same as every
-other arithmetic operator. Bitwise representation equality, if ever
+a panic, and not a `rollback!`: `crate::api::control::rollback` loops
+forever rather than returning on `not(target_arch = "wasm32")` (there is
+no host to actually terminate the process on a host build), and
+`float_compare`'s host stub fails *deterministically*, so routing a
+comparison failure through `rollback!` would hang every host-target
+test/doctest that exercises `==`/`<`/`>`). The `Result<bool>`-returning
+`eq`/`lt`/`gt`/`compare` methods are the way to get the real failure
+explicitly, for call sites that need to distinguish "genuinely not equal"
+from "couldn't tell." `Neg`, unlike `PartialEq`/`PartialOrd`, does not need
+this fallback story at all: its `Output` type isn't fixed by the trait, so
+a `float_negate` failure just propagates as a real `Err`, the same as
+every other arithmetic operator. Bitwise representation equality, if ever
 needed, gets an explicitly named method (`bits_eq`), not `==`.
 
 **`XFLUnchecked`** (`hooks_lib::xfl_unchecked`) is the poison-propagating
@@ -485,13 +470,12 @@ to `INVALID_FLOAT` at the first one it passes through (see
 `xfl_unchecked.rs`'s module doc comment for the full audit table, and the
 one caveat: this collapsing means a specific upstream `HookError` is not
 preserved through the chain — only that *some* failure occurred).
-`validate()`'s `float_sum(self, 0)` was checked against `HookAPI::
-float_sum`'s C++ body specifically for a `float1 == 0`/`float2 == 0`
-short-circuit that might skip validating the non-zero operand — it does not
-skip it: that short-circuit lives inside `HookAPI::float_sum`, reached only
-*after* the `DEFINE_HOOK_FUNCTION` wrapper's `RETURN_IF_INVALID_FLOAT` has
-already validated both operands, so `float_sum(self, 0)` fully validates
-`self` with no deviation needed.
+`validate()`'s `float_sum(self, 0)` fully validates `self` despite
+`HookAPI::float_sum`'s own `float1 == 0`/`float2 == 0` short-circuit (which
+looks, on its face, like it might let `self` through unvalidated when
+`self` is nonzero): that short-circuit lives inside `HookAPI::float_sum`,
+reached only *after* the `DEFINE_HOOK_FUNCTION` wrapper's
+`RETURN_IF_INVALID_FLOAT` has already validated both operands.
 
 Measured (`crates/hooks-lib`'s scratch WCE bench against the actual shipped
 types, N=1/4/8 chained ops):
@@ -509,7 +493,8 @@ types, N=1/4/8 chained ops):
 exactly for both operators — its performance win over the checked operators
 is real and comes entirely from skipping the per-step `Result` branch, not
 from skipping any host validation a correct implementation actually needs
-— see the PR that introduced this section for the full table.
+(see `examples/07_xfl-math/README.md`'s "Zero-cost check" section for the
+N=1/4/8 breakdown behind these marginal-cost figures).
 
 ### 5.4 Macros & entry point
 
@@ -1084,25 +1069,17 @@ Settled during the external design review (recommendations adopted):
 2. **Module-shape validation broadened**: start section, passive segments,
    data-count, imported memories/tables/globals, element-segment forms,
    mutable globals, multiple memories are all explicitly ruled on (6.4).
-3. ~~**XFL stays without `PartialEq`/`PartialOrd`**~~ **Superseded** by the
-   `feat/xfl-operators` revision (§5.3): `XFL` now implements both,
-   forwarding to the very same `float_compare`-backed `eq`/`lt`/`gt`
-   methods this decision originally settled on, with a `false`/`None`
-   fallback on failure (the same convention `f64` uses for `NaN`) — not a
-   separate local comparison, and not a change to the underlying
-   `float_compare` call itself, just an additional way to spell it
-   (`==`/`<`/... alongside the still-present `Result<bool>`-returning
-   methods, for call sites that need to distinguish a genuine inequality
-   from a `float_compare` failure). Explicit `bits_eq`, if bitwise
-   representation equality is ever needed, is still not implemented.
-   `XFL`'s broader original blanket "no `core::ops` operator overloads at
-   all" is also superseded: `XFL` now implements `Add`/`Sub`/`Mul`/`Div`/
-   `Neg` (all with a `Result`-typed `Output`, so the "must not panic"
-   constraint this decision was protecting still holds — a fallible
-   `Output` type avoids the panic, not the absence of `core::ops` impls).
-   §5.3's revision-history note covers an intermediate attempt, since
-   reverted, at making `Neg`/comparison local (host-call-free) instead of
-   host round trips; see there for why that didn't hold up.
+3. ~~**XFL stays without `PartialEq`/`PartialOrd`, or any `core::ops`
+   operator overloads at all**~~ **Superseded** — see §5.3 for the current
+   design: `XFL` implements `Add`/`Sub`/`Mul`/`Div`/`Neg` (all with a
+   `Result`-typed `Output`, so the "must not panic" constraint this
+   decision was protecting still holds) and `PartialEq`/`PartialOrd`
+   (forwarding to the `float_compare`-backed `eq`/`lt`/`gt` methods this
+   decision originally settled on, with a `false`/`None` fallback on
+   failure — an additional way to spell a comparison, alongside the
+   still-present `Result<bool>`-returning methods, not a replacement for
+   them). Explicit `bits_eq`, if bitwise representation equality is ever
+   needed, is still not implemented.
 4. **`call_indirect` is a v1 hard error** (keeps recursion detection and
    reachability sound); table + element segments are dropped by the cleaner.
 5. **`hooks-build new` deferred** — copying `examples/01_accept-all` is the

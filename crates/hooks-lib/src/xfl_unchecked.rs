@@ -71,13 +71,13 @@
 //! | `Neg` | `float_negate` | `RETURN_IF_INVALID_FLOAT` on the one operand | `INVALID_FLOAT`, never a false-valid value |
 //! | `Sub` (`self + (-rhs)`) | `float_negate` then `float_sum` | same as `Neg`, then same as `Add` | same as `Add` |
 //!
-//! Every operator here is a host round trip — there is no local-only
-//! fast path (an earlier version of this module tried a local sign-bit
-//! flip for `Neg`; it did not correctly capture XFL's actual negation
-//! semantics and was reverted). `XFLUnchecked`'s performance win is
-//! entirely about *when* validation happens (once, in `validate()`, not
-//! once per step), never about skipping a host round trip that a correct
-//! implementation actually needs.
+//! Every operator here is a host round trip — there is no local-only fast
+//! path, including for `Neg`: a local sign-bit flip is not a sound
+//! substitute for `float_negate` (see [`crate::xfl::XFL`]'s `Neg` impl for
+//! specifics). `XFLUnchecked`'s performance win is entirely about *when*
+//! validation happens (once, in `validate()`, not once per step), never
+//! about skipping a host round trip that a correct implementation
+//! actually needs.
 //!
 //! **Poison-propagation caveat:** `RETURN_IF_INVALID_FLOAT` collapses
 //! *every* invalid operand — a genuine propagated error code, an
@@ -146,25 +146,22 @@ impl XFLUnchecked {
     /// re-deriving the mantissa/exponent bounds locally and risking drift
     /// from the host's actual rules.
     ///
-    /// `float_sum(value, 0)` specifically (not `float_sum(0, value)` or
-    /// some other minimal-cost round trip) was checked against
-    /// `HookAPI::float_sum`'s C++ body before choosing it, because that
-    /// function has its own internal short-circuit: `if (float1 == 0)
-    /// return float2; if (float2 == 0) return float1;` — i.e. summing with
-    /// `0` skips `float_sum`'s own arithmetic entirely and returns the
-    /// other operand untouched. That looked, before checking, like it
-    /// might mean `float_sum(value, 0)` "validates" `0` (the constant) but
-    /// waves `value` through unchecked. It does not: that short-circuit
-    /// lives inside `HookAPI::float_sum`, which is only ever reached
-    /// *after* the `DEFINE_HOOK_FUNCTION(int64_t, float_sum, ...)` wrapper
-    /// in `applyHook.cpp` has already run `RETURN_IF_INVALID_FLOAT(float1)`
+    /// `float_sum(value, 0)` (as opposed to `float_sum(0, value)` or some
+    /// other minimal-cost round trip) fully validates `value`, despite
+    /// `HookAPI::float_sum`'s own internal short-circuit — `if (float1 ==
+    /// 0) return float2; if (float2 == 0) return float1;`, i.e. summing
+    /// with `0` skips `float_sum`'s own arithmetic entirely and returns the
+    /// other operand untouched, which might suggest `float_sum(value, 0)`
+    /// "validates" `0` (the constant) but waves `value` through unchecked.
+    /// It does not: that short-circuit lives inside `HookAPI::float_sum`,
+    /// which is only ever reached *after* the
+    /// `DEFINE_HOOK_FUNCTION(int64_t, float_sum, ...)` wrapper in
+    /// `applyHook.cpp` has already run `RETURN_IF_INVALID_FLOAT(float1)`
     /// (rejecting an invalid `value` immediately, before `HookAPI::float_sum`
     /// is called at all) and `RETURN_IF_INVALID_FLOAT(float2)` (trivially
-    /// satisfied by the literal `0`). So `float_sum(value, 0)` **does**
-    /// fully validate `value`: an invalid `value` never reaches the
-    /// short-circuit, and a valid `value` passes through it unchanged
-    /// (correctly — it was already canonical). No deviation from a
-    /// straightforward `float_sum(value, 0)` round trip was needed.
+    /// satisfied by the literal `0`). So an invalid `value` never reaches
+    /// the short-circuit, and a valid `value` passes through it unchanged
+    /// — correctly, since it was already canonical.
     #[inline(always)]
     pub fn validate(self) -> Result<XFL> {
         res(unsafe { hooks_core::float_sum(self.0, 0) }).map(XFL::from_raw_bits)

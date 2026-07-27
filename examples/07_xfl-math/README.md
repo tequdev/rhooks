@@ -218,10 +218,7 @@ inequality/incomparable both deserve the same handling (see
 `hooks_lib::xfl`'s module doc comment's "Comparison: both methods and
 operators, both via `float_compare`" section) — true for
 `compounded > remaining` here, not true for any of the other three
-comparisons in this hook. (An earlier version of this crate also tried
-making comparison — and `Neg` — local, host-call-free operations; both
-turned out not to correctly capture XFL's actual semantics and were
-reverted to host round trips.)
+comparisons in this hook.
 
 `a - b` (`Sub`) is new — there was no `sub`/`subtract` method before, since
 there's no dedicated `float_subtract` host function; it's built from `Neg`
@@ -271,18 +268,17 @@ compiler-generated `bcmp`-style loop to guard.
 
 ## Zero-cost check: operators vs. the old method API
 
-The original mulratio-and-`.lt()` logic is **unchanged, byte-for-byte**, by
-this revision (comparison stayed a named method throughout) — isolated on
-its own, it reproduces the pre-existing **worst-case instructions = 162**
-exactly. The `Add`/`Mul`/`Div` arithmetic operators are a pure syntax
-change over the pre-operator `.add()`/`.mul()`/`.div()` methods (same
-single host call each) and so are zero-cost by construction; `Sub`/`Neg`
-are the one place cost actually changed, because `Neg` is a real
-`float_negate` host round trip and not the local bit flip an earlier
-version of this crate tried. The full version in this crate — with the
-`Sub`, `XFLUnchecked`, and `==`/`<`/`>` operator sections added on top
-purely for demonstration — measures **357** (up from 162; see below for
-where that comes from).
+The mulratio-and-`.lt()` logic is **unchanged, byte-for-byte, from the
+pre-operator method API** — isolated on its own, it reproduces the
+pre-operator **worst-case instructions = 162** exactly. The `Add`/`Mul`/
+`Div` arithmetic operators are a pure syntax change over the pre-operator
+`.add()`/`.mul()`/`.div()` methods (same single host call each) and so are
+zero-cost by construction; `Sub`/`Neg` are the one place cost actually
+differs, because `Neg` is a real `float_negate` host round trip, not a
+local bit flip. The full version in this crate — with the `Sub`,
+`XFLUnchecked`, and `==`/`<`/`>` operator sections added on top purely for
+demonstration — measures **357** (up from 162; see below for where that
+comes from).
 
 Chained-operator benchmark against the actual shipped types
 (`hooks_lib::xfl`/`hooks_lib::xfl_unchecked`, N=1/4/8 chained ops,
