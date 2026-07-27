@@ -85,6 +85,18 @@ jobs:
           cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
           cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 
+      # 80+: production hooks (examples/README.md's "80+" section, needed
+      # by e2e/test/reward.test.ts and govern.test.ts).
+      - name: reward
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/80_reward/Cargo.toml
+          cargo run -p hooks-build -- check examples/80_reward/out/reward.wasm
+
+      - name: govern
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/81_govern/Cargo.toml
+          cargo run -p hooks-build -- check examples/81_govern/out/govern.wasm
+
       - name: Upload example hook binaries
         uses: actions/upload-artifact@v7
         with:
