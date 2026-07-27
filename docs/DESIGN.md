@@ -349,11 +349,24 @@ pub fn hook_account_buf() -> Result<AccountId>;   // fixed-size convenience
 
 ### 5.3 XFL
 
-`#[derive(Clone, Copy, Debug)] pub struct XFL(i64);` — Xahau 64-bit decimal
+`#[derive(Clone, Copy, Debug)] pub struct XFL(u64);` — Xahau 64-bit decimal
 float. The inner field is **private**: XFL host calls return negative
 values as error codes, and a public field would let users smuggle an error
 code in as a "value". Escape hatches are explicit: `XFL::from_raw_bits(i64)`
-/ `xfl.raw_bits()` (documented as unchecked representation access).
+/ `xfl.raw_bits() -> i64` (documented as unchecked representation access) —
+the public boundary still speaks `i64`, matching the Hook API's FFI
+convention (every `float_*` extern function takes/returns `i64`) and the
+existing persisted-state `ToBytes`/`FromBytes` encoding; only the *internal*
+storage is `u64`, a bit-preserving `as` cast away at both boundaries (every
+`float_*` call site) and zero-cost (same-width integer casts). This mirrors
+the fact that every `XFL` obtained through the validated API is guaranteed
+by the host to have bit 63 clear (see the module doc comment's bit
+layout) — always non-negative when read back as `i64` — the same way Rust
+represents an opaque bit pattern via `f64::to_bits() -> u64`, not `-> i64`;
+the `i64` FFI type is an artifact of the Hook API's C ABI multiplexing
+error codes onto XFL's return channel, not a property of the bit pattern
+itself. `XFLUnchecked` (below) deliberately keeps `i64` instead — it exists
+specifically to hold values that might *be* negative error codes.
 
 Revised from the original no-operators design: `XFL` still has **no
 panicking arithmetic** — the original design avoided `core::ops` entirely

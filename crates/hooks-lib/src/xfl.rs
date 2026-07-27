@@ -129,17 +129,39 @@ use crate::types::{AccountId, CurrencyCode};
 const EXPONENT_BIAS: i64 = 97;
 /// Bit offset of the exponent field.
 const EXPONENT_SHIFT: u32 = 54;
-/// Mask for the 8-bit exponent field once shifted into place.
-const EXPONENT_MASK: i64 = 0xFF;
+/// Mask for the 8-bit exponent field once shifted into place. `u64`, not
+/// `i64`, to match [`XFL`]'s internal storage — see its type doc comment.
+const EXPONENT_MASK: u64 = 0xFF;
 
-/// A Xahau XFL value: an opaque wrapper over the raw `i64` bit pattern the
-/// Hook API's `float_*` functions operate on.
+/// A Xahau XFL value: an opaque wrapper over the raw bit pattern the Hook
+/// API's `float_*` functions operate on.
 ///
 /// The inner field is deliberately private: XFL host calls return negative
 /// values as error codes sharing the same `i64` channel as valid floats, so
 /// a public field would let a caller smuggle a raw error code in as if it
 /// were a value. [`XFL::from_raw_bits`] / [`XFL::raw_bits`] are the explicit,
-/// documented escape hatches for unchecked representation access.
+/// documented escape hatches for unchecked representation access — both
+/// still speak `i64` at the public boundary, matching the Hook API's FFI
+/// convention (every `float_*` extern function takes/returns `i64`) and the
+/// existing persisted-state encoding (`convert.rs`'s `ToBytes`/`FromBytes`
+/// impls for `XFL` round-trip through `i64`'s own).
+///
+/// **Internally stored as `u64`, not `i64`**, unlike the FFI boundary and
+/// unlike [`crate::xfl_unchecked::XFLUnchecked`] (which deliberately keeps
+/// `i64`, since it exists specifically to hold values that *might* be
+/// negative error codes — see its module doc comment). Every `XFL` obtained
+/// through the validated API (i.e. everything except [`XFL::from_raw_bits`])
+/// is guaranteed by the host to have bit 63 clear (see the module doc
+/// comment's bit layout) — always non-negative when read back as `i64` — so
+/// `u64` mirrors that invariant and matches how Rust conventionally
+/// represents an opaque bit pattern rather than a signed quantity (compare
+/// `f64::to_bits() -> u64`, not `-> i64`): the `i64` FFI type is an
+/// implementation detail of the Hook API's C ABI (which multiplexes error
+/// codes onto XFL's own return channel), not a property of what an XFL
+/// bit pattern actually *is*. This is a documentation/domain-modeling
+/// choice, not an enforced safety property: [`XFL::from_raw_bits`] still
+/// accepts an arbitrary `i64` (including a negative one), bit-cast as-is
+/// into the `u64` field — see its own doc comment.
 ///
 /// `PartialEq`/`PartialOrd` are implemented, backed by the fallible
 /// `float_compare` host call, with a `false`/`None` fallback on failure
@@ -157,33 +179,41 @@ const EXPONENT_MASK: i64 = 0xFF;
 /// assert_eq!(one.raw_bits(), XFL::from_raw_bits(one.raw_bits()).raw_bits());
 /// ```
 #[derive(Clone, Copy, Debug)]
-pub struct XFL(i64);
+pub struct XFL(u64);
 
 impl XFL {
     /// Wrap a raw XFL bit pattern with no validation. Escape hatch for
     /// interop with values obtained outside the typed API (e.g. persisted
-    /// state).
+    /// state). `bits` is bit-cast as-is into `XFL`'s internal `u64` storage
+    /// (see the type doc comment) — a negative `bits` (e.g. a smuggled-in
+    /// error code) becomes a large `u64`, not an error, since this
+    /// constructor performs no validation either way.
     #[inline(always)]
     #[must_use]
     pub fn from_raw_bits(bits: i64) -> XFL {
-        XFL(bits)
+        XFL(bits as u64)
     }
 
     /// The raw XFL bit pattern. Escape hatch for interop; does not validate
-    /// that `self` is actually a valid (non-error-code) XFL.
+    /// that `self` is actually a valid (non-error-code) XFL. Bit-cast back
+    /// to `i64` from the internal `u64` storage (see the type doc comment)
+    /// — lossless and exactly reverses [`XFL::from_raw_bits`] for every
+    /// input, including a negative one.
     #[inline(always)]
     #[must_use]
     pub fn raw_bits(self) -> i64 {
-        self.0
+        self.0 as i64
     }
 
     /// Reinterpret `self` as an [`crate::xfl_unchecked::XFLUnchecked`] for a
-    /// hot-path arithmetic chain. Zero-cost: just moves the raw `i64` into
-    /// the other newtype, no host call and no validation either way.
+    /// hot-path arithmetic chain. Zero-cost: just moves the raw bit pattern
+    /// into the other newtype (as `i64` — see both types' doc comments for
+    /// why `XFLUnchecked` keeps `i64` while `XFL` stores `u64`), no host
+    /// call and no validation either way.
     #[inline(always)]
     #[must_use]
     pub fn unchecked(self) -> crate::xfl_unchecked::XFLUnchecked {
-        crate::xfl_unchecked::XFLUnchecked::from_raw_bits(self.0)
+        crate::xfl_unchecked::XFLUnchecked::from_raw_bits(self.0 as i64)
     }
 
     /// Construct a normalized XFL from `exponent` and `mantissa`.
@@ -203,21 +233,21 @@ impl XFL {
     /// `1 / self`.
     #[inline(always)]
     pub fn invert(self) -> Result<XFL> {
-        res(unsafe { hooks_core::float_invert(self.0) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_invert(self.0 as i64) }).map(XFL::from_raw_bits)
     }
 
     /// `self * (num / den)`, rounding up when `round_up` is set, down
     /// otherwise.
     #[inline(always)]
     pub fn mulratio(self, round_up: bool, num: u32, den: u32) -> Result<XFL> {
-        res(unsafe { hooks_core::float_mulratio(self.0, round_up as u32, num, den) })
+        res(unsafe { hooks_core::float_mulratio(self.0 as i64, round_up as u32, num, den) })
             .map(XFL::from_raw_bits)
     }
 
     /// The mantissa component of `self` (`0` to `9_999_999_999_999_999`).
     #[inline(always)]
     pub fn mantissa(self) -> Result<i64> {
-        res(unsafe { hooks_core::float_mantissa(self.0) })
+        res(unsafe { hooks_core::float_mantissa(self.0 as i64) })
     }
 
     /// The unbiased exponent component of `self` (`-96` to `+80`).
@@ -229,10 +259,16 @@ impl XFL {
     #[inline(always)]
     pub fn exponent(self) -> Result<i64> {
         let field = (self.0 >> EXPONENT_SHIFT) & EXPONENT_MASK;
-        // `field` is masked to 0..=0xFF and `EXPONENT_BIAS` is the fixed
-        // constant 97, so this never overflows i64; `wrapping_sub` (rather
-        // than a plain `-`) also sidesteps `clippy::arithmetic_side_effects`
-        // without needing a blanket `#[allow]`.
+        // `field` is masked to 0..=0xFF, well within i64's range, so this
+        // cast is lossless; `EXPONENT_BIAS` is the fixed constant 97, so
+        // the `wrapping_sub` below never actually wraps — used anyway
+        // (rather than a plain `-`) to sidestep `clippy::
+        // arithmetic_side_effects` without needing a blanket `#[allow]`.
+        // The subtraction has to happen in a *signed* type: a stored field
+        // below 97 needs to decode to a negative unbiased exponent (e.g.
+        // field `1` -> `-96`), which a `u64` subtraction could never
+        // produce (it would wrap to a huge positive value instead).
+        let field = field as i64;
         Ok(field.wrapping_sub(EXPONENT_BIAS))
     }
 
@@ -240,7 +276,7 @@ impl XFL {
     /// zero, `1` = negative — so `true` here means "negative").
     #[inline(always)]
     pub fn sign(self) -> Result<bool> {
-        res(unsafe { hooks_core::float_sign(self.0) }).map(|v| v != 0)
+        res(unsafe { hooks_core::float_sign(self.0 as i64) }).map(|v| v != 0)
     }
 
     /// Convert `self` to an integer, keeping `decimal_places` fractional
@@ -248,7 +284,7 @@ impl XFL {
     /// instead of erroring on a negative result.
     #[inline(always)]
     pub fn to_int(self, decimal_places: u32, absolute: bool) -> Result<i64> {
-        res(unsafe { hooks_core::float_int(self.0, decimal_places, absolute as u32) })
+        res(unsafe { hooks_core::float_int(self.0 as i64, decimal_places, absolute as u32) })
     }
 
     /// Compare `self` to `rhs` under the bitmask `mode` (see
@@ -257,7 +293,7 @@ impl XFL {
     /// `float_compare` host call.
     #[inline(always)]
     pub fn compare(self, rhs: XFL, mode: u32) -> Result<bool> {
-        res(unsafe { hooks_core::float_compare(self.0, rhs.0, mode) }).map(|v| v != 0)
+        res(unsafe { hooks_core::float_compare(self.0 as i64, rhs.0 as i64, mode) }).map(|v| v != 0)
     }
 
     /// `self == rhs`.
@@ -281,13 +317,13 @@ impl XFL {
     /// `log10(self)`.
     #[inline(always)]
     pub fn log(self) -> Result<XFL> {
-        res(unsafe { hooks_core::float_log(self.0) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_log(self.0 as i64) }).map(XFL::from_raw_bits)
     }
 
     /// `self ^ (1/n)`.
     #[inline(always)]
     pub fn root(self, n: u32) -> Result<XFL> {
-        res(unsafe { hooks_core::float_root(self.0, n) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_root(self.0 as i64, n) }).map(XFL::from_raw_bits)
     }
 
     /// Encode `self` as a serialized Amount into `out`. Thin forwarding call
@@ -335,7 +371,7 @@ impl core::ops::Neg for XFL {
     /// `self`.
     #[inline(always)]
     fn neg(self) -> Result<XFL> {
-        res(unsafe { hooks_core::float_negate(self.0) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_negate(self.0 as i64) }).map(XFL::from_raw_bits)
     }
 }
 
@@ -345,7 +381,7 @@ impl core::ops::Add for XFL {
     /// `self + rhs`, via the `float_sum` host call.
     #[inline(always)]
     fn add(self, rhs: XFL) -> Result<XFL> {
-        res(unsafe { hooks_core::float_sum(self.0, rhs.0) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_sum(self.0 as i64, rhs.0 as i64) }).map(XFL::from_raw_bits)
     }
 }
 
@@ -375,7 +411,8 @@ impl core::ops::Mul for XFL {
     /// `self * rhs`, via the `float_multiply` host call.
     #[inline(always)]
     fn mul(self, rhs: XFL) -> Result<XFL> {
-        res(unsafe { hooks_core::float_multiply(self.0, rhs.0) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_multiply(self.0 as i64, rhs.0 as i64) })
+            .map(XFL::from_raw_bits)
     }
 }
 
@@ -385,7 +422,8 @@ impl core::ops::Div for XFL {
     /// `self / rhs`, via the `float_divide` host call.
     #[inline(always)]
     fn div(self, rhs: XFL) -> Result<XFL> {
-        res(unsafe { hooks_core::float_divide(self.0, rhs.0) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_divide(self.0 as i64, rhs.0 as i64) })
+            .map(XFL::from_raw_bits)
     }
 }
 
