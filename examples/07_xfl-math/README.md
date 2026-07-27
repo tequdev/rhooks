@@ -8,8 +8,10 @@ amount, do a ratio computation (`mulratio`) on it, and compare the result —
 handling every step's `Result` explicitly, since every XFL host call is
 fallible. Also: hooks-lib's XFL **operator** API end to end — the checked
 `Add`/`Sub`/`Mul`/`Div`/`Neg` operators (all fallible host round trips) and
-the `.eq()`/`.lt()`/`.gt()`/`.compare()` comparison methods on plain `XFL`,
-and `XFLUnchecked`'s poison-propagating hot-path chain.
+the `.eq()`/`.lt()`/`.gt()`/`.compare()` comparison methods on plain `XFL`
+(this hook uses the methods throughout, not the `PartialEq`/`PartialOrd`
+`==`/`<`/`>` operators `XFL` also provides — see below for why), and
+`XFLUnchecked`'s poison-propagating hot-path chain.
 
 ## Code walkthrough
 
@@ -56,13 +58,19 @@ match share.lt(min_share) {
 `mulratio(round_up, num, den)` computes `self * (num / den)` — used here to
 take 1% of the transaction amount; it takes two extra scale parameters
 beyond `self`/`rhs`, so it stays a named method (no operator shape fits
-it). Comparison is a fallible `float_compare` host round trip — `XFL` has
-no `PartialEq`/`PartialOrd` (see `hooks_lib::xfl`'s module doc comment for
-exactly why: those traits' methods return a bare `bool`/`Option<Ordering>`,
-with no room for an `Err` case, so implementing them would force silently
-treating a comparison failure as `false`/`None`, unacceptable for financial
-logic) — so `.lt()` returns `Result<bool>` and is matched three ways
-(`Ok(true)`/`Ok(false)`/`Err(_)`) like every other fallible call here.
+it). Comparison is a fallible `float_compare` host round trip. `XFL` does
+have `PartialEq`/`PartialOrd` (`==`/`<`/`>`/...) — but this hook uses
+`.lt()` here instead, deliberately: those two traits' methods return a
+bare `bool`/`Option<Ordering>`, with no room for an `Err` case, so they
+fall back to `false`/`None` on a `float_compare` failure rather than
+propagating it (see `hooks_lib::xfl`'s module doc comment, and this
+README's "Migrating from the pre-operator method API" section below, for
+why that's a reasonable choice for the operators in general but the wrong
+one for a comparison that gates whether this hook rolls back). `.lt()`
+returns `Result<bool>` and is matched three ways (`Ok(true)`/`Ok(false)`/
+`Err(_)`) like every other fallible call here, so a `float_compare`
+failure gets its own explicit rollback instead of silently falling through
+as "not below the minimum."
 
 ### The checked `Sub` operator
 
@@ -154,14 +162,25 @@ the breaking change this example demonstrates end to end):
 | `a.neg()` | `-a` (`Output = Result<XFL, HookError>` — a `float_negate` host round trip, same as before) |
 
 `a.eq(b)`/`a.lt(b)`/`a.gt(b)`/`a.compare(b, mode)` are **unchanged** — still
-named methods returning `Result<bool>`, not `PartialEq`/`PartialOrd`. An
-earlier version of this crate tried making comparison (and `Neg`) local,
-host-call-free operations; both turned out not to correctly capture XFL's
-actual semantics, so both were reverted to host round trips (`float_compare`,
-`float_negate`) — see `hooks_lib::xfl`'s module doc comment for the design
-reasoning that's left in place either way (why `PartialEq`/`PartialOrd`
-specifically can't express a fallible comparison, independent of the
-local-vs-host question).
+named methods returning `Result<bool>`, still backed by `float_compare`.
+`XFL` *also* now implements `PartialEq`/`PartialOrd` (`==`/`<`/`>`/...),
+forwarding to those same methods — but this example deliberately keeps
+using the `Result`-returning methods, matched three ways (`Ok(true)`/
+`Ok(false)`/`Err(_)`), for every comparison that gates a rollback decision:
+`PartialEq`/`PartialOrd`'s fixed `bool`/`Option<Ordering>` return types
+can't express a `float_compare` failure, so on failure they fall back to
+`false`/`None` (the same convention `f64` uses for `NaN`) — which for
+`share < min_share` would mean silently treating "the comparison failed"
+the same as "the share is not below the minimum," i.e. silently accepting
+a transaction this hook could not actually validate. `==`/`<`/`>` are a
+reasonable choice when a comparison failure and a genuine
+inequality/incomparable both deserve the same handling (see
+`hooks_lib::xfl`'s module doc comment's "Comparison: both methods and
+operators, both via `float_compare`" section) — that is not the case for
+any comparison in this hook. (An earlier version of this crate also tried
+making comparison — and `Neg` — local, host-call-free operations; both
+turned out not to correctly capture XFL's actual semantics and were
+reverted to host round trips.)
 
 `a - b` (`Sub`) is new — there was no `sub`/`subtract` method before, since
 there's no dedicated `float_subtract` host function; it's built from `Neg`

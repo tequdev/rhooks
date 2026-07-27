@@ -196,7 +196,7 @@ src/
 ├── state.rs       # typed state layer (state_get/state_set_typed/state_update_typed) + state_keys!
 ├── buf_eq.rs      # loop-free, panic-free fixed-size buffer equality (buf_eq_8/20/32/...)
 ├── errors.rs      # hook_errors! user error enum -> rollback code mapping
-├── xfl.rs         # XFL newtype over i64, checked Add/Sub/Mul/Div/Neg operators + compare/eq/lt/gt methods
+├── xfl.rs         # XFL newtype over i64, checked Add/Sub/Mul/Div/Neg operators, compare/eq/lt/gt methods + PartialEq/PartialOrd
 ├── xfl_unchecked.rs # XFLUnchecked: poison-propagating hot-path counterpart to XFL
 ├── txn.rs         # txn_template! macro + generic field-encoding primitives
 ├── static_cell.rs # HookStatic: take-once cell for static hook buffers
@@ -367,8 +367,10 @@ trip (`float_sum`/`float_multiply`/`float_divide`/`float_negate`; `Sub` is
 there is no dedicated `float_subtract` function). `mul`/`add`/`div`/`neg` —
 the original named-method surface for arithmetic — are gone; the operators
 replace them exactly (`a.mul(b)` → `a * b`, `a.neg()` → `-a`). Comparison
-stays named methods (`eq`/`lt`/`gt`/`compare`, all `Result<bool>` via
-`float_compare`) rather than becoming `PartialEq`/`PartialOrd` — see below.
+keeps its named methods (`eq`/`lt`/`gt`/`compare`, all `Result<bool>` via
+`float_compare`) *and* gains `PartialEq`/`PartialOrd` (`==`/`<`/`>`/...),
+both backed by the same `float_compare` calls — see below for the fallback
+story that makes offering both possible.
 
 An earlier revision of this section tried making `Neg` a pure local
 sign-bit flip (flip bit 62, leave canonical zero alone, no host call) and
@@ -411,25 +413,43 @@ impl core::ops::Sub for XFL { type Output = Result<XFL>; ... }   // self + (-rhs
 impl core::ops::Mul for XFL { type Output = Result<XFL>; ... }   // float_multiply
 impl core::ops::Div for XFL { type Output = Result<XFL>; ... }   // float_divide
 impl core::ops::Neg for XFL { type Output = Result<XFL>; ... }   // float_negate -- a host round trip, not a bit flip
+impl PartialEq for XFL { ... }   // forwards to XFL::eq (float_compare); false on failure
+impl PartialOrd for XFL { ... }  // forwards to XFL::lt/XFL::gt (float_compare, up to 2 calls); None on failure
 ```
 
-`PartialEq`/`PartialOrd` are NOT implemented: comparison is a fallible
-`float_compare` host call, and those traits' methods return a bare
-`bool`/`Option<Ordering>` with no room for an `Err` case — implementing
-them would force silently treating a comparison failure as `false`/`None`
-(or panicking), unacceptable for financial logic. `Neg`, despite also
-being a fallible host round trip, *is* implemented as `core::ops::Neg`,
-because unlike `PartialEq`/`PartialOrd` its `Output` type isn't fixed by
-the trait — `Result<XFL, HookError>` is a perfectly valid `Neg::Output`.
-Bitwise representation equality, if ever needed, gets an explicitly named
-method (`bits_eq`), not `==`.
+`PartialEq`/`PartialOrd` are thin forwarding wrappers over the
+`float_compare`-backed `eq`/`lt`/`gt` methods above, not a separate local
+implementation — comparison is a fallible host call either way. Those two
+traits' methods return a bare `bool`/`Option<Ordering>`, with no room for
+an `Err` case, so on a `float_compare` failure the operators fall back to
+`false`/`None` — the same convention `f64`'s own `PartialEq`/`PartialOrd`
+use for `NaN` ("couldn't establish equality/order" represented as "not
+equal"/"not comparable," not fabricated as a specific wrong answer, and not
+a panic). An earlier draft instead had `PartialEq`/`PartialOrd` call
+`rollback!` on a `float_compare` failure (treating it the same as an
+unrecoverable error, matching how this crate's panic handler already turns
+a panic into a rollback) — rejected once it became clear that
+`crate::api::control::rollback` loops forever rather than returning on
+`not(target_arch = "wasm32")` (there is no host to actually terminate the
+process on a host build), which would hang any host-target test/doctest
+that ever hit a `float_compare` failure — and `float_compare`'s host stub
+fails *deterministically*, so this was not a rare edge case but an
+immediate, guaranteed hang the moment any host-target test compared two
+`XFL`s with `==`/`<`/etc. The `Result<bool>`-returning `eq`/`lt`/`gt`/
+`compare` methods remain the way to get the real failure explicitly, for
+call sites that need to distinguish "genuinely not equal" from "couldn't
+tell." `Neg`, unlike `PartialEq`/`PartialOrd`, does not need this
+fallback story at all: its `Output` type isn't fixed by the trait, so a
+`float_negate` failure just propagates as a real `Err`, the same as every
+other arithmetic operator. Bitwise representation equality, if ever
+needed, gets an explicitly named method (`bits_eq`), not `==`.
 
 **`XFLUnchecked`** (`hooks_lib::xfl_unchecked`) is the poison-propagating
 hot-path counterpart, for arithmetic chains where even the checked
 operators' per-step `Result` branch is the measured cost problem:
 
 ```rust
-pub struct XFLUnchecked(i64);   // no PartialEq/PartialOrd -- same two reasons as XFL, plus comparing unvalidated values invites silent-wrong-answer bugs
+pub struct XFLUnchecked(i64);   // no PartialEq/PartialOrd, unlike XFL -- the false/None-on-failure fallback that's principled for XFL (an occasional edge case, like f64's NaN) would be actively misleading here, where poisoned operands are the routine case, not the exception
 impl XFLUnchecked {
     pub fn from_raw_bits(bits: i64) -> XFLUnchecked;
     pub fn raw_bits(self) -> i64;
@@ -1049,19 +1069,25 @@ Settled during the external design review (recommendations adopted):
 2. **Module-shape validation broadened**: start section, passive segments,
    data-count, imported memories/tables/globals, element-segment forms,
    mutable globals, multiple memories are all explicitly ruled on (6.4).
-3. **XFL stays without `PartialEq`/`PartialOrd`**; explicit `bits_eq` if
-   representation equality is ever needed. Still true after the
-   `feat/xfl-operators` revision (§5.3) — comparison stays fallible
-   (`float_compare`), which those two traits' fixed `bool`/`Option<
-   Ordering>` return types can't express. What *is* superseded by that
-   revision is the broader original blanket "no `core::ops` operator
-   overloads at all": `XFL` now implements `Add`/`Sub`/`Mul`/`Div`/`Neg`
-   (all with a `Result`-typed `Output`, so the "must not panic" constraint
-   this decision was protecting still holds — a fallible `Output` type
-   avoids the panic, not the absence of `core::ops` impls). §5.3's
-   revision-history note covers an intermediate attempt, since reverted,
-   at also making `Neg`/comparison local (host-call-free); see there for
-   why that didn't hold up.
+3. ~~**XFL stays without `PartialEq`/`PartialOrd`**~~ **Superseded** by the
+   `feat/xfl-operators` revision (§5.3): `XFL` now implements both,
+   forwarding to the very same `float_compare`-backed `eq`/`lt`/`gt`
+   methods this decision originally settled on, with a `false`/`None`
+   fallback on failure (the same convention `f64` uses for `NaN`) — not a
+   separate local comparison, and not a change to the underlying
+   `float_compare` call itself, just an additional way to spell it
+   (`==`/`<`/... alongside the still-present `Result<bool>`-returning
+   methods, for call sites that need to distinguish a genuine inequality
+   from a `float_compare` failure). Explicit `bits_eq`, if bitwise
+   representation equality is ever needed, is still not implemented.
+   `XFL`'s broader original blanket "no `core::ops` operator overloads at
+   all" is also superseded: `XFL` now implements `Add`/`Sub`/`Mul`/`Div`/
+   `Neg` (all with a `Result`-typed `Output`, so the "must not panic"
+   constraint this decision was protecting still holds — a fallible
+   `Output` type avoids the panic, not the absence of `core::ops` impls).
+   §5.3's revision-history note covers an intermediate attempt, since
+   reverted, at making `Neg`/comparison local (host-call-free) instead of
+   host round trips; see there for why that didn't hold up.
 4. **`call_indirect` is a v1 hard error** (keeps recursion detection and
    reachability sound); table + element segments are dropped by the cleaner.
 5. **`hooks-build new` deferred** — copying `examples/01_accept-all` is the
