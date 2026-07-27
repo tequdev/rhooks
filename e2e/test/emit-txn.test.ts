@@ -39,7 +39,7 @@ const namespace = 'rhooks-e2e-emit-txn'
 // hooks-build's printed worst case for emit_txn.wasm (`mise run build-examples`),
 // derived straight from xahaud's own vendored guard checker (see
 // crates/hooks-build/src/guard_native.rs) - not a hooks-build estimate.
-const WORST_CASE_HOOK_INSTRUCTIONS = 322
+const WORST_CASE_HOOK_INSTRUCTIONS = 310
 // NOT used as a hard bound below: live-observed cbak HookInstructionCount
 // for this trivial `accept!()`-only cbak is 10, exceeding the checker's
 // own cbak_cost of 7. Confirmed reproducible (crates/hooks-build/src/

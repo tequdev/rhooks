@@ -27,7 +27,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-errors'
 // hooks-build's printed worst case for errors.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 276
+const WORST_CASE_INSTRUCTIONS = 263
 // Matches examples/04_errors/src/lib.rs's BLOCKED_SOURCE_TAG/MAX_DROPS.
 const BLOCKED_SOURCE_TAG = 13
 const MAX_DROPS = 100_000_000

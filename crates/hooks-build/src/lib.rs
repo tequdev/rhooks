@@ -39,12 +39,15 @@
 //! remain denied, as inherited from the workspace.
 #![allow(clippy::arithmetic_side_effects)]
 
+use anyhow::Context as _;
+
 mod cleaner;
 mod fee;
 mod flatten;
 mod guard;
 mod guard_native;
 mod ir;
+mod optimize;
 mod unnest;
 mod validator;
 pub mod whitelist;
@@ -54,6 +57,7 @@ pub use fee::{FeeEstimate, estimate_fee};
 pub use flatten::{FlattenReport, flatten};
 pub use guard::auto_guard;
 pub use guard_native::{GuardVerdict, NativeGuardError, validate_guards_native};
+pub use optimize::{OptimizeReport, optimize};
 pub use unnest::{UnnestReport, unnest};
 pub use validator::{ValidationReport, validate};
 
@@ -83,6 +87,15 @@ pub struct Options {
     /// written to disk (clearly marked invalid) instead of erroring. Never
     /// honored by `check`.
     pub allow_oversize: bool,
+    /// If true, run `wasm-opt -Oz` (see [`optimize::optimize`]) between the
+    /// cleaner and the flatten pass. **On by default** (the CLI's `build`/
+    /// `clean` subcommands expose `--no-optimize` to turn this off): every
+    /// later stage still re-validates its output in full, so a caller that
+    /// leaves this on could see a previously-passing build turn into a
+    /// failing one if `-Oz` produces a shape flatten/unnest/the guard
+    /// checker rejects (`docs/DESIGN.md` §6) — set this to `false` (or pass
+    /// `--no-optimize`) if that happens.
+    pub optimize: bool,
 }
 
 impl Default for Options {
@@ -92,27 +105,101 @@ impl Default for Options {
             auto_guard: false,
             default_maxiter: 16,
             allow_oversize: false,
+            optimize: true,
         }
     }
 }
 
-/// Runs the full `build`/`clean` pipeline: clean, then (API version 0 only)
-/// flatten, then (API version 0 only) unnest, then (if requested and
-/// applicable) the guard pass, then validate the final bytes. Returns the
-/// final bytes plus the validation report. `build`/`clean` never emit bytes
-/// that fail hard-error validation unless `opts.allow_oversize` downgrades
-/// the *size* rule specifically — every other hard error still aborts.
+/// Runs the full `build`/`clean` pipeline: (unless disabled) the `wasm-opt`
+/// pass, then clean, then (API version 0 only) flatten, then (API version 0
+/// only) unnest, then (if requested and applicable) the guard pass, then
+/// validate the final bytes. Returns the final bytes plus the validation
+/// report. `build`/`clean` never emit bytes that fail hard-error validation
+/// unless `opts.allow_oversize` downgrades the *size* rule specifically —
+/// every other hard error still aborts.
 ///
 /// Pipeline order for API version 0 (`docs/DESIGN.md` §6.2b/§6.2c/§6.3):
-/// clean → flatten (ensures `_g` is imported, R1, and that the type section
-/// holds only import/entry types, R2) → unnest (collapses the LLVM error
-/// ladder so nesting depth stays under the vendored checker's 32-level
-/// limit) → auto-guard/guard-verify → Rust validator → the vendored
-/// upstream guard checker, which is the final gate — see [`verify`]. API
-/// version 1 skips flatten and unnest entirely (gas hooks have no such
-/// restriction).
+/// optimize (on by default, `-Oz`; `--no-optimize` to skip) → clean →
+/// flatten (ensures `_g` is imported, R1, and that the type section holds
+/// only import/entry types, R2) → unnest (collapses the LLVM error ladder
+/// so nesting depth stays under the vendored checker's 32-level limit) →
+/// auto-guard/guard-verify → Rust validator → the vendored upstream guard
+/// checker, which is the final gate — see [`verify`]. API version 1 skips
+/// flatten and unnest entirely (gas hooks have no such restriction).
+///
+/// **Optimize runs *before* clean, not after** (this used to be the other
+/// way around): `wasm-opt` has to run while the input still carries
+/// rustc/LLVM's own `memory` export, or its dead-code elimination cannot
+/// tell the module's linear memory is used at all — every Hook API host
+/// import (`trace`/`accept`/`state`/...) reads or writes that memory via a
+/// raw pointer *argument*, which is invisible to `wasm-opt`'s own analysis
+/// (no hook ever contains a `memory.load`/`memory.store` opcode for that).
+/// Running the cleaner first, which strips exactly that `memory` export per
+/// SetHook policy, before `wasm-opt`, made Binaryen treat the entire memory
+/// section (and its data segment) as dead and delete it outright — a
+/// module that still passed every static check here (nothing in the code
+/// references a now-missing memory via an opcode) but silently returned
+/// garbage or trapped at runtime, since every host call still passed
+/// offsets into memory that no longer existed. Caught via live e2e
+/// (`docs/E2E-TESTING.md`), not by any static check in this crate: two of
+/// the ten example hooks failed on a real node with a `--optimize` build
+/// while passing `hooks-build check` cleanly. Reordering so `wasm-opt` sees
+/// the still-exported memory fixes this; the cleaner then strips the
+/// export afterward exactly as it always does for the non-optimized path.
+///
+/// Unless `opts.optimize` is turned off, every stage after the optimizer
+/// still runs exactly as it would against un-optimized input — `wasm-opt`'s
+/// output is never trusted blindly. If any of those stages then fails, the
+/// resulting error is annotated to suggest retrying with `--no-optimize`,
+/// since a `-Oz` transform that flatten/unnest/the guard checker rejects is
+/// the most likely explanation.
 pub fn run_pipeline(wasm: &[u8], opts: &Options) -> anyhow::Result<(Vec<u8>, ValidationReport)> {
-    let cleaned = cleaner::clean(wasm, opts)?;
+    if !opts.optimize {
+        let cleaned = cleaner::clean(wasm, opts)?;
+        let (guarded, report) = flatten_unnest_guard_verify(cleaned, opts)?;
+        return Ok((guarded, report));
+    }
+
+    // Cleaned straight from the raw, un-optimized input, purely for the
+    // before/after report below — this is thrown away, not fed into the
+    // real pipeline (that starts from `optimized` instead).
+    let before_cleaned = cleaner::clean(wasm, opts)?;
+    let before_bytes = before_cleaned.len();
+    let before_guard = pre_optimize_guard_verdict(&before_cleaned, opts);
+
+    let optimized = optimize::optimize(wasm)
+        .context("wasm-opt failed to run; pass --no-optimize to build without it")?;
+    let cleaned = cleaner::clean(&optimized, opts)?;
+
+    match flatten_unnest_guard_verify(cleaned, opts) {
+        Ok((guarded, mut report)) => {
+            report.optimize_report = Some(optimize::OptimizeReport {
+                before_bytes,
+                after_bytes: guarded.len(),
+                before_fee: fee::estimate_fee(before_bytes),
+                after_fee: fee::estimate_fee(guarded.len()),
+                before_guard,
+                after_guard: report.guard_verdict,
+            });
+            Ok((guarded, report))
+        }
+        Err(e) => Err(e.context(
+            "this failure occurred on the wasm-opt output; retry with --no-optimize to check \
+             whether wasm-opt is the cause",
+        )),
+    }
+}
+
+/// Runs flatten (API version 0 only) → unnest (API version 0 only) →
+/// auto-guard/guard-verify (if requested and applicable) → [`verify`] over
+/// an already-cleaned (and, unless `--no-optimize` was passed, already-
+/// `wasm-opt`'d) module. Shared by both the optimized and `--no-optimize`
+/// paths of [`run_pipeline`] so the two never diverge in behavior beyond
+/// the extra `wasm-opt` step itself.
+fn flatten_unnest_guard_verify(
+    cleaned: Vec<u8>,
+    opts: &Options,
+) -> anyhow::Result<(Vec<u8>, ValidationReport)> {
     let flattened = if opts.api_version == ApiVersion::V0 {
         let (bytes, report) = flatten::flatten(&cleaned)?;
         for note in &report.notes {
@@ -138,6 +225,28 @@ pub fn run_pipeline(wasm: &[u8], opts: &Options) -> anyhow::Result<(Vec<u8>, Val
     };
     let report = verify(&guarded, opts)?;
     Ok((guarded, report))
+}
+
+/// Best-effort worst-case instruction counts for the cleaned-but-not-yet-
+/// `wasm-opt`'d module, purely for the before/after comparison shown when
+/// optimization runs.
+/// The vendored guard checker requires the flatten/unnest transforms first
+/// (`docs/DESIGN.md` §6.2b/§6.2c), so this runs a throwaway copy of them;
+/// any failure along the way (including a checker rejection) yields `None`
+/// rather than aborting the build — this is informational only, never a
+/// gate.
+fn pre_optimize_guard_verdict(cleaned: &[u8], opts: &Options) -> Option<GuardVerdict> {
+    if opts.api_version != ApiVersion::V0 {
+        return None;
+    }
+    let (flattened, _) = flatten::flatten(cleaned).ok()?;
+    let (unnested, _) = unnest::unnest(&flattened).ok()?;
+    let unnested = if opts.auto_guard {
+        guard::auto_guard(&unnested, opts).ok()?
+    } else {
+        unnested
+    };
+    guard_native::validate_guards_native(&unnested).ok()
 }
 
 /// Validates `wasm` and reconciles the Rust validator's verdict with the

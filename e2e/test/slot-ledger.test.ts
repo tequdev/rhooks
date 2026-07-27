@@ -29,7 +29,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-slot-ledger'
 // hooks-build's printed worst case for slot_ledger.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 197
+const WORST_CASE_INSTRUCTIONS = 190
 
 describe('slot-ledger', () => {
   let testContext: XrplIntegrationTestContext

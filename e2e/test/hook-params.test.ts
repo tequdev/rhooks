@@ -28,7 +28,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-hook-params'
 // hooks-build's printed worst case for hook_params.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 178
+const WORST_CASE_INSTRUCTIONS = 165
 // MIN HookParameter: 5,000,000 drops (5 XAH), matching the worked example
 // in examples/03_hook-params/README.md's hex-encoding section.
 const MIN_DROPS = 5_000_000n

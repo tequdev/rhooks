@@ -31,7 +31,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-state-counter'
 // hooks-build's printed worst case for state_counter.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 58
+const WORST_CASE_INSTRUCTIONS = 52
 
 // STATE_KEY = pad!(b"counter"): "counter" (7 bytes) left-aligned in a
 // 32-byte array, zero-padded on the right.

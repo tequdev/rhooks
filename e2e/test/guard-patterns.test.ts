@@ -35,7 +35,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-guard-patterns'
 // hooks-build's printed worst case for guard_patterns.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 1341
+const WORST_CASE_INSTRUCTIONS = 1292
 
 function accountIdHex(classicAddress: string): string {
   return Buffer.from(decodeAccountID(classicAddress)).toString('hex').toUpperCase()

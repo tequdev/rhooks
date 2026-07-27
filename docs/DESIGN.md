@@ -710,9 +710,11 @@ trade-off):
   the one `&'static mut`, second call returns `None`; the only `unsafe`
   lives inside hooks-lib, and hook code needs no `unsafe` and no clippy
   allows). This removed emit-txn's memset entirely: no `--auto-guard`,
-  WCE 6798 → ~350 and ~1.5 KB total (current-toolchain measurements —
-  exact figures drift with compiler versions; `hooks-build build` prints
-  the authoritative numbers. The take-once flag costs a few dozen bytes
+  WCE 6798 → ~310 and ~1.2 KB total (current-toolchain measurements, with
+  `hooks-build build`'s default `wasm-opt -Oz` pass included — exact
+  figures drift with compiler/Binaryen versions and with `--no-optimize`;
+  `hooks-build build` prints the authoritative numbers. The take-once flag
+  costs a few dozen bytes
   over a raw `static mut`, which in turn required
   `unsafe { &mut *&raw mut }` plus a `clippy::deref_addrof` allow at
   every site). Source-level avoidance of
