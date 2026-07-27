@@ -66,7 +66,7 @@ const CFG_PARAM: &[u8; 3] = b"CFG";
 /// Marker type naming the [`CFG_PARAM`] Hook parameter — see
 /// [`hook_parameter!`]'s doc comment for why a plain byte-string name still
 /// needs a small marker type declared for it (one Hook API name = one
-/// distinct Rust type, so `hook_param_kv`'s argument always resolves
+/// distinct Rust type, so `hook_param_typed`'s argument always resolves
 /// [`Config`] unambiguously, even though `CfgName` itself carries no data).
 struct CfgName;
 
@@ -121,11 +121,11 @@ struct DepositValue {
 }
 
 // Pairs `DepositKey` with `DepositValue` at the type level (see
-// `hooks_lib::state::TypedStateKey`'s doc comment): `state_get_kv`/
-// `state_set_kv` below always resolve the value type from the key
+// `hooks_lib::state::TypedStateKey`'s doc comment): `state_get_typed`/
+// `state_set_typed` below always resolve the value type from the key
 // itself, so passing some *other* struct's value for a `DepositKey` is a
 // compile error, not a latent bug — the loose `state_get::<T>`/
-// `state_set_typed::<T>` (independent `T`) would allow it.
+// `state_set_loose::<T>` (independent `T`) would allow it.
 hook_state!(DepositKey => DepositValue);
 
 /// This hook's configuration, installed via the [`CFG_PARAM`] Hook
@@ -143,11 +143,11 @@ struct Config {
 }
 
 // Pairs `CfgName` with `Config` (see `hooks_lib::convert::TypedParamName`'s
-// doc comment): `hook_param_kv(&CfgName)` below reads `CFG_PARAM` and
+// doc comment): `hook_param_typed(&CfgName)` below reads `CFG_PARAM` and
 // decodes the result as `Config` because `CfgName` says so — the name
 // argument, not a turbofish or an inferred return type, picks `Config`.
 // `hook_parameter!` (not `otxn_parameter!`) because `CfgName` is read via
-// `hook_param_kv` (this hook's own installed parameters) below.
+// `hook_param_typed` (this hook's own installed parameters) below.
 hook_parameter!(CfgName, CFG_PARAM => Config);
 
 /// Per-invocation instruction, read from the *originating transaction's
@@ -166,7 +166,7 @@ struct Instruction {
 
 // Same idea as `CfgName`/`Config` above, for the per-transaction `INS`
 // parameter — `otxn_parameter!` (not `hook_parameter!`) because `InsName`
-// is read via `otxn_param_kv` below.
+// is read via `otxn_param_typed` below.
 otxn_parameter!(InsName, INS_PARAM => Instruction);
 
 /// A **composite, struct-shaped** Hook parameter *name* — `{section,
@@ -214,7 +214,7 @@ struct PauseSwitch {
 // `Name => Ty`, mirroring `hook_state!`'s `Key => Value` exactly: the name
 // *type* (here, a whole struct) comes first, the type it names comes last.
 // Unlike the plain-name form, no literal is baked in here — any `AdminName`
-// *value* (see `ADMIN_PAUSE` above) can be passed to `hook_param_kv` at the
+// *value* (see `ADMIN_PAUSE` above) can be passed to `hook_param_typed` at the
 // call site, carrying real runtime field data.
 hook_parameter!(AdminName => PauseSwitch);
 
@@ -253,13 +253,13 @@ hook_errors! {
 /// Reads this hook's [`Config`] from the [`CFG_PARAM`] Hook parameter
 /// (named by [`CfgName`]), falling back to [`DEFAULT_MIN_AMOUNT`]/
 /// [`DEFAULT_LOCK_LEDGERS`] if it isn't set (or is the wrong size to be a
-/// valid `Config`) — the same `hook_param_kv` + `.unwrap_or(..)` pattern
+/// valid `Config`) — the same `hook_param_typed` + `.unwrap_or(..)` pattern
 /// `examples/03_hook-params`'s `min_drops` uses for a single `u64` (there,
 /// `hook_param_exact`), here reading a whole struct in one call: passing
 /// `&CfgName` picks `Config` as the result type (see the `hook_parameter!`
 /// declaration above `Config`) — no turbofish, no return-type annotation.
 fn config() -> Config {
-    hook_param_kv(&CfgName).unwrap_or(Config {
+    hook_param_typed(&CfgName).unwrap_or(Config {
         min_amount: DEFAULT_MIN_AMOUNT,
         lock_ledgers: DEFAULT_LOCK_LEDGERS,
     })
@@ -268,12 +268,12 @@ fn config() -> Config {
 /// Reads the [`AdminName`]-named [`PauseSwitch`] Hook parameter, returning
 /// whether new deposits are currently paused. Absent (never configured, or
 /// the wrong size) is treated as "not paused" — the same
-/// `hook_param_kv` + fallback pattern [`config`] uses, here collapsing the
+/// `hook_param_typed` + fallback pattern [`config`] uses, here collapsing the
 /// result down to a plain `bool` since the caller only needs the one bit.
 /// `PauseSwitch` (the closure's inferred parameter type) again comes from
 /// the `&ADMIN_PAUSE` argument, not an annotation.
 fn deposits_paused() -> bool {
-    hook_param_kv(&ADMIN_PAUSE)
+    hook_param_typed(&ADMIN_PAUSE)
         .map(|s| s.paused != 0)
         .unwrap_or(false)
 }
@@ -299,7 +299,7 @@ fn my_hook() -> i64 {
 
     // `Instruction` (the binding's inferred type) comes from the `&InsName`
     // argument, not an annotation.
-    let instruction = match otxn_param_kv(&InsName) {
+    let instruction = match otxn_param_typed(&InsName) {
         Ok(v) => v,
         Err(_) => rollback!(
             b"typed-data: INS parameter missing or malformed",
@@ -312,7 +312,7 @@ fn my_hook() -> i64 {
         owner,
     };
 
-    let current = match state_get_kv(&key) {
+    let current = match state_get_typed(&key) {
         Ok(existing) => existing.unwrap_or(EMPTY_DEPOSIT),
         Err(_) => rollback!(
             b"typed-data: state read failed",
@@ -363,7 +363,7 @@ fn my_hook() -> i64 {
         ),
     };
 
-    if state_set_kv(&key, &next).is_err() {
+    if state_set_typed(&key, &next).is_err() {
         rollback!(
             b"typed-data: state_set failed",
             TypedDataError::StateSetFailed

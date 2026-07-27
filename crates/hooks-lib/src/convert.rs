@@ -7,7 +7,7 @@
 //! [`crate::api::state::state_u64`]'s *underlying state entries* (as
 //! opposed to that function's own big-endian "as-int64" wire encoding —
 //! see its doc comment) so the typed storage layer (`crate::state`'s
-//! `state_get`/`state_set_typed`/`state_update_typed`) can encode/decode
+//! `state_get`/`state_set_loose`/`state_update_loose`) can encode/decode
 //! arbitrary fixed-size types without repeating that logic per call site.
 //!
 //! # Implementor's contract
@@ -312,10 +312,10 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// implement it for a name type (directly, or with
 /// [`hook_parameter!`](crate::hook_parameter)/
 /// [`otxn_parameter!`](crate::otxn_parameter)), then call
-/// [`crate::api::hook_ctx::hook_param_kv`]/[`crate::api::otxn::otxn_param_kv`]
+/// [`crate::api::hook_ctx::hook_param_typed`]/[`crate::api::otxn::otxn_param_typed`]
 /// with **a reference to a name value** — the accessor resolves
 /// [`Value`](Self::Value) from the name argument itself, exactly like
-/// [`crate::state::state_get_kv`] resolves `K::Value` from the key
+/// [`crate::state::state_get_typed`] resolves `K::Value` from the key
 /// argument. [`crate::api::hook_ctx::hook_param_exact`]/
 /// [`crate::api::otxn::otxn_param_exact`] take a raw `&[u8]` name and the
 /// value type `T` as two *independent* arguments instead — nothing stops
@@ -369,12 +369,12 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// pairing once ([`hook_parameter!`](crate::hook_parameter)/
 /// [`otxn_parameter!`](crate::otxn_parameter) here, [`crate::hook_state!`]
 /// there), then call an accessor that takes **a reference to a name/key
-/// value** and resolves the paired type from it (`hook_param_kv`/
-/// `otxn_param_kv` here, `state_get_kv`/`state_set_kv`/`state_update_kv`
+/// value** and resolves the paired type from it (`hook_param_typed`/
+/// `otxn_param_typed` here, `state_get_typed`/`state_set_typed`/`state_update_typed`
 /// there) — no turbofish, no chance of a mismatch. The one difference: a
 /// parameter is read-only from the reading hook's own perspective, so
-/// there is no `hook_param`/`otxn_param` counterpart to `state_set_kv`/
-/// `state_update_kv`.
+/// there is no `hook_param`/`otxn_param` counterpart to `state_set_typed`/
+/// `state_update_typed`.
 pub trait TypedParamName: ToBytes {
     /// The one value type this name is paired with.
     type Value: FixedRead;
@@ -414,7 +414,7 @@ pub trait TypedParamName: ToBytes {
 
 /// Implements [`TypedParamName`] for a **name** type, pairing it with
 /// `$Ty` — the one-line way to opt a name into
-/// [`crate::api::hook_ctx::hook_param_kv`] (this hook's own installed
+/// [`crate::api::hook_ctx::hook_param_typed`] (this hook's own installed
 /// parameters). Two forms, both spelled `.. => $Ty`, mirroring
 /// [`crate::hook_state!`]'s `Key => Value` — the name (the part that
 /// *locates* the parameter) comes first, the type it names (what gets
@@ -438,7 +438,7 @@ pub trait TypedParamName: ToBytes {
 ///   runtime encode — unavoidable for an arbitrary type). `$Ty` itself is
 ///   typically [`crate::ParamValue`]-derived.
 ///
-/// Either way, call [`crate::api::hook_ctx::hook_param_kv`] with **a
+/// Either way, call [`crate::api::hook_ctx::hook_param_typed`] with **a
 /// reference to a name value** (`&CfgName` for the marker case, an
 /// ordinary struct literal like `&AdminName { section: 0, field: 0 }` for
 /// the composite case) — `$Ty` is inferred from the name argument, never a
@@ -448,9 +448,9 @@ pub trait TypedParamName: ToBytes {
 /// [`otxn_parameter!`](crate::otxn_parameter) — the two are kept as
 /// **separate** macros (rather than one macro shared by both) purely for
 /// readability at the declaration site: `hook_parameter!` documents that a
-/// name is meant to be read via [`crate::api::hook_ctx::hook_param_kv`]
+/// name is meant to be read via [`crate::api::hook_ctx::hook_param_typed`]
 /// (this hook's own installed parameters), [`otxn_parameter!`](crate::otxn_parameter)
-/// that it's meant for [`crate::api::otxn::otxn_param_kv`] (a parameter
+/// that it's meant for [`crate::api::otxn::otxn_param_typed`] (a parameter
 /// attached to the *originating transaction*) — both implement the exact
 /// same [`TypedParamName`] trait.
 ///
@@ -466,7 +466,7 @@ pub trait TypedParamName: ToBytes {
 /// struct CfgName;
 /// hook_parameter!(CfgName, b"CFG" => Config);
 ///
-/// let cfg = hook_param_kv(&CfgName);
+/// let cfg = hook_param_typed(&CfgName);
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
 /// ```
 ///
@@ -492,7 +492,7 @@ pub trait TypedParamName: ToBytes {
 /// hook_parameter!(SeatParamName => Vote);
 ///
 /// let name = SeatParamName { topic: b'S', seat: 0 };
-/// assert!(hook_param_kv(&name).is_err());
+/// assert!(hook_param_typed(&name).is_err());
 /// ```
 #[macro_export]
 macro_rules! hook_parameter {
@@ -530,7 +530,7 @@ macro_rules! hook_parameter {
 
 /// Implements [`TypedParamName`] for a **name** type, pairing it with
 /// `$Ty` — the one-line way to opt a name into
-/// [`crate::api::otxn::otxn_param_kv`] (a parameter attached to the
+/// [`crate::api::otxn::otxn_param_typed`] (a parameter attached to the
 /// *originating transaction*). Identical grammar and expansion to
 /// [`hook_parameter!`](crate::hook_parameter) — see that macro's doc
 /// comment for the full writeup (both forms, the "why two separate
@@ -550,7 +550,7 @@ macro_rules! hook_parameter {
 /// struct InsName;
 /// otxn_parameter!(InsName, b"INS" => Instruction);
 ///
-/// let ins = otxn_param_kv(&InsName);
+/// let ins = otxn_param_typed(&InsName);
 /// assert_eq!(ins.err(), Some(HookError::NotImplemented));
 /// ```
 ///
@@ -574,7 +574,7 @@ macro_rules! hook_parameter {
 /// otxn_parameter!(SeatParamName => Vote);
 ///
 /// let name = SeatParamName { topic: b'S', seat: 0 };
-/// assert!(otxn_param_kv(&name).is_err());
+/// assert!(otxn_param_typed(&name).is_err());
 /// ```
 #[macro_export]
 macro_rules! otxn_parameter {

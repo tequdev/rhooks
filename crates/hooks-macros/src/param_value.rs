@@ -3,7 +3,7 @@
 //! Turns a plain, fixed-size, named-field struct into a fixed-offset,
 //! zero-cost `hooks_lib::convert::FromBytes`/`FixedRead` pair — the
 //! **read-back** half of a Hook API parameter, decoded by
-//! `hook_param_kv`/`otxn_param_kv` once the parameter's *name* (a separate
+//! `hook_param_typed`/`otxn_param_typed` once the parameter's *name* (a separate
 //! concept — see [`crate::param_name`]) has located it. See
 //! `hooks_lib::ParamValue`'s doc comment (the public-facing re-export
 //! site) for the full user-facing writeup, grammar, and worked/

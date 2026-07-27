@@ -21,7 +21,7 @@
 //!   `hooks_lib::convert::ToBytes` (the encoding half) — no `FromBytes`,
 //!   no `FixedRead`, no inherent `LEN` const or layout doc table. Trying
 //!   to read a `#[derive(ParamName)]` type back as a value (or use it
-//!   where `hook_param_kv`/`otxn_param_kv` expect a value type) fails to
+//!   where `hook_param_typed`/`otxn_param_typed` expect a value type) fails to
 //!   compile with an ordinary rustc trait-bound error naming the missing
 //!   trait — the same "don't implement our own type checker, let rustc's
 //!   error do the work" convention `HookData` already follows for a field

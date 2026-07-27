@@ -202,7 +202,7 @@ src/
 ├── error.rs       # HookError + Result<T>
 ├── types.rs       # AccountId, Hash, Keylet, ... #[repr(transparent)] fixed-size newtypes
 ├── convert.rs     # ToBytes/FromBytes boundary conversion traits
-├── state.rs       # typed state layer (state_get/state_set_typed/state_update_typed) + state_keys!
+├── state.rs       # typed state layer (state_get/state_set_loose/state_update_loose) + state_keys!
 ├── buf_eq.rs      # loop-free, panic-free fixed-size buffer equality (buf_eq_8/20/32/...)
 ├── errors.rs      # hook_errors! user error enum -> rollback code mapping
 ├── xfl.rs         # XFL newtype over i64, checked Add/Sub/Mul/Div/Neg operators, compare/eq/lt/gt methods + PartialEq/PartialOrd

@@ -65,14 +65,14 @@ and used directly — no manual byte packing anywhere in `src/lib.rs`:
 
 ```rust
 let key = DepositKey { tag: DEPOSIT_TAG, owner };
-let current = state_get_kv(&key)?.unwrap_or(EMPTY_DEPOSIT);
+let current = state_get_typed(&key)?.unwrap_or(EMPTY_DEPOSIT);
 // ...
-state_set_kv(&key, &next)?;
+state_set_typed(&key, &next)?;
 ```
 
 ## Pairing a key with its value type (and a param name with its value type)
 
-`state_get`/`state_set_typed` take the key and the value type as two
+`state_get`/`state_set_loose` take the key and the value type as two
 *independent* generic parameters — nothing stops calling
 `state_get::<SomeOtherValue>(&key)` for a `key`/`SomeOtherValue` combination
 that was never meant to go together, as long as `SomeOtherValue: FromBytes`
@@ -105,20 +105,20 @@ hook_parameter!(CfgName, CFG_PARAM => Config);
 otxn_parameter!(InsName, INS_PARAM => Instruction);
 ```
 
-`state_get_kv(&key)`/`state_set_kv(&key, &value)` (used above) resolve
+`state_get_typed(&key)`/`state_set_typed(&key, &value)` (used above) resolve
 `DepositKey`'s value type from the `key` argument itself — there is no
 second, independently-chosen `T` left for a mismatch to hide in — and
-`hook_param_kv(&CfgName)`/`otxn_param_kv(&InsName)` resolve `Config`/
+`hook_param_typed(&CfgName)`/`otxn_param_typed(&InsName)` resolve `Config`/
 `Instruction` from the *name argument*, the same way. `Config`/
 `Instruction`/`DepositValue` never need a type annotation anywhere in
 `src/lib.rs` (see `config()`/`my_hook()`) — the argument alone always picks
 the right type. Passing the wrong value type for `DepositKey` (e.g.
-`state_set_kv(&key, &some_other_struct)`) is now a compile error, not
+`state_set_typed(&key, &some_other_struct)`) is now a compile error, not
 a silent bug waiting to be discovered on a live node — see
 `hooks_lib::state::TypedStateKey`'s and `hooks_lib::convert::TypedParamName`'s
 doc comments for the full rationale, and `hooks_lib::HookKey`'s doc
 comment for a `compile_fail` example pinning the mismatch case.
-`state_get_kv`/`state_set_kv` and `hook_param_kv`/`otxn_param_kv` cost
+`state_get_typed`/`state_set_typed` and `hook_param_typed`/`otxn_param_typed` cost
 nothing beyond the loose functions they replace, *for a plain-tag
 parameter name* — measured at 413 worst-case instructions either way, the
 same as this hook's logic minus the `AdminName` pause switch covered next
@@ -133,7 +133,7 @@ struct-shaped value instead of a literal byte string. `hook_parameter!`/
 grammar either way (used above for `CfgName`/`InsName`, and below for the
 composite `AdminName`) — there's no separate "typed" vs. "typed for a
 composite name" function to choose between, and both forms are read by the
-exact same `hook_param_kv`/`otxn_param_kv`. (`hook_parameter!`/
+exact same `hook_param_typed`/`otxn_param_typed`. (`hook_parameter!`/
 `otxn_parameter!` are two separate macros with identical grammar and
 expansion — purely so the declaration site documents which of
 `hook_param`/`otxn_param` a name is meant for; see
@@ -348,7 +348,7 @@ its own runtime field data and its own `ToBytes` impl, so
 `hook_parameter!(AdminName => PauseSwitch)` relies on
 `TypedParamName::name_bytes`'s default (genuine-encode) body instead of an
 override — see the "Measured cost of a composite name" section below for
-what that costs. The pairing declared, `hook_param_kv` takes **a reference
+what that costs. The pairing declared, `hook_param_typed` takes **a reference
 to an `AdminName` value** (`&ADMIN_PAUSE` in [`deposits_paused`],
 `hooks_lib::PauseSwitch`'s type inferred from that argument, no
 annotation).

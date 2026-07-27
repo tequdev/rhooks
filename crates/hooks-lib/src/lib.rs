@@ -8,11 +8,11 @@
 //! - [`convert::ToBytes`]/[`convert::FromBytes`] — boundary conversion
 //!   traits for encoding/decoding fixed-size values to/from byte buffers.
 //! - [`state`] — a typed layer over hook state (`state_get`,
-//!   `state_set_typed`, `state_update_typed`, and the [`state_keys!`] macro
+//!   `state_set_loose`, `state_update_loose`, and the [`state_keys!`] macro
 //!   for declaring a state-key enum) built on top of [`convert`]. Pair a key
 //!   type with its one value type via [`state::TypedStateKey`]/
-//!   [`hook_state!`] and use `state_get_kv`/`state_set_kv`/
-//!   `state_update_kv` for a key/value mismatch that's a compile
+//!   [`hook_state!`] and use `state_get_typed`/`state_set_typed`/
+//!   `state_update_typed` for a key/value mismatch that's a compile
 //!   error instead of a latent bug (see [`state::TypedStateKey`]'s doc
 //!   comment).
 //! - [`buf_eq`] — loop-free, panic-free equality checks for those fixed-size
@@ -47,7 +47,7 @@
 //!     bound checked at derive time).
 //!   - [`HookData`] — a composite **hook-state value** (the full
 //!     `ToBytes`/`FromBytes`/`FixedRead` triple, read back and decoded by
-//!     `state_get`/`state_get_kv`).
+//!     `state_get`/`state_get_typed`).
 //!   - [`ParamName`] — a composite **Hook API parameter name** (write-only,
 //!     with the Hook API's own 1–32-byte parameter-name bound checked at
 //!     derive time).
@@ -161,9 +161,9 @@ pub use hooks_macros::cbak;
 ///
 /// A composite state key (a tag byte plus an `AccountId`) paired with a
 /// composite state value via [`hook_state!`] and used with
-/// [`state::state_get_kv`]/[`state::state_set_kv`] — no `state_keys!`
+/// [`state::state_get_typed`]/[`state::state_set_typed`] — no `state_keys!`
 /// declaration, no hand-packed byte buffer, and (unlike the loose
-/// [`state::state_get`]/[`state::state_set_typed`], which take the value
+/// [`state::state_get`]/[`state::state_set_loose`], which take the value
 /// type as an independent generic parameter — see
 /// [`state::TypedStateKey`]'s doc comment) no way to accidentally read/write
 /// `DepositKey`'s entry as some other struct's value type:
@@ -197,9 +197,9 @@ pub use hooks_macros::cbak;
 ///
 /// // `NotImplemented` here is the host stub every Hook API call returns on
 /// // a host build (see `hooks-core`) — this only proves the generated
-/// // `TypedStateKey`/`state_get_kv` call chain compiles and runs,
+/// // `TypedStateKey`/`state_get_typed` call chain compiles and runs,
 /// // exactly like `state_keys!`'s own doctest.
-/// assert_eq!(state_get_kv(&key), Err(HookError::NotImplemented));
+/// assert_eq!(state_get_typed(&key), Err(HookError::NotImplemented));
 /// ```
 ///
 /// An enum is rejected at compile time:
@@ -228,10 +228,10 @@ pub use hooks_macros::cbak;
 /// }
 /// ```
 ///
-/// The loose [`state::state_get`]/[`state::state_set_typed`] take a key and
+/// The loose [`state::state_get`]/[`state::state_set_loose`] take a key and
 /// a value type as independent generic parameters, so nothing there stops
 /// pairing a key with the *wrong* value type — [`hook_state!`] plus
-/// [`state::state_set_kv`] closes that: `value`'s type is checked
+/// [`state::state_set_typed`] closes that: `value`'s type is checked
 /// against the key's own declared [`state::TypedStateKey::Value`], so
 /// passing a value meant for a different key is a compile error (see
 /// [`state::TypedStateKey`]'s doc comment for the full rationale):
@@ -259,14 +259,14 @@ pub use hooks_macros::cbak;
 /// hook_state!(KeyA => ValueA);
 ///
 /// // ERROR: `ValueB` is not `KeyA`'s declared `Value` (`ValueA`).
-/// let _ = state_set_kv(&KeyA { tag: 0 }, &ValueB { amount: 0 });
+/// let _ = state_set_typed(&KeyA { tag: 0 }, &ValueB { amount: 0 });
 /// ```
 pub use hooks_macros::HookKey;
 
 /// Derives [`convert::ToBytes`]/[`convert::FromBytes`]/[`convert::FixedRead`]
 /// for a fixed-size, named-field struct used as a **composite hook-state
-/// value** — read back and decoded by `state_get`/`state_get_kv`, written by
-/// `state_set_typed`/`state_set_kv`. See [`HookKey`] for the state-*key*
+/// value** — read back and decoded by `state_get`/`state_get_typed`, written by
+/// `state_set_loose`/`state_set_typed`. See [`HookKey`] for the state-*key*
 /// counterpart (and why it's a separate, narrower derive rather than
 /// `HookData` also serving as a key), [`ParamName`] for the analogous Hook
 /// API parameter-*name* role, and [`ParamValue`] for the analogous
@@ -356,7 +356,7 @@ pub use hooks_macros::HookKey;
 /// See [`HookKey`]'s doc comment for a full key+value worked example
 /// (`DepositKey`/`DepositValue`, paired via [`hook_state!`]). A `HookData`
 /// struct also works directly as a state value with the loose
-/// [`state::state_get`]/[`state::state_set_typed`] (no key pairing, `T`
+/// [`state::state_get`]/[`state::state_set_loose`] (no key pairing, `T`
 /// named independently at the call site):
 ///
 /// ```
@@ -439,8 +439,8 @@ pub use hooks_macros::HookData;
 /// [`convert::TypedParamName`] (see
 /// [`hook_parameter!`](crate::hook_parameter)/
 /// [`otxn_parameter!`](crate::otxn_parameter)'s composite form, `$Name =>
-/// $Ty`, and [`crate::api::hook_ctx::hook_param_kv`]/
-/// [`crate::api::otxn::otxn_param_kv`], which take **a reference to a name
+/// $Ty`, and [`crate::api::hook_ctx::hook_param_typed`]/
+/// [`crate::api::otxn::otxn_param_typed`], which take **a reference to a name
 /// value**). See [`HookKey`] for the analogous hook-state *key* role, and
 /// [`ParamValue`] for the parameter *value* counterpart (what `$Ty` above
 /// must satisfy).
@@ -473,7 +473,7 @@ pub use hooks_macros::HookData;
 ///   [`convert::ToBytes`]: no [`convert::FromBytes`], no
 ///   [`convert::FixedRead`], no inherent `LEN` const. Trying to read a
 ///   `#[derive(ParamName)]` type back as a value (or use it where
-///   `hook_param_kv`/`otxn_param_kv` expect a value type) fails to compile
+///   `hook_param_typed`/`otxn_param_typed` expect a value type) fails to compile
 ///   with an ordinary rustc trait-bound error naming the missing trait.
 /// - A parameter name has its own length bound the Hook API itself
 ///   enforces — [`convert::PARAM_NAME_MAX_LEN`], **1 to 32 bytes**
@@ -519,7 +519,7 @@ pub use hooks_macros::HookData;
 /// otxn_parameter!(SeatParamName => Vote);
 ///
 /// let name = SeatParamName { topic: b'S', seat: 0 };
-/// assert!(otxn_param_kv(&name).is_err());
+/// assert!(otxn_param_typed(&name).is_err());
 /// ```
 ///
 /// An enum, a tuple struct, and a generic struct are all rejected at
@@ -574,7 +574,7 @@ pub use hooks_macros::ParamName;
 /// **Hook API parameter value** — the `$Ty` in
 /// [`hook_parameter!`](crate::hook_parameter)/
 /// [`otxn_parameter!`](crate::otxn_parameter), read back and decoded by
-/// [`api::hook_ctx::hook_param_kv`]/[`api::otxn::otxn_param_kv`] (and the
+/// [`api::hook_ctx::hook_param_typed`]/[`api::otxn::otxn_param_typed`] (and the
 /// loose [`api::hook_ctx::hook_param_exact`]/
 /// [`api::otxn::otxn_param_exact`]). See [`HookData`] for the analogous
 /// hook-state *value* role, and [`ParamName`] for the parameter *name*
@@ -589,7 +589,7 @@ pub use hooks_macros::ParamName;
 /// [`convert::FixedRead`]: no [`convert::ToBytes`], no inherent `LEN` const.
 /// A consequence: a `#[derive(ParamValue)]` struct cannot be used as a
 /// [`HookKey`]/[`ParamName`] field, nor as a hook-state value with
-/// [`state::state_set_typed`] — both need `ToBytes`, which this derive
+/// [`state::state_set_loose`] — both need `ToBytes`, which this derive
 /// deliberately does not provide (use [`HookData`] for a struct that needs
 /// to go both directions).
 ///
@@ -627,7 +627,7 @@ pub use hooks_macros::ParamName;
 /// struct CfgName;
 /// otxn_parameter!(CfgName, b"CFG" => Config);
 ///
-/// let cfg = otxn_param_kv(&CfgName);
+/// let cfg = otxn_param_typed(&CfgName);
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
 /// ```
 ///
@@ -687,10 +687,10 @@ pub mod prelude {
     pub use crate::convert::{FixedRead, FromBytes, ToBytes, TypedParamName};
     pub use crate::error::{HookError, Result};
     pub use crate::state::{
-        StateKeyEncode, TypedStateKey, state_foreign_get, state_foreign_get_kv,
-        state_foreign_set_kv, state_foreign_set_typed, state_foreign_update_kv,
-        state_foreign_update_typed, state_get, state_get_kv, state_set_kv, state_set_typed,
-        state_update_kv, state_update_typed,
+        StateKeyEncode, TypedStateKey, state_foreign_get, state_foreign_get_typed,
+        state_foreign_set_loose, state_foreign_set_typed, state_foreign_update_loose,
+        state_foreign_update_typed, state_get, state_get_typed, state_set_loose, state_set_typed,
+        state_update_loose, state_update_typed,
     };
     pub use crate::static_cell::HookStatic;
     pub use crate::tx_type::TxType;

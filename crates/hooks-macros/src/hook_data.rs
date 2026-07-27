@@ -3,7 +3,7 @@
 //! Turns a plain, fixed-size, named-field struct into a fixed-offset,
 //! zero-cost `hooks_lib::convert::ToBytes`/`FromBytes`/`FixedRead` triple,
 //! for a **hook-state value** — read back and decoded by
-//! `state_get_kv`/`state_get`, written by `state_set_kv`/`state_set_typed`.
+//! `state_get_typed`/`state_get`, written by `state_set_typed`/`state_set_loose`.
 //! See `hooks_lib::HookData`'s doc comment (the public-facing re-export
 //! site) for the full user-facing writeup, grammar, and worked/
 //! compile-fail examples — this module only implements the codegen.
