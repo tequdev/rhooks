@@ -37,12 +37,15 @@ use hooks_lib::{HookData, accept, hook, hook_errors, param_name, rollback, state
 const DEPOSIT_TAG: u8 = 1;
 
 /// Name of the Hook parameter (installed at `SetHook` time) carrying this
-/// hook's `Config`.
-const CFG_PARAM: &[u8] = b"CFG";
+/// hook's `Config`. `&[u8; 3]` (a fixed-size array reference, not a bare
+/// `&[u8]` slice) so `param_name!`'s simple form can infer
+/// `ParamName::Name` as `[u8; 3]` from it.
+const CFG_PARAM: &[u8; 3] = b"CFG";
 
 /// Name of the Hook parameter attached to each Invoke transaction itself,
-/// carrying that invocation's `Instruction`.
-const INS_PARAM: &[u8] = b"INS";
+/// carrying that invocation's `Instruction`. See [`CFG_PARAM`] for why this
+/// is `&[u8; 3]`, not `&[u8]`.
+const INS_PARAM: &[u8; 3] = b"INS";
 
 /// `Instruction::action` value for a deposit.
 const ACTION_DEPOSIT: u8 = 1;
@@ -83,8 +86,8 @@ struct DepositValue {
 }
 
 // Pairs `DepositKey` with `DepositValue` at the type level (see
-// `hooks_lib::state::TypedStateKey`'s doc comment): `state_get_typed`/
-// `state_set_typed_kv` below always resolve the value type from the key
+// `hooks_lib::state::TypedStateKey`'s doc comment): `state_get_kv`/
+// `state_set_kv` below always resolve the value type from the key
 // itself, so passing some *other* struct's value for a `DepositKey` is a
 // compile error, not a latent bug — the loose `state_get::<T>`/
 // `state_set_typed::<T>` (independent `T`) would allow it.
@@ -198,7 +201,7 @@ fn my_hook() -> i64 {
         owner,
     };
 
-    let current = match state_get_typed(&key) {
+    let current = match state_get_kv(&key) {
         Ok(existing) => existing.unwrap_or(EMPTY_DEPOSIT),
         Err(_) => rollback!(
             b"typed-data: state read failed",
@@ -243,7 +246,7 @@ fn my_hook() -> i64 {
         ),
     };
 
-    if state_set_typed_kv(&key, &next).is_err() {
+    if state_set_kv(&key, &next).is_err() {
         rollback!(
             b"typed-data: state_set failed",
             TypedDataError::StateSetFailed

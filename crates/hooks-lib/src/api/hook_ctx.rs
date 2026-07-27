@@ -89,11 +89,14 @@ pub fn hook_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// alternative to [`hook_param_exact`] when a hook parameter is always
 /// meant to decode as one specific type: there is no separate `name`
 /// argument that could name a *different* parameter than the one `T` was
-/// declared for. `#[inline(always)]` straight through to
-/// [`hook_param_exact`] — exactly as cheap.
+/// declared for.
 ///
-/// For a **composite, struct-shaped** parameter name (rather than a plain
-/// byte string), see [`hook_param_typed_kv`].
+/// Costs nothing beyond [`hook_param_exact`] for the common
+/// plain-byte-string-name case (e.g. `T::NAME = b"CFG"`, via
+/// [`param_name!`](crate::param_name)'s simple form) — see
+/// [`crate::convert::ParamName`]'s "Zero-cost" section. A **composite,
+/// struct-shaped** name costs a small, genuine runtime encode instead
+/// (unavoidable for an arbitrary type) — see the same doc comment.
 ///
 /// # Examples
 ///
@@ -111,7 +114,8 @@ pub fn hook_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// }
 ///
 /// impl ParamName for Threshold {
-///     const NAME: &'static [u8] = b"MIN";
+///     type Name = [u8; 3];
+///     const NAME: [u8; 3] = *b"MIN";
 /// }
 ///
 /// let value: Result<Threshold> = hook_param_typed();
@@ -119,43 +123,8 @@ pub fn hook_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// ```
 #[inline(always)]
 pub fn hook_param_typed<T: ParamName>() -> Result<T> {
-    hook_param_exact::<T>(T::NAME)
-}
-
-/// Read this hook's own parameter, named by `T::NAME` — a **composite,
-/// struct-shaped** name (see [`crate::convert::ParamKey`]'s doc comment)
-/// rather than [`hook_param_typed`]'s plain byte string. Encoding `T::NAME`
-/// costs a small, genuine runtime computation (see `ParamKey`'s doc
-/// comment for why) — use [`hook_param_typed`] instead for the (much more
-/// common) plain-byte-string-name case, which pays none of it.
-///
-/// # Examples
-///
-/// ```
-/// use hooks_lib::api::hook_ctx::hook_param_typed_kv;
-/// use hooks_lib::convert::ParamKey;
-/// use hooks_lib::error::{HookError, Result};
-///
-/// struct Threshold([u8; 8]);
-///
-/// impl hooks_lib::convert::FixedRead for Threshold {
-///     fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
-///         <[u8; 8]>::read_exact(read).map(Threshold)
-///     }
-/// }
-///
-/// impl ParamKey for Threshold {
-///     type Name = [u8; 3];
-///     const NAME: [u8; 3] = *b"MIN";
-/// }
-///
-/// let value: Result<Threshold> = hook_param_typed_kv();
-/// assert_eq!(value.err(), Some(HookError::NotImplemented));
-/// ```
-#[inline(always)]
-pub fn hook_param_typed_kv<T: crate::convert::ParamKey>() -> Result<T> {
     let mut name_buf = [0u8; crate::convert::PARAM_NAME_MAX_LEN];
-    let name = crate::convert::encode_param_key::<T>(&mut name_buf);
+    let name = T::name_bytes(&mut name_buf);
     hook_param_exact::<T>(name)
 }
 
@@ -202,11 +171,13 @@ mod tests {
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            hook_param_typed_kv::<TestKeyParam>(),
+            hook_param_typed::<TestKeyParam>(),
             Err(HookError::NotImplemented)
         );
     }
 
+    // Simple form: `Name` is a plain `[u8; N]`, `name_bytes` overridden to
+    // skip the default (encoding) body entirely.
     #[derive(Debug, PartialEq)]
     struct TestParam([u8; 4]);
 
@@ -217,9 +188,16 @@ mod tests {
     }
 
     impl crate::convert::ParamName for TestParam {
-        const NAME: &'static [u8] = b"x";
+        type Name = [u8; 1];
+        const NAME: [u8; 1] = *b"x";
+
+        fn name_bytes(_buf: &mut [u8; crate::convert::PARAM_NAME_MAX_LEN]) -> &[u8] {
+            &Self::NAME
+        }
     }
 
+    // Composite form: relies on `ParamName::name_bytes`'s default body
+    // (the genuine runtime encode, exercised here with a trivial `Name`).
     #[derive(Debug, PartialEq)]
     struct TestKeyParam([u8; 4]);
 
@@ -229,7 +207,7 @@ mod tests {
         }
     }
 
-    impl crate::convert::ParamKey for TestKeyParam {
+    impl crate::convert::ParamName for TestKeyParam {
         type Name = [u8; 1];
         const NAME: [u8; 1] = *b"x";
     }

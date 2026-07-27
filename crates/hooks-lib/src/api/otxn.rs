@@ -150,11 +150,14 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// this is the safer alternative to [`otxn_param_exact`] when a parameter
 /// is always meant to decode as one specific type: there is no separate
 /// `name` argument that could name a *different* parameter than the one
-/// `T` was declared for. `#[inline(always)]` straight through to
-/// [`otxn_param_exact`] — exactly as cheap.
+/// `T` was declared for.
 ///
-/// For a **composite, struct-shaped** parameter name (rather than a plain
-/// byte string), see [`otxn_param_typed_kv`].
+/// Costs nothing beyond [`otxn_param_exact`] for the common
+/// plain-byte-string-name case (e.g. `T::NAME = b"INS"`, via
+/// [`param_name!`](crate::param_name)'s simple form) — see
+/// [`crate::convert::ParamName`]'s "Zero-cost" section. A **composite,
+/// struct-shaped** name costs a small, genuine runtime encode instead
+/// (unavoidable for an arbitrary type) — see the same doc comment.
 ///
 /// # Examples
 ///
@@ -172,7 +175,8 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// }
 ///
 /// impl ParamName for Instruction {
-///     const NAME: &'static [u8] = b"INS";
+///     type Name = [u8; 3];
+///     const NAME: [u8; 3] = *b"INS";
 /// }
 ///
 /// let value: Result<Instruction> = otxn_param_typed();
@@ -180,44 +184,8 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// ```
 #[inline(always)]
 pub fn otxn_param_typed<T: ParamName>() -> Result<T> {
-    otxn_param_exact::<T>(T::NAME)
-}
-
-/// Read a Hook parameter attached to the originating transaction, named by
-/// `T::NAME` — a **composite, struct-shaped** name (see
-/// [`crate::convert::ParamKey`]'s doc comment) rather than
-/// [`otxn_param_typed`]'s plain byte string. Encoding `T::NAME` costs a
-/// small, genuine runtime computation (see `ParamKey`'s doc comment for
-/// why) — use [`otxn_param_typed`] instead for the (much more common)
-/// plain-byte-string-name case, which pays none of it.
-///
-/// # Examples
-///
-/// ```
-/// use hooks_lib::api::otxn::otxn_param_typed_kv;
-/// use hooks_lib::convert::ParamKey;
-/// use hooks_lib::error::{HookError, Result};
-///
-/// struct Instruction([u8; 9]);
-///
-/// impl hooks_lib::convert::FixedRead for Instruction {
-///     fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
-///         <[u8; 9]>::read_exact(read).map(Instruction)
-///     }
-/// }
-///
-/// impl ParamKey for Instruction {
-///     type Name = [u8; 3];
-///     const NAME: [u8; 3] = *b"INS";
-/// }
-///
-/// let value: Result<Instruction> = otxn_param_typed_kv();
-/// assert_eq!(value.err(), Some(HookError::NotImplemented));
-/// ```
-#[inline(always)]
-pub fn otxn_param_typed_kv<T: crate::convert::ParamKey>() -> Result<T> {
     let mut name_buf = [0u8; crate::convert::PARAM_NAME_MAX_LEN];
-    let name = crate::convert::encode_param_key::<T>(&mut name_buf);
+    let name = T::name_bytes(&mut name_buf);
     otxn_param_exact::<T>(name)
 }
 
@@ -257,11 +225,13 @@ mod tests {
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            otxn_param_typed_kv::<TestKeyParam>(),
+            otxn_param_typed::<TestKeyParam>(),
             Err(HookError::NotImplemented)
         );
     }
 
+    // Simple form: `Name` is a plain `[u8; N]`, `name_bytes` overridden to
+    // skip the default (encoding) body entirely.
     #[derive(Debug, PartialEq)]
     struct TestParam([u8; 4]);
 
@@ -272,9 +242,16 @@ mod tests {
     }
 
     impl crate::convert::ParamName for TestParam {
-        const NAME: &'static [u8] = b"x";
+        type Name = [u8; 1];
+        const NAME: [u8; 1] = *b"x";
+
+        fn name_bytes(_buf: &mut [u8; crate::convert::PARAM_NAME_MAX_LEN]) -> &[u8] {
+            &Self::NAME
+        }
     }
 
+    // Composite form: relies on `ParamName::name_bytes`'s default body
+    // (the genuine runtime encode, exercised here with a trivial `Name`).
     #[derive(Debug, PartialEq)]
     struct TestKeyParam([u8; 4]);
 
@@ -284,7 +261,7 @@ mod tests {
         }
     }
 
-    impl crate::convert::ParamKey for TestKeyParam {
+    impl crate::convert::ParamName for TestKeyParam {
         type Name = [u8; 1];
         const NAME: [u8; 1] = *b"x";
     }

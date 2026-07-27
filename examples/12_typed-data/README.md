@@ -49,9 +49,9 @@ and used directly — no manual byte packing anywhere in `src/lib.rs`:
 
 ```rust
 let key = DepositKey { tag: DEPOSIT_TAG, owner };
-let current = state_get_typed(&key)?.unwrap_or(EMPTY_DEPOSIT);
+let current = state_get_kv(&key)?.unwrap_or(EMPTY_DEPOSIT);
 // ...
-state_set_typed_kv(&key, &next)?;
+state_set_kv(&key, &next)?;
 ```
 
 ## Pairing a key with its value type (and a param name with its type)
@@ -76,35 +76,38 @@ param_name!(Config, CFG_PARAM);
 param_name!(Instruction, INS_PARAM);
 ```
 
-`state_get_typed`/`state_set_typed_kv` (used above) then resolve
+`state_get_kv`/`state_set_kv` (used above) then resolve
 `DepositKey`'s value type from `DepositKey` itself — there is no second,
 independently-chosen `T` left for a mismatch to hide in — and
 `hook_param_typed::<Config>()`/`otxn_param_typed::<Instruction>()` resolve
 their parameter name from the type itself, with **no name argument at the
 call site at all**. Passing the wrong value type for `DepositKey` (e.g.
-`state_set_typed_kv(&key, &some_other_struct)`) is now a compile error, not
+`state_set_kv(&key, &some_other_struct)`) is now a compile error, not
 a silent bug waiting to be discovered on a live node — see
 `hooks_lib::state::TypedStateKey`'s and `hooks_lib::convert::ParamName`'s
 doc comments for the full rationale, and `hooks_lib::HookData`'s doc
-comment for a `compile_fail` example pinning the mismatch case. Both
-wrappers are `#[inline(always)]` pass-throughs to the loose functions, so
-this costs nothing: this crate's worst-case instruction count is identical
-whether written with the loose or the paired API (413, either way).
+comment for a `compile_fail` example pinning the mismatch case. `state_get_kv`/
+`state_set_kv` and `hook_param_typed`/`otxn_param_typed` cost nothing beyond
+the loose functions they replace: this crate's worst-case instruction
+count is identical either way (413).
 
 A Hook API parameter name isn't always a plain tag like `"CFG"`/`"INS"`,
 either — per the Hook API itself, it's a genuine variable-length key of up
 to 32 bytes, and (exactly like a hook state key) can be a whole composite,
-struct-shaped value instead of a literal byte string. `ParamName` (used
-above) only covers the plain-byte-string case; a **composite** parameter
-name uses the separate `ParamKey` trait/`param_key!` macro and
-`hook_param_typed_kv`/`otxn_param_typed_kv` instead — kept as a distinct,
-opt-in path specifically so this crate's `Config`/`Instruction` (both
-plain byte-tag names) never pay for it: encoding an arbitrary struct into
-bytes at runtime is a small but real cost (Rust has no stable way to run a
-trait method like `ToBytes::write` at compile time), whereas a plain
-byte-string name is already-encoded static data with none. See
-`hooks_lib::convert::ParamKey`'s doc comment for a composite-name worked
-example.
+struct-shaped value instead of a literal byte string. `ParamName` covers
+both: `param_name!(Ty, b"...")` (used above, for this crate's plain
+`CFG`/`INS` tags) and `param_name!(Ty, NameType, value)` (for a
+**composite**, struct-shaped name) both implement the same trait, read by
+the same `hook_param_typed`/`otxn_param_typed` — there's no separate
+"typed" vs. "typed for a composite name" function to choose between.
+Only the plain-tag form is free, though: `ParamName::name_bytes` defaults
+to a small, genuine runtime encode (unavoidable for an arbitrary
+`ToBytes` type — Rust has no stable way to run a trait method at compile
+time), and the simple macro form overrides it to hand over the
+already-`'static` bytes directly instead, which is why this crate's
+plain-tag `CFG`/`INS` names still cost nothing. See
+`hooks_lib::convert::ParamName`'s doc comment for the composite-name
+worked example and the full zero-cost rationale.
 
 ## Before/after: what `#[derive(HookData)]` replaces
 

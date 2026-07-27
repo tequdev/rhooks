@@ -108,7 +108,7 @@
 //! [`TypedStateKey`] closes that gap: implement it for a key type (directly,
 //! or with the one-line [`state_key_value!`](crate::state_key_value) macro)
 //! to declare its one paired value type once, then use
-//! [`state_get_typed`]/[`state_set_typed_kv`]/[`state_update_typed_kv`] (+
+//! [`state_get_kv`]/[`state_set_kv`]/[`state_update_kv`] (+
 //! `_foreign` twins) — these read `K::Value` off the key's own type, so a
 //! mismatched value type has no generic parameter left to hide in; it's a
 //! compile error instead of a latent bug. Prefer these whenever a key type
@@ -184,8 +184,8 @@ impl<T: ToBytes> StateKeyEncode for T {
 /// `WrongValue: FromBytes` (true of nearly every fixed-size type this crate
 /// provides). Implementing `TypedStateKey` for a key type — directly, or via
 /// [`state_key_value!`](crate::state_key_value) — ties it to exactly one
-/// value type; [`state_get_typed`]/[`state_set_typed_kv`]/
-/// [`state_update_typed_kv`] (+ `_foreign` twins) then read `K::Value` off
+/// value type; [`state_get_kv`]/[`state_set_kv`]/
+/// [`state_update_kv`] (+ `_foreign` twins) then read `K::Value` off
 /// the key's own type, so there is no second, independently-chosen value
 /// type left for a mismatch to hide in. Prefer these over the loose
 /// `state_get`/`state_set_typed`/`state_update_typed` whenever a key type
@@ -256,7 +256,7 @@ pub fn state_get<T: FromBytes>(key: &impl StateKeyEncode) -> Result<Option<T>> {
 /// [`state_get`] (see [`TypedStateKey`]'s doc comment for why). `Ok(None)`
 /// means no entry exists — see the module doc comment.
 #[inline(always)]
-pub fn state_get_typed<K: TypedStateKey>(key: &K) -> Result<Option<K::Value>> {
+pub fn state_get_kv<K: TypedStateKey>(key: &K) -> Result<Option<K::Value>> {
     state_get::<K::Value>(key)
 }
 
@@ -277,7 +277,7 @@ pub fn state_set_typed<T: ToBytes>(key: &impl StateKeyEncode, value: &T) -> Resu
 /// passing a value meant for a different key is a compile error. Returns
 /// the number of bytes written.
 #[inline(always)]
-pub fn state_set_typed_kv<K: TypedStateKey>(key: &K, value: &K::Value) -> Result<usize> {
+pub fn state_set_kv<K: TypedStateKey>(key: &K, value: &K::Value) -> Result<usize> {
     state_set_typed(key, value)
 }
 
@@ -299,7 +299,7 @@ where
 /// own [`TypedStateKey::Value`] — the key/value-pairing-safe counterpart to
 /// [`state_update_typed`] (see [`TypedStateKey`]'s doc comment for why).
 #[inline(always)]
-pub fn state_update_typed_kv<K, F>(key: &K, f: F) -> Result<usize>
+pub fn state_update_kv<K, F>(key: &K, f: F) -> Result<usize>
 where
     K: TypedStateKey,
     F: FnOnce(Option<K::Value>) -> K::Value,
@@ -368,7 +368,7 @@ where
 /// [`crate::api::state::state_foreign`]'s `Option` convention. `Ok(None)`
 /// means no entry exists — see the module doc comment.
 #[inline(always)]
-pub fn state_foreign_get_typed<K: TypedStateKey>(
+pub fn state_foreign_get_kv<K: TypedStateKey>(
     key: &K,
     namespace: Option<&[u8]>,
     account: Option<&[u8]>,
@@ -383,7 +383,7 @@ pub fn state_foreign_get_typed<K: TypedStateKey>(
 /// [`crate::api::state::state_foreign`]'s `Option` convention. Returns the
 /// number of bytes written.
 #[inline(always)]
-pub fn state_foreign_set_typed_kv<K: TypedStateKey>(
+pub fn state_foreign_set_kv<K: TypedStateKey>(
     key: &K,
     value: &K::Value,
     namespace: Option<&[u8]>,
@@ -398,7 +398,7 @@ pub fn state_foreign_set_typed_kv<K: TypedStateKey>(
 /// doc comment for why). `namespace`/`account` follow
 /// [`crate::api::state::state_foreign`]'s `Option` convention.
 #[inline(always)]
-pub fn state_foreign_update_typed_kv<K, F>(
+pub fn state_foreign_update_kv<K, F>(
     key: &K,
     namespace: Option<&[u8]>,
     account: Option<&[u8]>,
@@ -608,8 +608,8 @@ macro_rules! __state_keys_step {
 }
 
 /// Implements [`TypedStateKey`] for `$Key`, pairing it with `$Value` — the
-/// one-line way to opt a key type into [`state_get_typed`]/
-/// [`state_set_typed_kv`]/[`state_update_typed_kv`] (+ `_foreign` twins).
+/// one-line way to opt a key type into [`state_get_kv`]/
+/// [`state_set_kv`]/[`state_update_kv`] (+ `_foreign` twins).
 /// See [`TypedStateKey`]'s doc comment for why these are safer than the
 /// loose `state_get`/`state_set_typed`/`state_update_typed`.
 ///
@@ -631,9 +631,9 @@ macro_rules! __state_keys_step {
 ///
 /// // `NotImplemented` here is the host stub every Hook API call returns on
 /// // a host build — this only proves the generated `TypedStateKey`/
-/// // `state_get_typed` call chain compiles and runs.
+/// // `state_get_kv` call chain compiles and runs.
 /// assert_eq!(
-///     state_get_typed(&MyKey { tag: 0 }),
+///     state_get_kv(&MyKey { tag: 0 }),
 ///     Err(HookError::NotImplemented)
 /// );
 /// ```
@@ -769,27 +769,27 @@ mod tests {
     #[test]
     fn typed_pair_smoke_not_implemented_on_host() {
         assert_eq!(
-            state_get_typed(&TestKey::Counter),
+            state_get_kv(&TestKey::Counter),
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_set_typed_kv(&TestKey::Counter, &1u32),
+            state_set_kv(&TestKey::Counter, &1u32),
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_update_typed_kv(&TestKey::Counter, |_| 1u32),
+            state_update_kv(&TestKey::Counter, |_| 1u32),
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_foreign_get_typed(&TestKey::Counter, None, None),
+            state_foreign_get_kv(&TestKey::Counter, None, None),
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_foreign_set_typed_kv(&TestKey::Counter, &1u32, None, None),
+            state_foreign_set_kv(&TestKey::Counter, &1u32, None, None),
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_foreign_update_typed_kv(&TestKey::Counter, None, None, |_| 1u32),
+            state_foreign_update_kv(&TestKey::Counter, None, None, |_| 1u32),
             Err(HookError::NotImplemented)
         );
     }

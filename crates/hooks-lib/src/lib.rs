@@ -11,8 +11,8 @@
 //!   `state_set_typed`, `state_update_typed`, and the [`state_keys!`] macro
 //!   for declaring a state-key enum) built on top of [`convert`]. Pair a key
 //!   type with its one value type via [`state::TypedStateKey`]/
-//!   [`state_key_value!`] and use `state_get_typed`/`state_set_typed_kv`/
-//!   `state_update_typed_kv` for a key/value mismatch that's a compile
+//!   [`state_key_value!`] and use `state_get_kv`/`state_set_kv`/
+//!   `state_update_kv` for a key/value mismatch that's a compile
 //!   error instead of a latent bug (see [`state::TypedStateKey`]'s doc
 //!   comment).
 //! - [`buf_eq`] — loop-free, panic-free equality checks for those fixed-size
@@ -180,8 +180,8 @@ pub use hooks_macros::cbak;
 ///
 /// A composite state key (a tag byte plus an `AccountId`) and a composite
 /// state value (an amount, a deadline, and a flags byte), paired via
-/// [`state_key_value!`] and used with [`state::state_get_typed`]/
-/// [`state::state_set_typed_kv`] — no `state_keys!` declaration, no
+/// [`state_key_value!`] and used with [`state::state_get_kv`]/
+/// [`state::state_set_kv`] — no `state_keys!` declaration, no
 /// hand-packed byte buffer, and (unlike the loose [`state::state_get`]/
 /// [`state::state_set_typed`], which take the value type as an independent
 /// generic parameter — see [`state::TypedStateKey`]'s doc comment) no way to
@@ -218,9 +218,9 @@ pub use hooks_macros::cbak;
 ///
 /// // `NotImplemented` here is the host stub every Hook API call returns on
 /// // a host build (see `hooks-core`) — this only proves the generated
-/// // `TypedStateKey`/`state_get_typed` call chain compiles and runs,
+/// // `TypedStateKey`/`state_get_kv` call chain compiles and runs,
 /// // exactly like `state_keys!`'s own doctest.
-/// assert_eq!(state_get_typed(&key), Err(HookError::NotImplemented));
+/// assert_eq!(state_get_kv(&key), Err(HookError::NotImplemented));
 /// ```
 ///
 /// A struct used as a fixed-size `otxn_param`/`hook_param` payload, named
@@ -310,7 +310,7 @@ pub use hooks_macros::cbak;
 /// The loose [`state::state_get`]/[`state::state_set_typed`] take a key and
 /// a value type as independent generic parameters, so nothing there stops
 /// pairing a key with the *wrong* value type — [`state_key_value!`] plus
-/// [`state::state_set_typed_kv`] closes that: `value`'s type is checked
+/// [`state::state_set_kv`] closes that: `value`'s type is checked
 /// against the key's own declared [`state::TypedStateKey::Value`], so
 /// passing a value meant for a different key is a compile error (see
 /// [`state::TypedStateKey`]'s doc comment for the full rationale):
@@ -338,7 +338,7 @@ pub use hooks_macros::cbak;
 /// state_key_value!(KeyA => ValueA);
 ///
 /// // ERROR: `ValueB` is not `KeyA`'s declared `Value` (`ValueA`).
-/// let _ = state_set_typed_kv(&KeyA { tag: 0 }, &ValueB { amount: 0 });
+/// let _ = state_set_kv(&KeyA { tag: 0 }, &ValueB { amount: 0 });
 /// ```
 pub use hooks_macros::HookData;
 
@@ -363,13 +363,13 @@ pub use hooks_macros::paste as __paste;
 pub mod prelude {
     pub use crate::api::*;
     pub use crate::buf_eq::*;
-    pub use crate::convert::{FixedRead, FromBytes, ParamKey, ParamName, ToBytes};
+    pub use crate::convert::{FixedRead, FromBytes, ParamName, ToBytes};
     pub use crate::error::{HookError, Result};
     pub use crate::state::{
-        StateKeyEncode, TypedStateKey, state_foreign_get, state_foreign_get_typed,
-        state_foreign_set_typed, state_foreign_set_typed_kv, state_foreign_update_typed,
-        state_foreign_update_typed_kv, state_get, state_get_typed, state_set_typed,
-        state_set_typed_kv, state_update_typed, state_update_typed_kv,
+        StateKeyEncode, TypedStateKey, state_foreign_get, state_foreign_get_kv,
+        state_foreign_set_kv, state_foreign_set_typed, state_foreign_update_kv,
+        state_foreign_update_typed, state_get, state_get_kv, state_set_kv, state_set_typed,
+        state_update_kv, state_update_typed,
     };
     pub use crate::static_cell::HookStatic;
     pub use crate::tx_type::TxType;
