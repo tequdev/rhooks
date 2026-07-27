@@ -291,6 +291,52 @@ impl<const N: usize> FixedRead for [u8; N] {
     }
 }
 
+/// A [`FixedRead`] type that names its own `hook_param`/`otxn_param`
+/// parameter name.
+///
+/// [`crate::api::hook_ctx::hook_param_exact`]/
+/// [`crate::api::otxn::otxn_param_exact`] take the parameter's name and the
+/// value type `T` as two *independent* arguments — nothing stops calling
+/// `otxn_param_exact::<WrongType>(b"INS")` for a name/type pairing that was
+/// never intended, as long as `WrongType: FixedRead` (true of nearly every
+/// fixed-size type this crate provides). Implementing `ParamName` for a
+/// type (directly, or via [`param_name!`](crate::param_name)) ties it to
+/// exactly one parameter name; [`crate::api::hook_ctx::hook_param_typed`]/
+/// [`crate::api::otxn::otxn_param_typed`] then read `T::NAME` from the
+/// type itself — there is no second, independently-spelled name argument
+/// left for a mismatch to hide in.
+pub trait ParamName: FixedRead {
+    /// This parameter's name, as raw bytes (e.g. `b"CFG"`).
+    const NAME: &'static [u8];
+}
+
+/// Implements [`ParamName`] for `$Ty`, naming it `$name` — the one-line way
+/// to opt a type into [`crate::api::hook_ctx::hook_param_typed`]/
+/// [`crate::api::otxn::otxn_param_typed`].
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{param_name, HookData};
+///
+/// #[derive(HookData)]
+/// struct Config {
+///     min_amount: u64,
+/// }
+///
+/// param_name!(Config, b"CFG");
+///
+/// let cfg: Result<Config> = hook_param_typed();
+/// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
+/// ```
+#[macro_export]
+macro_rules! param_name {
+    ($Ty:ty, $name:expr) => {
+        impl $crate::convert::ParamName for $Ty {
+            const NAME: &'static [u8] = $name;
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

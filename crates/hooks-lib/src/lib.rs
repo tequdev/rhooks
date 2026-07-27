@@ -9,7 +9,12 @@
 //!   traits for encoding/decoding fixed-size values to/from byte buffers.
 //! - [`state`] — a typed layer over hook state (`state_get`,
 //!   `state_set_typed`, `state_update_typed`, and the [`state_keys!`] macro
-//!   for declaring a state-key enum) built on top of [`convert`].
+//!   for declaring a state-key enum) built on top of [`convert`]. Pair a key
+//!   type with its one value type via [`state::TypedStateKey`]/
+//!   [`state_key_value!`] and use `state_get_typed`/`state_set_typed_kv`/
+//!   `state_update_typed_kv` for a key/value mismatch that's a compile
+//!   error instead of a latent bug (see [`state::TypedStateKey`]'s doc
+//!   comment).
 //! - [`buf_eq`] — loop-free, panic-free equality checks for those fixed-size
 //!   buffers/newtypes (use instead of `==`, which can compile to an
 //!   unguarded `compiler_builtins` `bcmp` loop).
@@ -174,26 +179,34 @@ pub use hooks_macros::cbak;
 /// # Examples
 ///
 /// A composite state key (a tag byte plus an `AccountId`) and a composite
-/// state value (an amount, a deadline, and a flags byte), used directly with
-/// [`state::state_get`] — no `state_keys!` declaration, no hand-packed byte
-/// buffer:
+/// state value (an amount, a deadline, and a flags byte), paired via
+/// [`state_key_value!`] and used with [`state::state_get_typed`]/
+/// [`state::state_set_typed_kv`] — no `state_keys!` declaration, no
+/// hand-packed byte buffer, and (unlike the loose [`state::state_get`]/
+/// [`state::state_set_typed`], which take the value type as an independent
+/// generic parameter — see [`state::TypedStateKey`]'s doc comment) no way to
+/// accidentally read/write `DepositKey`'s entry as some other struct's value
+/// type:
 ///
 /// ```
 /// use hooks_lib::HookData;
 /// use hooks_lib::prelude::*;
+/// use hooks_lib::state_key_value;
 ///
-/// #[derive(HookData)]
+/// #[derive(HookData, Clone, Copy)]
 /// struct DepositKey {
 ///     tag: u8,
 ///     owner: AccountId,
 /// }
 ///
-/// #[derive(HookData, Debug, PartialEq)]
+/// #[derive(HookData, Clone, Copy, Debug, PartialEq)]
 /// struct DepositValue {
 ///     amount: u64,
 ///     deadline: u32,
 ///     flags: u8,
 /// }
+///
+/// state_key_value!(DepositKey => DepositValue);
 ///
 /// assert_eq!(DepositKey::LEN, 1 + 20);
 /// assert_eq!(DepositValue::LEN, 8 + 4 + 1);
@@ -205,19 +218,23 @@ pub use hooks_macros::cbak;
 ///
 /// // `NotImplemented` here is the host stub every Hook API call returns on
 /// // a host build (see `hooks-core`) — this only proves the generated
-/// // `ToBytes`/`FromBytes` call chain compiles and runs, exactly like
-/// // `state_keys!`'s own doctest.
-/// assert_eq!(
-///     state_get::<DepositValue>(&key),
-///     Err(HookError::NotImplemented)
-/// );
+/// // `TypedStateKey`/`state_get_typed` call chain compiles and runs,
+/// // exactly like `state_keys!`'s own doctest.
+/// assert_eq!(state_get_typed(&key), Err(HookError::NotImplemented));
 /// ```
 ///
-/// A struct used as a fixed-size `otxn_param`/`hook_param` payload:
+/// A struct used as a fixed-size `otxn_param`/`hook_param` payload, named
+/// via [`param_name!`](crate::param_name) and read with
+/// [`api::otxn::otxn_param_typed`] — again, unlike [`api::otxn::otxn_param_exact`]
+/// (which takes the parameter name as an independent argument — see
+/// [`convert::ParamName`]'s doc comment), there is no separate `name`
+/// argument that could name a *different* parameter than the one `Config`
+/// was declared for:
 ///
 /// ```
 /// use hooks_lib::HookData;
 /// use hooks_lib::prelude::*;
+/// use hooks_lib::param_name;
 ///
 /// #[derive(HookData)]
 /// struct Config {
@@ -225,7 +242,9 @@ pub use hooks_macros::cbak;
 ///     max_amount: u64,
 /// }
 ///
-/// let cfg: Result<Config> = otxn_param_exact(b"CFG");
+/// param_name!(Config, b"CFG");
+///
+/// let cfg: Result<Config> = otxn_param_typed();
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
 /// ```
 ///
@@ -287,6 +306,40 @@ pub use hooks_macros::cbak;
 ///     b: [0; 20],
 /// });
 /// ```
+///
+/// The loose [`state::state_get`]/[`state::state_set_typed`] take a key and
+/// a value type as independent generic parameters, so nothing there stops
+/// pairing a key with the *wrong* value type — [`state_key_value!`] plus
+/// [`state::state_set_typed_kv`] closes that: `value`'s type is checked
+/// against the key's own declared [`state::TypedStateKey::Value`], so
+/// passing a value meant for a different key is a compile error (see
+/// [`state::TypedStateKey`]'s doc comment for the full rationale):
+///
+/// ```compile_fail
+/// use hooks_lib::HookData;
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::state_key_value;
+///
+/// #[derive(HookData, Clone, Copy)]
+/// struct KeyA {
+///     tag: u8,
+/// }
+///
+/// #[derive(HookData, Clone, Copy)]
+/// struct ValueA {
+///     count: u32,
+/// }
+///
+/// #[derive(HookData, Clone, Copy)]
+/// struct ValueB {
+///     amount: u64,
+/// }
+///
+/// state_key_value!(KeyA => ValueA);
+///
+/// // ERROR: `ValueB` is not `KeyA`'s declared `Value` (`ValueA`).
+/// let _ = state_set_typed_kv(&KeyA { tag: 0 }, &ValueB { amount: 0 });
+/// ```
 pub use hooks_macros::HookData;
 
 // `txn_template!` expands `[<set_ $field>]` splice markers through
@@ -310,11 +363,13 @@ pub use hooks_macros::paste as __paste;
 pub mod prelude {
     pub use crate::api::*;
     pub use crate::buf_eq::*;
-    pub use crate::convert::{FixedRead, FromBytes, ToBytes};
+    pub use crate::convert::{FixedRead, FromBytes, ParamName, ToBytes};
     pub use crate::error::{HookError, Result};
     pub use crate::state::{
-        StateKeyEncode, state_foreign_get, state_foreign_set_typed, state_foreign_update_typed,
-        state_get, state_set_typed, state_update_typed,
+        StateKeyEncode, TypedStateKey, state_foreign_get, state_foreign_get_typed,
+        state_foreign_set_typed, state_foreign_set_typed_kv, state_foreign_update_typed,
+        state_foreign_update_typed_kv, state_get, state_get_typed, state_set_typed,
+        state_set_typed_kv, state_update_typed, state_update_typed_kv,
     };
     pub use crate::static_cell::HookStatic;
     pub use crate::tx_type::TxType;

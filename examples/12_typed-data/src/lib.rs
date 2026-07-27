@@ -20,15 +20,17 @@
 //! multi-field struct.
 //!
 //! See the README for the hand-packed-vs-derived byte layout this replaces,
-//! and the measured worst-case-instruction-count comparison proving the
-//! derive is zero-cost.
+//! the measured worst-case-instruction-count comparison proving the derive
+//! is zero-cost, and why every key/value pair and every named parameter
+//! below is declared through [`state_key_value!`]/[`param_name!`] rather
+//! than passed as loose, independently-typed arguments at each call site.
 //!
 //! Build: `hooks-build build --manifest-path examples/12_typed-data/Cargo.toml`
 
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{HookData, accept, hook, hook_errors, rollback};
+use hooks_lib::{HookData, accept, hook, hook_errors, param_name, rollback, state_key_value};
 
 /// The one key "kind" this hook stores (reserved for future expansion —
 /// see `DepositKey`'s doc comment).
@@ -80,6 +82,14 @@ struct DepositValue {
     flags: u8,
 }
 
+// Pairs `DepositKey` with `DepositValue` at the type level (see
+// `hooks_lib::state::TypedStateKey`'s doc comment): `state_get_typed`/
+// `state_set_typed_kv` below always resolve the value type from the key
+// itself, so passing some *other* struct's value for a `DepositKey` is a
+// compile error, not a latent bug — the loose `state_get::<T>`/
+// `state_set_typed::<T>` (independent `T`) would allow it.
+state_key_value!(DepositKey => DepositValue);
+
 /// This hook's configuration, installed via the [`CFG_PARAM`] Hook
 /// parameter — see [`config`].
 #[derive(HookData, Clone, Copy)]
@@ -90,6 +100,12 @@ struct Config {
     /// (re)deposited in.
     lock_ledgers: u32,
 }
+
+// Ties `Config` to its own parameter name (see `hooks_lib::convert::ParamName`'s
+// doc comment): `hook_param_typed::<Config>()` below reads `CFG_PARAM` because
+// `Config` says so, not because some call site happened to pass the right
+// byte string for the right type.
+param_name!(Config, CFG_PARAM);
 
 /// Per-invocation instruction, read from the *originating transaction's
 /// own* `HookParameters` (via `otxn_param`, not `hook_param`) — every
@@ -103,6 +119,9 @@ struct Instruction {
     /// the whole balance).
     amount: u64,
 }
+
+// Same idea as `Config` above, for the per-transaction `INS` parameter.
+param_name!(Instruction, INS_PARAM);
 
 hook_errors! {
     /// `typed-data` rollback codes.
@@ -135,11 +154,13 @@ hook_errors! {
 /// Reads this hook's [`Config`] from the [`CFG_PARAM`] Hook parameter,
 /// falling back to [`DEFAULT_MIN_AMOUNT`]/[`DEFAULT_LOCK_LEDGERS`] if it
 /// isn't set (or is the wrong size to be a valid `Config`) — the same
-/// `hook_param_exact` + `.unwrap_or(..)` pattern
-/// `examples/03_hook-params`'s `min_drops` uses for a single `u64`, here
-/// reading a whole struct in one call.
+/// `hook_param_typed` + `.unwrap_or(..)` pattern
+/// `examples/03_hook-params`'s `min_drops` uses for a single `u64` (there,
+/// `hook_param_exact`), here reading a whole struct in one call with no
+/// `CFG_PARAM` argument at the call site at all (see the `param_name!`
+/// declaration above `Config`).
 fn config() -> Config {
-    hook_param_exact(CFG_PARAM).unwrap_or(Config {
+    hook_param_typed().unwrap_or(Config {
         min_amount: DEFAULT_MIN_AMOUNT,
         lock_ledgers: DEFAULT_LOCK_LEDGERS,
     })
@@ -164,7 +185,7 @@ fn my_hook() -> i64 {
         ),
     };
 
-    let instruction: Instruction = match otxn_param_exact(INS_PARAM) {
+    let instruction: Instruction = match otxn_param_typed() {
         Ok(v) => v,
         Err(_) => rollback!(
             b"typed-data: INS parameter missing or malformed",
@@ -177,7 +198,7 @@ fn my_hook() -> i64 {
         owner,
     };
 
-    let current = match state_get::<DepositValue>(&key) {
+    let current = match state_get_typed(&key) {
         Ok(existing) => existing.unwrap_or(EMPTY_DEPOSIT),
         Err(_) => rollback!(
             b"typed-data: state read failed",
@@ -222,7 +243,7 @@ fn my_hook() -> i64 {
         ),
     };
 
-    if state_set_typed(&key, &next).is_err() {
+    if state_set_typed_kv(&key, &next).is_err() {
         rollback!(
             b"typed-data: state_set failed",
             TypedDataError::StateSetFailed

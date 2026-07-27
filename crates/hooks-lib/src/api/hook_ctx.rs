@@ -1,7 +1,7 @@
 //! Information about the executing hook itself: its account, hash, and
 //! parameters.
 
-use crate::convert::FixedRead;
+use crate::convert::{FixedRead, ParamName};
 use crate::error::{Result, res};
 use crate::types::{AccountId, Hash};
 
@@ -84,6 +84,40 @@ pub fn hook_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
     T::read_exact(|buf| hook_param(buf, name))
 }
 
+/// Read this hook's own parameter, named by `T` itself — see
+/// [`crate::convert::ParamName`]'s doc comment for why this is the safer
+/// alternative to [`hook_param_exact`] when a hook parameter is always
+/// meant to decode as one specific type: there is no separate `name`
+/// argument that could name a *different* parameter than the one `T` was
+/// declared for.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::hook_ctx::hook_param_typed;
+/// use hooks_lib::convert::ParamName;
+/// use hooks_lib::error::{HookError, Result};
+///
+/// struct Threshold([u8; 8]);
+///
+/// impl hooks_lib::convert::FixedRead for Threshold {
+///     fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+///         <[u8; 8]>::read_exact(read).map(Threshold)
+///     }
+/// }
+///
+/// impl ParamName for Threshold {
+///     const NAME: &'static [u8] = b"MIN";
+/// }
+///
+/// let value: Result<Threshold> = hook_param_typed();
+/// assert_eq!(value.err(), Some(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn hook_param_typed<T: ParamName>() -> Result<T> {
+    hook_param_exact::<T>(T::NAME)
+}
+
 /// Set a parameter named `name` to `value` on the hook identified by
 /// `hook_hash`. Returns the number of bytes written.
 #[inline(always)]
@@ -122,5 +156,22 @@ mod tests {
             hook_param_exact::<[u8; 4]>(b"x"),
             Err(HookError::NotImplemented)
         );
+        assert_eq!(
+            hook_param_typed::<TestParam>(),
+            Err(HookError::NotImplemented)
+        );
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TestParam([u8; 4]);
+
+    impl FixedRead for TestParam {
+        fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+            <[u8; 4]>::read_exact(read).map(TestParam)
+        }
+    }
+
+    impl crate::convert::ParamName for TestParam {
+        const NAME: &'static [u8] = b"x";
     }
 }

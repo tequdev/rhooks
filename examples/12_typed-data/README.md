@@ -49,10 +49,47 @@ and used directly — no manual byte packing anywhere in `src/lib.rs`:
 
 ```rust
 let key = DepositKey { tag: DEPOSIT_TAG, owner };
-let current = state_get::<DepositValue>(&key)?.unwrap_or(EMPTY_DEPOSIT);
+let current = state_get_typed(&key)?.unwrap_or(EMPTY_DEPOSIT);
 // ...
-state_set_typed(&key, &next)?;
+state_set_typed_kv(&key, &next)?;
 ```
+
+## Pairing a key with its value type (and a param name with its type)
+
+`state_get`/`state_set_typed` take the key and the value type as two
+*independent* generic parameters — nothing stops calling
+`state_get::<SomeOtherValue>(&key)` for a `key`/`SomeOtherValue` combination
+that was never meant to go together, as long as `SomeOtherValue: FromBytes`
+(true of nearly every fixed-size type, including some *other* key's value
+type). The same shape of bug exists for `otxn_param_exact`/`hook_param_exact`:
+the parameter name and the value type are independent arguments, so nothing
+stops decoding the `INS` parameter as `Config` by mistake.
+
+This crate closes both gaps instead of relying on "just don't mix them up":
+
+```rust
+// Ties DepositKey to exactly one value type.
+state_key_value!(DepositKey => DepositValue);
+
+// Ties Config/Instruction to exactly one parameter name.
+param_name!(Config, CFG_PARAM);
+param_name!(Instruction, INS_PARAM);
+```
+
+`state_get_typed`/`state_set_typed_kv` (used above) then resolve
+`DepositKey`'s value type from `DepositKey` itself — there is no second,
+independently-chosen `T` left for a mismatch to hide in — and
+`hook_param_typed::<Config>()`/`otxn_param_typed::<Instruction>()` resolve
+their parameter name from the type itself, with **no name argument at the
+call site at all**. Passing the wrong value type for `DepositKey` (e.g.
+`state_set_typed_kv(&key, &some_other_struct)`) is now a compile error, not
+a silent bug waiting to be discovered on a live node — see
+`hooks_lib::state::TypedStateKey`'s and `hooks_lib::convert::ParamName`'s
+doc comments for the full rationale, and `hooks_lib::HookData`'s doc
+comment for a `compile_fail` example pinning the mismatch case. Both
+wrappers are `#[inline(always)]` pass-throughs to the loose functions, so
+this costs nothing: this crate's worst-case instruction count is identical
+whether written with the loose or the paired API (413, either way).
 
 ## Before/after: what `#[derive(HookData)]` replaces
 

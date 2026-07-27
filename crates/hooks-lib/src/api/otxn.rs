@@ -1,7 +1,7 @@
 //! Information about the originating transaction (the transaction that
 //! triggered this hook invocation).
 
-use crate::convert::FixedRead;
+use crate::convert::{FixedRead, ParamName};
 use crate::error::{Result, res};
 use crate::tx_type::TxType;
 use crate::types::Hash;
@@ -145,6 +145,40 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
     T::read_exact(|buf| otxn_param(buf, name))
 }
 
+/// Read a Hook parameter attached to the originating transaction, named by
+/// `T` itself — see [`crate::convert::ParamName`]'s doc comment for why
+/// this is the safer alternative to [`otxn_param_exact`] when a parameter
+/// is always meant to decode as one specific type: there is no separate
+/// `name` argument that could name a *different* parameter than the one
+/// `T` was declared for.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::otxn::otxn_param_typed;
+/// use hooks_lib::convert::ParamName;
+/// use hooks_lib::error::{HookError, Result};
+///
+/// struct Instruction([u8; 9]);
+///
+/// impl hooks_lib::convert::FixedRead for Instruction {
+///     fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+///         <[u8; 9]>::read_exact(read).map(Instruction)
+///     }
+/// }
+///
+/// impl ParamName for Instruction {
+///     const NAME: &'static [u8] = b"INS";
+/// }
+///
+/// let value: Result<Instruction> = otxn_param_typed();
+/// assert_eq!(value.err(), Some(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn otxn_param_typed<T: ParamName>() -> Result<T> {
+    otxn_param_exact::<T>(T::NAME)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,5 +210,22 @@ mod tests {
             otxn_param_exact::<[u8; 4]>(b"x"),
             Err(HookError::NotImplemented)
         );
+        assert_eq!(
+            otxn_param_typed::<TestParam>(),
+            Err(HookError::NotImplemented)
+        );
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TestParam([u8; 4]);
+
+    impl FixedRead for TestParam {
+        fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+            <[u8; 4]>::read_exact(read).map(TestParam)
+        }
+    }
+
+    impl crate::convert::ParamName for TestParam {
+        const NAME: &'static [u8] = b"x";
     }
 }
