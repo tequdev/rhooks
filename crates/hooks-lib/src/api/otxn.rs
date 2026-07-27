@@ -119,6 +119,32 @@ pub fn otxn_param<B: AsMut<[u8]> + ?Sized>(out: &mut B, name: &[u8]) -> Result<u
     .map(|v| v as usize)
 }
 
+/// Read a Hook parameter attached to the originating transaction, requiring
+/// it to be exactly `T`'s length — any [`crate::convert::FixedRead`] type,
+/// most commonly a `hooks_lib::types` newtype, a raw `[u8; N]`, or a
+/// [`crate::HookData`]-derived struct. A parameter longer than that already
+/// fails as [`crate::error::HookError::TooSmall`] from the underlying host
+/// call; a parameter shorter is caught by `T::read_exact` itself and mapped
+/// to the same variant — see [`otxn_field_exact`]/`state_exact` (`state.rs`)
+/// for the identical pattern and rationale. No loop, no panic.
+///
+/// `T` is inferred from context, not a turbofish — see
+/// [`otxn_field_exact`]'s doc comment for the full story.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::otxn::otxn_param_exact;
+/// use hooks_lib::error::{HookError, Result};
+///
+/// let value: Result<[u8; 4]> = otxn_param_exact(b"CFG");
+/// assert_eq!(value, Err(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
+    T::read_exact(|buf| otxn_param(buf, name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +172,9 @@ mod tests {
             Err(HookError::NotImplemented)
         );
         assert_eq!(otxn_param(&mut buf, b"x"), Err(HookError::NotImplemented));
+        assert_eq!(
+            otxn_param_exact::<[u8; 4]>(b"x"),
+            Err(HookError::NotImplemented)
+        );
     }
 }

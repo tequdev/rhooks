@@ -31,6 +31,11 @@
 //! - [`hook_errors!`] / [`exit_on_err!`] — define a `#[repr(i64)]` user error
 //!   enum and convert `Result<T, YourEnum>` into a `rollback!` at the hook's
 //!   boundary (see `errors.rs`).
+//! - [`HookData`] — derive macro turning a fixed-size, named-field struct
+//!   into a zero-cost [`convert::ToBytes`]/[`convert::FromBytes`]/
+//!   [`convert::FixedRead`] triple, for composite (multi-field) state keys,
+//!   state values, and `otxn_param`/`hook_param` payloads (see its own doc
+//!   comment for the full writeup).
 //! - An optional panic handler (feature `panic-handler`, default-on) that
 //!   rolls the hook back instead of leaving an unhandled panic.
 //!
@@ -82,6 +87,207 @@ pub use hooks_macros::hook;
 /// Hook module can export, invoked when a transaction it previously emitted
 /// settles.
 pub use hooks_macros::cbak;
+
+/// Derives [`convert::ToBytes`]/[`convert::FromBytes`]/[`convert::FixedRead`]
+/// for a fixed-size, named-field struct — so the struct can be used
+/// directly as a composite (multi-field) hook-state value, an
+/// `otxn_param`/`hook_param` payload, or — via [`state::StateKeyEncode`]'s
+/// blanket impl over any [`convert::ToBytes`] type (see [`state`]'s module
+/// doc comment) — a composite state *key*, with no hand-packed byte buffer
+/// anywhere.
+///
+/// # Grammar
+///
+/// ```text
+/// #[derive(HookData)]
+/// $vis struct Name {
+///     $vis field: FieldType,
+///     ...
+/// }
+/// ```
+///
+/// - A plain (non-generic) struct with **named fields only** — no tuple
+///   structs, no unit structs, no enums, no unions.
+/// - At least one field.
+/// - Every field's type must implement [`convert::ToBytes`] +
+///   [`convert::FromBytes`]: any of this crate's fixed-size primitives
+///   (`u8`/`u16`/`u32`/`u64`/`i64`), [`xfl::XFL`], any `hooks_lib::types`
+///   newtype (`AccountId`, `Hash`, ...), a raw `[u8; N]`, or another
+///   `#[derive(HookData)]` struct (nesting composes for free — see below).
+///   A field of any other (variable-length) type fails to compile with an
+///   ordinary rustc trait-bound error naming the missing `ToBytes`/
+///   `FromBytes` impl against the generated code — this derive does not
+///   implement its own type checker.
+///
+/// # What gets generated
+///
+/// - `impl ToBytes for Name` / `impl FromBytes for Name` / `impl FixedRead
+///   for Name`: fields are encoded **back-to-back, in declaration order**,
+///   each contributing exactly its own `ToBytes::MAX_LEN` bytes — no
+///   padding, no per-field length prefix, no reordering.
+/// - `Name::LEN: usize` — the total encoded length (`Name::MAX_LEN` under
+///   another name, as an inherent const so call sites don't need `use
+///   hooks_lib::convert::ToBytes;` just to name it), with a generated
+///   rustdoc table listing the field layout.
+///
+/// # Zero-cost by construction
+///
+/// Every field offset is a compile-time constant (a chain of `const`
+/// declarations built from each field's own `ToBytes::MAX_LEN`, resolved at
+/// compile time), and every field read/write delegates straight to that
+/// field's own `ToBytes::write`/`FromBytes::read` — the identical "fixed,
+/// unrolled offsets, no runtime-computed length" shape this crate already
+/// hand-writes for [`txn_template!`]'s generated setters. There is no
+/// per-field loop, and (for a total size the toolchain still lowers to
+/// inlined stores rather than a `memset`/`memcpy` builtin call — empirically
+/// up to 32 bytes at this crate's release profile, see
+/// [`state`]'s `MAX_TYPED_STATE_LEN` doc comment) no unguarded loop at all.
+/// `examples/12_typed-data`'s README measures this directly: a
+/// `#[derive(HookData)]` struct and a hand-packed equivalent compile to the
+/// same worst-case instruction count.
+///
+/// # Nesting
+///
+/// A `#[derive(HookData)]` struct can itself be a field of another — since
+/// the derive only ever requires a field's type to implement `ToBytes`/
+/// `FromBytes`/`FixedRead`, and every derived struct does, nesting needs no
+/// special support:
+///
+/// ```
+/// use hooks_lib::HookData;
+/// use hooks_lib::prelude::*;
+///
+/// #[derive(HookData)]
+/// struct Inner {
+///     count: u32,
+/// }
+///
+/// #[derive(HookData)]
+/// struct Outer {
+///     tag: u8,
+///     inner: Inner,
+/// }
+///
+/// assert_eq!(Outer::LEN, 1 + 4);
+/// ```
+///
+/// # Examples
+///
+/// A composite state key (a tag byte plus an `AccountId`) and a composite
+/// state value (an amount, a deadline, and a flags byte), used directly with
+/// [`state::state_get`] — no `state_keys!` declaration, no hand-packed byte
+/// buffer:
+///
+/// ```
+/// use hooks_lib::HookData;
+/// use hooks_lib::prelude::*;
+///
+/// #[derive(HookData)]
+/// struct DepositKey {
+///     tag: u8,
+///     owner: AccountId,
+/// }
+///
+/// #[derive(HookData, Debug, PartialEq)]
+/// struct DepositValue {
+///     amount: u64,
+///     deadline: u32,
+///     flags: u8,
+/// }
+///
+/// assert_eq!(DepositKey::LEN, 1 + 20);
+/// assert_eq!(DepositValue::LEN, 8 + 4 + 1);
+///
+/// let key = DepositKey {
+///     tag: 1,
+///     owner: AccountId::default(),
+/// };
+///
+/// // `NotImplemented` here is the host stub every Hook API call returns on
+/// // a host build (see `hooks-core`) — this only proves the generated
+/// // `ToBytes`/`FromBytes` call chain compiles and runs, exactly like
+/// // `state_keys!`'s own doctest.
+/// assert_eq!(
+///     state_get::<DepositValue>(&key),
+///     Err(HookError::NotImplemented)
+/// );
+/// ```
+///
+/// A struct used as a fixed-size `otxn_param`/`hook_param` payload:
+///
+/// ```
+/// use hooks_lib::HookData;
+/// use hooks_lib::prelude::*;
+///
+/// #[derive(HookData)]
+/// struct Config {
+///     min_amount: u64,
+///     max_amount: u64,
+/// }
+///
+/// let cfg: Result<Config> = otxn_param_exact(b"CFG");
+/// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
+/// ```
+///
+/// An enum is rejected at compile time (`HookData` only derives for a named-
+/// field struct):
+///
+/// ```compile_fail
+/// use hooks_lib::HookData;
+///
+/// #[derive(HookData)]
+/// enum NotAStruct {
+///     A,
+///     B,
+/// }
+/// ```
+///
+/// A tuple struct is rejected the same way:
+///
+/// ```compile_fail
+/// use hooks_lib::HookData;
+///
+/// #[derive(HookData)]
+/// struct NotNamedFields(u32, u64);
+/// ```
+///
+/// A field of a variable-length type (here, a bare slice reference) fails
+/// to compile — not with a diagnostic this derive produces itself, but with
+/// rustc's own trait-bound error against the generated `ToBytes`/`FromBytes`
+/// impls, naming the missing trait:
+///
+/// ```compile_fail
+/// use hooks_lib::HookData;
+///
+/// #[derive(HookData)]
+/// struct VariableLength<'a> {
+///     data: &'a [u8],
+/// }
+/// ```
+///
+/// A struct whose total encoded length exceeds the 32-byte state-key space
+/// still derives fine (it works as a state *value*, or an `otxn_param`/
+/// `hook_param` payload) — only *using it as a key* (via
+/// [`state::StateKeyEncode`]'s blanket impl) is a compile error, and only at
+/// the call site that actually tries:
+///
+/// ```compile_fail
+/// use hooks_lib::HookData;
+/// use hooks_lib::prelude::*;
+///
+/// #[derive(HookData)]
+/// struct TooBigForAKey {
+///     a: [u8; 20],
+///     b: [u8; 20],
+/// }
+///
+/// // `TooBigForAKey::LEN` is 40, over the 32-byte state key space.
+/// let _ = state_get::<u64>(&TooBigForAKey {
+///     a: [0; 20],
+///     b: [0; 20],
+/// });
+/// ```
+pub use hooks_macros::HookData;
 
 // `txn_template!` expands `[<set_ $field>]` splice markers through
 // `$crate::__paste!`, its own stable replacement for nightly's

@@ -68,10 +68,38 @@
 //! runtime as "discriminant byte + payload + zero padding"; the macro
 //! rejects (at compile time) a payload whose [`crate::convert::ToBytes::MAX_LEN`]
 //! does not leave room for the discriminant byte in the 32-byte key.
+//!
+//! # Struct keys (`#[derive(crate::HookData)]`) vs. `state_keys!`
+//!
+//! [`state_keys!`](crate::state_keys) suits a **small, fixed set** of
+//! distinct state entries: every variant is a separate, independently named
+//! case (`Counter`, `Balance(AccountId)`, ...), each carrying at most one
+//! [`crate::convert::ToBytes`] payload. A key that is itself a **composite of
+//! several fields** — a tag byte plus an `AccountId` plus a `u32` sequence
+//! number, say — doesn't fit that shape (a tuple variant takes exactly one
+//! payload) and previously had to be hand-packed into a raw
+//! [`crate::types::StateKey`] byte buffer.
+//!
+//! [`crate::HookData`] closes that gap: derive it on an ordinary named-field
+//! struct (every field a fixed-size type — see its doc comment for the exact
+//! grammar), and the struct becomes directly usable as a `state_get`/
+//! `state_set_typed` key, via the blanket [`StateKeyEncode`] impl below —
+//! `state_get(&MyKey { .. })` works with no `state_keys!` declaration at all.
+//! The two are complementary, not competing: `state_keys!` for a handful of
+//! named, independent key *cases*; a `#[derive(HookData)]` struct for one key
+//! shape built out of several *fields* — and nothing stops a `state_keys!`
+//! tuple variant's single payload from itself being a `HookData` struct, for
+//! a hybrid of both.
+//!
+//! Any [`crate::convert::ToBytes`] type — not just a `HookData` struct — gets
+//! [`StateKeyEncode`] for free this way, zero-padded up to the 32-byte key
+//! space; a type whose [`crate::convert::ToBytes::MAX_LEN`] exceeds 32 fails
+//! to compile as a key (the same monomorphized `const` assert pattern as
+//! [`encode_write`]'s value-side check below), not silently truncate.
 
 use crate::convert::{FromBytes, ToBytes};
 use crate::error::{HookError, Result};
-use crate::types::StateKey;
+use crate::types::{STATE_KEY_LEN, StateKey};
 
 /// Maximum byte length of any value [`state_get`]/[`state_set_typed`]/
 /// [`state_update_typed`] (and their `_foreign` twins) read or write.
@@ -96,19 +124,37 @@ const MAX_TYPED_STATE_LEN: usize = 32;
 
 /// Encodes a value into the fixed 32-byte hook-state key space.
 ///
-/// Implemented by [`crate::types::StateKey`] itself (identity — a raw,
-/// already-32-byte key, e.g. one built with [`crate::pad!`], works directly
-/// with the typed functions in this module) and by every enum the
-/// [`state_keys!`](crate::state_keys) macro generates.
+/// Implemented by every enum the [`state_keys!`](crate::state_keys) macro
+/// generates, and — via the blanket impl below — by every
+/// [`crate::convert::ToBytes`] type, [`crate::types::StateKey`] itself
+/// included (identity: a raw, already-32-byte key, e.g. one built with
+/// [`crate::pad!`], works directly with the typed functions in this module).
+/// See the module doc comment's "Struct keys" section for how a
+/// [`crate::HookData`]-derived struct fits in.
 pub trait StateKeyEncode {
     /// The 32-byte state key `self` encodes to.
     fn encode(&self) -> StateKey;
 }
 
-impl StateKeyEncode for StateKey {
+/// Blanket impl: any fixed-size [`crate::convert::ToBytes`] value can be
+/// used directly as a state key, zero-padded up to
+/// [`crate::types::STATE_KEY_LEN`] (32) bytes. A `T` whose
+/// [`crate::convert::ToBytes::MAX_LEN`] exceeds 32 fails to compile — the
+/// `const` assert is monomorphized per `T` and only fires when `encode` is
+/// actually instantiated for that `T` (i.e., when it's actually used as a
+/// key), mirroring [`encode_write`]'s identical value-side check.
+impl<T: ToBytes> StateKeyEncode for T {
     #[inline(always)]
     fn encode(&self) -> StateKey {
-        *self
+        const {
+            assert!(
+                T::MAX_LEN <= STATE_KEY_LEN,
+                "hooks_lib::state: T::MAX_LEN exceeds the 32-byte state key space"
+            );
+        }
+        let mut raw = [0u8; STATE_KEY_LEN];
+        let _ = self.write(&mut raw);
+        StateKey::from(raw)
     }
 }
 
