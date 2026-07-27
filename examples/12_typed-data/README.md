@@ -69,11 +69,13 @@ This crate closes both gaps instead of relying on "just don't mix them up":
 
 ```rust
 // Ties DepositKey to exactly one value type.
-state_key_value!(DepositKey => DepositValue);
+hook_state!(DepositKey => DepositValue);
 
-// Ties Config/Instruction to exactly one parameter name.
-param_name!(Config, CFG_PARAM);
-param_name!(Instruction, INS_PARAM);
+// Ties Config/Instruction to exactly one parameter name — hook_parameter!
+// for a hook's own installed parameter, otxn_parameter! for one attached
+// to the originating transaction (same grammar, same ParamName impl).
+hook_parameter!(Config => CFG_PARAM);
+otxn_parameter!(Instruction => INS_PARAM);
 ```
 
 `state_get_kv`/`state_set_kv` (used above) then resolve
@@ -95,11 +97,16 @@ A Hook API parameter name isn't always a plain tag like `"CFG"`/`"INS"`,
 either — per the Hook API itself, it's a genuine variable-length key of up
 to 32 bytes, and (exactly like a hook state key) can be a whole composite,
 struct-shaped value instead of a literal byte string. `ParamName` covers
-both: `param_name!(Ty, b"...")` (used above, for this crate's plain
-`CFG`/`INS` tags) and `param_name!(Ty, NameType, value)` (for a
-**composite**, struct-shaped name) both implement the same trait, read by
-the same `hook_param_kv`/`otxn_param_kv` — there's no separate
+both: `hook_parameter!(Ty => b"...")`/`otxn_parameter!(Ty => b"...")`
+(used above, for this crate's plain `CFG`/`INS` tags) and
+`hook_parameter!(Ty => NameType, value)`/`otxn_parameter!(Ty => NameType, value)`
+(for a **composite**, struct-shaped name) both implement the same trait,
+read by the same `hook_param_kv`/`otxn_param_kv` — there's no separate
 "typed" vs. "typed for a composite name" function to choose between.
+(`hook_parameter!`/`otxn_parameter!` are two separate macros with
+identical grammar and expansion — purely so the declaration site
+documents which of `hook_param`/`otxn_param` a type's name is meant for;
+see `hooks_lib::convert::ParamName`'s doc comment.)
 Only the plain-tag form is free, though: `ParamName::name_bytes` defaults
 to a small, genuine runtime encode (unavoidable for an arbitrary
 `ToBytes` type — Rust has no stable way to run a trait method at compile

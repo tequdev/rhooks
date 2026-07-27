@@ -11,7 +11,7 @@
 //!   `state_set_typed`, `state_update_typed`, and the [`state_keys!`] macro
 //!   for declaring a state-key enum) built on top of [`convert`]. Pair a key
 //!   type with its one value type via [`state::TypedStateKey`]/
-//!   [`state_key_value!`] and use `state_get_kv`/`state_set_kv`/
+//!   [`hook_state!`] and use `state_get_kv`/`state_set_kv`/
 //!   `state_update_kv` for a key/value mismatch that's a compile
 //!   error instead of a latent bug (see [`state::TypedStateKey`]'s doc
 //!   comment).
@@ -180,7 +180,7 @@ pub use hooks_macros::cbak;
 ///
 /// A composite state key (a tag byte plus an `AccountId`) and a composite
 /// state value (an amount, a deadline, and a flags byte), paired via
-/// [`state_key_value!`] and used with [`state::state_get_kv`]/
+/// [`hook_state!`] and used with [`state::state_get_kv`]/
 /// [`state::state_set_kv`] — no `state_keys!` declaration, no
 /// hand-packed byte buffer, and (unlike the loose [`state::state_get`]/
 /// [`state::state_set_typed`], which take the value type as an independent
@@ -191,7 +191,7 @@ pub use hooks_macros::cbak;
 /// ```
 /// use hooks_lib::HookData;
 /// use hooks_lib::prelude::*;
-/// use hooks_lib::state_key_value;
+/// use hooks_lib::hook_state;
 ///
 /// #[derive(HookData, Clone, Copy)]
 /// struct DepositKey {
@@ -206,7 +206,7 @@ pub use hooks_macros::cbak;
 ///     flags: u8,
 /// }
 ///
-/// state_key_value!(DepositKey => DepositValue);
+/// hook_state!(DepositKey => DepositValue);
 ///
 /// assert_eq!(DepositKey::LEN, 1 + 20);
 /// assert_eq!(DepositValue::LEN, 8 + 4 + 1);
@@ -223,18 +223,20 @@ pub use hooks_macros::cbak;
 /// assert_eq!(state_get_kv(&key), Err(HookError::NotImplemented));
 /// ```
 ///
-/// A struct used as a fixed-size `otxn_param`/`hook_param` payload, named
-/// via [`param_name!`](crate::param_name) and read with
+/// A struct used as a fixed-size `otxn_param` payload, named via
+/// [`otxn_parameter!`](crate::otxn_parameter) and read with
 /// [`api::otxn::otxn_param_kv`] — again, unlike [`api::otxn::otxn_param_exact`]
 /// (which takes the parameter name as an independent argument — see
 /// [`convert::ParamName`]'s doc comment), there is no separate `name`
 /// argument that could name a *different* parameter than the one `Config`
-/// was declared for:
+/// was declared for. ([`hook_parameter!`](crate::hook_parameter) is the
+/// identical counterpart for a *hook's own installed* parameter, read
+/// with [`api::hook_ctx::hook_param_kv`].)
 ///
 /// ```
 /// use hooks_lib::HookData;
 /// use hooks_lib::prelude::*;
-/// use hooks_lib::param_name;
+/// use hooks_lib::otxn_parameter;
 ///
 /// #[derive(HookData)]
 /// struct Config {
@@ -242,7 +244,7 @@ pub use hooks_macros::cbak;
 ///     max_amount: u64,
 /// }
 ///
-/// param_name!(Config, b"CFG");
+/// otxn_parameter!(Config => b"CFG");
 ///
 /// let cfg: Result<Config> = otxn_param_kv();
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
@@ -309,7 +311,7 @@ pub use hooks_macros::cbak;
 ///
 /// The loose [`state::state_get`]/[`state::state_set_typed`] take a key and
 /// a value type as independent generic parameters, so nothing there stops
-/// pairing a key with the *wrong* value type — [`state_key_value!`] plus
+/// pairing a key with the *wrong* value type — [`hook_state!`] plus
 /// [`state::state_set_kv`] closes that: `value`'s type is checked
 /// against the key's own declared [`state::TypedStateKey::Value`], so
 /// passing a value meant for a different key is a compile error (see
@@ -318,7 +320,7 @@ pub use hooks_macros::cbak;
 /// ```compile_fail
 /// use hooks_lib::HookData;
 /// use hooks_lib::prelude::*;
-/// use hooks_lib::state_key_value;
+/// use hooks_lib::hook_state;
 ///
 /// #[derive(HookData, Clone, Copy)]
 /// struct KeyA {
@@ -335,7 +337,7 @@ pub use hooks_macros::cbak;
 ///     amount: u64,
 /// }
 ///
-/// state_key_value!(KeyA => ValueA);
+/// hook_state!(KeyA => ValueA);
 ///
 /// // ERROR: `ValueB` is not `KeyA`'s declared `Value` (`ValueA`).
 /// let _ = state_set_kv(&KeyA { tag: 0 }, &ValueB { amount: 0 });

@@ -22,15 +22,18 @@
 //! See the README for the hand-packed-vs-derived byte layout this replaces,
 //! the measured worst-case-instruction-count comparison proving the derive
 //! is zero-cost, and why every key/value pair and every named parameter
-//! below is declared through [`state_key_value!`]/[`param_name!`] rather
-//! than passed as loose, independently-typed arguments at each call site.
+//! below is declared through [`hook_state!`]/[`hook_parameter!`]/
+//! [`otxn_parameter!`] rather than passed as loose, independently-typed
+//! arguments at each call site.
 //!
 //! Build: `hooks-build build --manifest-path examples/12_typed-data/Cargo.toml`
 
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{HookData, accept, hook, hook_errors, param_name, rollback, state_key_value};
+use hooks_lib::{
+    HookData, accept, hook, hook_errors, hook_parameter, hook_state, otxn_parameter, rollback,
+};
 
 /// The one key "kind" this hook stores (reserved for future expansion —
 /// see `DepositKey`'s doc comment).
@@ -38,7 +41,7 @@ const DEPOSIT_TAG: u8 = 1;
 
 /// Name of the Hook parameter (installed at `SetHook` time) carrying this
 /// hook's `Config`. `&[u8; 3]` (a fixed-size array reference, not a bare
-/// `&[u8]` slice) so `param_name!`'s simple form can infer
+/// `&[u8]` slice) so `hook_parameter!`'s simple form can infer
 /// `ParamName::Name` as `[u8; 3]` from it.
 const CFG_PARAM: &[u8; 3] = b"CFG";
 
@@ -91,7 +94,7 @@ struct DepositValue {
 // itself, so passing some *other* struct's value for a `DepositKey` is a
 // compile error, not a latent bug — the loose `state_get::<T>`/
 // `state_set_typed::<T>` (independent `T`) would allow it.
-state_key_value!(DepositKey => DepositValue);
+hook_state!(DepositKey => DepositValue);
 
 /// This hook's configuration, installed via the [`CFG_PARAM`] Hook
 /// parameter — see [`config`].
@@ -107,8 +110,10 @@ struct Config {
 // Ties `Config` to its own parameter name (see `hooks_lib::convert::ParamName`'s
 // doc comment): `hook_param_kv::<Config>()` below reads `CFG_PARAM` because
 // `Config` says so, not because some call site happened to pass the right
-// byte string for the right type.
-param_name!(Config, CFG_PARAM);
+// byte string for the right type. `hook_parameter!` (not `otxn_parameter!`)
+// because `Config` is read via `hook_param_kv` (this hook's own installed
+// parameters) below.
+hook_parameter!(Config => CFG_PARAM);
 
 /// Per-invocation instruction, read from the *originating transaction's
 /// own* `HookParameters` (via `otxn_param`, not `hook_param`) — every
@@ -123,8 +128,10 @@ struct Instruction {
     amount: u64,
 }
 
-// Same idea as `Config` above, for the per-transaction `INS` parameter.
-param_name!(Instruction, INS_PARAM);
+// Same idea as `Config` above, for the per-transaction `INS` parameter —
+// `otxn_parameter!` (not `hook_parameter!`) because `Instruction` is read
+// via `otxn_param_kv` below.
+otxn_parameter!(Instruction => INS_PARAM);
 
 hook_errors! {
     /// `typed-data` rollback codes.
@@ -160,7 +167,7 @@ hook_errors! {
 /// `hook_param_kv` + `.unwrap_or(..)` pattern
 /// `examples/03_hook-params`'s `min_drops` uses for a single `u64` (there,
 /// `hook_param_exact`), here reading a whole struct in one call with no
-/// `CFG_PARAM` argument at the call site at all (see the `param_name!`
+/// `CFG_PARAM` argument at the call site at all (see the `hook_parameter!`
 /// declaration above `Config`).
 fn config() -> Config {
     hook_param_kv().unwrap_or(Config {

@@ -106,7 +106,7 @@
 //! long as `WrongValue: FromBytes` (true of nearly every fixed-size type
 //! this crate provides — including, say, a *different* key's value type).
 //! [`TypedStateKey`] closes that gap: implement it for a key type (directly,
-//! or with the one-line [`state_key_value!`](crate::state_key_value) macro)
+//! or with the one-line [`hook_state!`](crate::hook_state) macro)
 //! to declare its one paired value type once, then use
 //! [`state_get_kv`]/[`state_set_kv`]/[`state_update_kv`] (+
 //! `_foreign` twins) — these read `K::Value` off the key's own type, so a
@@ -122,7 +122,7 @@
 //!
 //! | | this module (hook state) | [`crate::convert::ParamName`] (params) |
 //! |---|---|---|
-//! | declare the pairing | [`state_key_value!`](crate::state_key_value)`(Key => Value)` | [`param_name!`](crate::param_name)`(Ty, name)` |
+//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(Ty => name)` |
 //! | safe accessor(s) | `state_get_kv`/`state_set_kv`/`state_update_kv` | `hook_param_kv`/`otxn_param_kv` |
 //! | loose escape hatch | [`state_get`]/[`state_set_typed`]/[`state_update_typed`] (independent `T`) | `hook_param_exact`/`otxn_param_exact` (independent `T`) |
 //! | shared foundation | both built on [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`]/[`crate::HookData`] — the same composite struct works as a state key/value *or* a param name/value |
@@ -226,7 +226,7 @@ impl<T: ToBytes> StateKeyEncode for T {
 /// for a `key`/`WrongValue` pairing that was never intended, as long as
 /// `WrongValue: FromBytes` (true of nearly every fixed-size type this crate
 /// provides). Implementing `TypedStateKey` for a key type — directly, or via
-/// [`state_key_value!`](crate::state_key_value) — ties it to exactly one
+/// [`hook_state!`](crate::hook_state) — ties it to exactly one
 /// value type; [`state_get_kv`]/[`state_set_kv`]/
 /// [`state_update_kv`] (+ `_foreign` twins) then read `K::Value` off
 /// the key's own type, so there is no second, independently-chosen value
@@ -658,7 +658,7 @@ macro_rules! __state_keys_step {
 ///
 /// ```
 /// use hooks_lib::prelude::*;
-/// use hooks_lib::{state_key_value, HookData};
+/// use hooks_lib::{hook_state, HookData};
 ///
 /// #[derive(HookData, Clone, Copy)]
 /// struct MyKey {
@@ -670,7 +670,7 @@ macro_rules! __state_keys_step {
 ///     count: u32,
 /// }
 ///
-/// state_key_value!(MyKey => MyValue);
+/// hook_state!(MyKey => MyValue);
 ///
 /// // `NotImplemented` here is the host stub every Hook API call returns on
 /// // a host build — this only proves the generated `TypedStateKey`/
@@ -681,7 +681,7 @@ macro_rules! __state_keys_step {
 /// );
 /// ```
 #[macro_export]
-macro_rules! state_key_value {
+macro_rules! hook_state {
     ($Key:ty => $Value:ty) => {
         impl $crate::state::TypedStateKey for $Key {
             type Value = $Value;
@@ -805,9 +805,9 @@ mod tests {
         assert_ne!(TestKey::Counter.encode(), TestKey::Balance(0).encode());
     }
 
-    // `TypedStateKey`/`state_key_value!`: a key type paired with exactly one
+    // `TypedStateKey`/`hook_state!`: a key type paired with exactly one
     // value type, via the `_kv`-suffixed functions (see their doc comments).
-    state_key_value!(TestKey => u32);
+    hook_state!(TestKey => u32);
 
     #[test]
     fn typed_pair_smoke_not_implemented_on_host() {

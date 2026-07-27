@@ -314,7 +314,8 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// `otxn_param_exact::<WrongType>(b"INS")` for a name/type pairing that was
 /// never intended, as long as `WrongType: FixedRead` (true of nearly every
 /// fixed-size type this crate provides). Implementing `ParamName` for a
-/// type (via [`param_name!`](crate::param_name)) ties it to exactly one
+/// type (via [`hook_parameter!`](crate::hook_parameter)/
+/// [`otxn_parameter!`](crate::otxn_parameter)) ties it to exactly one
 /// parameter name; [`crate::api::hook_ctx::hook_param_kv`]/
 /// [`crate::api::otxn::otxn_param_kv`] then read the name off the type
 /// itself — there is no second, independently-spelled name argument left
@@ -336,7 +337,8 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// stable way to run a trait method at compile time yet). But when
 /// `Self::Name` is already a plain `[u8; N]` byte array — the overwhelming
 /// common case, e.g. `b"CFG"` — its wire encoding *is* its in-memory
-/// representation, with nothing to compute: [`param_name!`](crate::param_name)'s
+/// representation, with nothing to compute:
+/// [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)'s
 /// simple form overrides `name_bytes` to return a direct, `'static`
 /// reference to `Self::NAME` (a compile-time constant, promoted to static
 /// storage — no copy, no buffer, nothing to encode), skipping the default
@@ -349,8 +351,9 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 ///
 /// `ParamName` deliberately mirrors [`crate::state::TypedStateKey`] (see
 /// its doc comment for the full comparison table): declare the pairing
-/// once ([`param_name!`](crate::param_name) here,
-/// [`crate::state_key_value!`] there), then call an accessor
+/// once ([`hook_parameter!`](crate::hook_parameter)/
+/// [`otxn_parameter!`](crate::otxn_parameter) here,
+/// [`crate::hook_state!`] there), then call an accessor
 /// (`hook_param_kv`/`otxn_param_kv` here, `state_get_kv`/`state_set_kv`/
 /// `state_update_kv` there) that resolves the paired type from the
 /// key/name itself — no turbofish, no chance of a mismatch. The
@@ -364,9 +367,10 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 pub trait ParamName: FixedRead {
     /// The type this parameter's name is encoded from — `[u8; N]` for a
     /// plain byte-string name (the common case — see
-    /// [`param_name!`](crate::param_name)'s simple form), or any other
-    /// [`ToBytes`] type (including a composite [`crate::HookData`] struct)
-    /// for a structured name.
+    /// [`hook_parameter!`](crate::hook_parameter)/
+    /// [`otxn_parameter!`](crate::otxn_parameter)'s simple form), or any
+    /// other [`ToBytes`] type (including a composite [`crate::HookData`]
+    /// struct) for a structured name.
     type Name: ToBytes;
 
     /// The one name value identifying this parameter.
@@ -380,8 +384,9 @@ pub trait ParamName: FixedRead {
     /// [`ToBytes`] type) and returns the written prefix. `buf` must be at
     /// least [`PARAM_NAME_MAX_LEN`] bytes.
     ///
-    /// [`param_name!`](crate::param_name)'s simple form (a plain byte
-    /// array name) overrides this to return `&Self::NAME` directly,
+    /// [`hook_parameter!`](crate::hook_parameter)/
+    /// [`otxn_parameter!`](crate::otxn_parameter)'s simple form (a plain
+    /// byte array name) overrides this to return `&Self::NAME` directly,
     /// ignoring `buf` — see this trait's "Zero-cost" section.
     ///
     /// A compile-time check (monomorphized per `Self`) rejects a
@@ -408,32 +413,43 @@ pub trait ParamName: FixedRead {
 }
 
 /// Implements [`ParamName`] for `$Ty`, naming it — the one-line way to opt
-/// a type into [`crate::api::hook_ctx::hook_param_kv`]/
-/// [`crate::api::otxn::otxn_param_kv`]. Two forms:
+/// a type into [`crate::api::hook_ctx::hook_param_kv`] (this hook's own
+/// installed parameters). Two forms, both spelled `$Ty => ..`, echoing
+/// [`crate::hook_state!`]'s `Key => Value`:
 ///
-/// - `param_name!($Ty, $name)` — `$name` a byte-string literal (or any
-///   `&'static [u8; N]` expression); `Self::Name` is inferred as `[u8; N]`,
-///   and [`ParamName::name_bytes`] is overridden to cost nothing (see
-///   [`ParamName`]'s "Zero-cost" section). Covers the common case, a plain
-///   short tag like `b"CFG"`.
-/// - `param_name!($Ty, $Name, $value)` — `$Name` any [`ToBytes`] type
-///   (commonly another [`crate::HookData`] struct) and `$value` the one
-///   instance of it naming this parameter — for a **composite** parameter
-///   name, the same idea as [`crate::state_key_value!`]'s composite state
-///   key, just encoded at its own natural length instead of zero-padded.
-///   Uses [`ParamName::name_bytes`]'s default body (a small, genuine
-///   runtime encode — unavoidable for an arbitrary type).
+/// - `hook_parameter!($Ty => $name)` — `$name` a byte-string literal (or
+///   any `&'static [u8; N]` expression); `Self::Name` is inferred as
+///   `[u8; N]`, and [`ParamName::name_bytes`] is overridden to cost
+///   nothing (see [`ParamName`]'s "Zero-cost" section). Covers the common
+///   case, a plain short tag like `b"CFG"`.
+/// - `hook_parameter!($Ty => $Name, $value)` — `$Name` any [`ToBytes`]
+///   type (commonly another [`crate::HookData`] struct) and `$value` the
+///   one instance of it naming this parameter — for a **composite**
+///   parameter name, the same idea as [`crate::hook_state!`]'s composite
+///   state key, just encoded at its own natural length instead of
+///   zero-padded. Uses [`ParamName::name_bytes`]'s default body (a small,
+///   genuine runtime encode — unavoidable for an arbitrary type).
+///
+/// Identical grammar and expansion to
+/// [`otxn_parameter!`](crate::otxn_parameter) — the two are kept as
+/// **separate** macros (rather than one macro shared by both) purely for
+/// readability at the declaration site: `hook_parameter!` documents that a
+/// type is meant to be read via [`crate::api::hook_ctx::hook_param_kv`]
+/// (this hook's own installed parameters), [`otxn_parameter!`](crate::otxn_parameter)
+/// that it's meant for [`crate::api::otxn::otxn_param_kv`] (a parameter
+/// attached to the *originating transaction*) — both implement the exact
+/// same [`ParamName`] trait.
 ///
 /// ```
 /// use hooks_lib::prelude::*;
-/// use hooks_lib::{param_name, HookData};
+/// use hooks_lib::{hook_parameter, HookData};
 ///
 /// #[derive(HookData)]
 /// struct Config {
 ///     min_amount: u64,
 /// }
 ///
-/// param_name!(Config, b"CFG");
+/// hook_parameter!(Config => b"CFG");
 ///
 /// let cfg: Result<Config> = hook_param_kv();
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
@@ -443,7 +459,7 @@ pub trait ParamName: FixedRead {
 ///
 /// ```
 /// use hooks_lib::prelude::*;
-/// use hooks_lib::{param_name, HookData};
+/// use hooks_lib::{hook_parameter, HookData};
 ///
 /// #[derive(HookData, Clone, Copy)]
 /// struct SeatParamName {
@@ -456,14 +472,14 @@ pub trait ParamName: FixedRead {
 ///     value: u8,
 /// }
 ///
-/// param_name!(Vote, SeatParamName, SeatParamName { topic: b'S', seat: 0 });
+/// hook_parameter!(Vote => SeatParamName, SeatParamName { topic: b'S', seat: 0 });
 ///
-/// let vote: Result<Vote> = otxn_param_kv();
+/// let vote: Result<Vote> = hook_param_kv();
 /// assert_eq!(vote.err(), Some(HookError::NotImplemented));
 /// ```
 #[macro_export]
-macro_rules! param_name {
-    ($Ty:ty, $name:expr) => {
+macro_rules! hook_parameter {
+    ($Ty:ty => $name:expr) => {
         impl $crate::convert::ParamName for $Ty {
             type Name = [u8; { $name.len() }];
             const NAME: Self::Name = *$name;
@@ -474,7 +490,74 @@ macro_rules! param_name {
             }
         }
     };
-    ($Ty:ty, $Name:ty, $value:expr) => {
+    ($Ty:ty => $Name:ty, $value:expr) => {
+        impl $crate::convert::ParamName for $Ty {
+            type Name = $Name;
+            const NAME: Self::Name = $value;
+        }
+    };
+}
+
+/// Implements [`ParamName`] for `$Ty`, naming it — the one-line way to opt
+/// a type into [`crate::api::otxn::otxn_param_kv`] (a parameter attached
+/// to the *originating transaction*). Identical grammar and expansion to
+/// [`hook_parameter!`](crate::hook_parameter) — see that macro's doc
+/// comment for the full writeup (both forms, the "why two separate
+/// macros" rationale, and the `hook_state!` parallel); kept as a separate
+/// macro purely so the declaration site documents which of
+/// `hook_param`/`otxn_param` a type's name is meant for.
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{otxn_parameter, HookData};
+///
+/// #[derive(HookData)]
+/// struct Instruction {
+///     action: u8,
+/// }
+///
+/// otxn_parameter!(Instruction => b"INS");
+///
+/// let ins: Result<Instruction> = otxn_param_kv();
+/// assert_eq!(ins.err(), Some(HookError::NotImplemented));
+/// ```
+///
+/// A composite (struct-shaped) parameter name:
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{otxn_parameter, HookData};
+///
+/// #[derive(HookData, Clone, Copy)]
+/// struct SeatParamName {
+///     topic: u8,
+///     seat: u8,
+/// }
+///
+/// #[derive(HookData)]
+/// struct Vote {
+///     value: u8,
+/// }
+///
+/// otxn_parameter!(Vote => SeatParamName, SeatParamName { topic: b'S', seat: 0 });
+///
+/// let vote: Result<Vote> = otxn_param_kv();
+/// assert_eq!(vote.err(), Some(HookError::NotImplemented));
+/// ```
+#[macro_export]
+macro_rules! otxn_parameter {
+    ($Ty:ty => $name:expr) => {
+        impl $crate::convert::ParamName for $Ty {
+            type Name = [u8; { $name.len() }];
+            const NAME: Self::Name = *$name;
+
+            #[inline(always)]
+            fn name_bytes(_buf: &mut [u8; $crate::convert::PARAM_NAME_MAX_LEN]) -> &[u8] {
+                &Self::NAME
+            }
+        }
+    };
+    ($Ty:ty => $Name:ty, $value:expr) => {
         impl $crate::convert::ParamName for $Ty {
             type Name = $Name;
             const NAME: Self::Name = $value;
