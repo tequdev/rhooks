@@ -503,6 +503,60 @@ the baked template's data segment — and the *runtime* blob length is
 whatever `etxn_details` actually returns (116 bytes without `cbak`, 138
 with), so cbak-vs-not needs no declaration-time switching at all.
 
+### 5.6 STObject reader: `sto_read` (opt-in)
+
+Write-side field-header encoding (`txn::codec::field_header`, 5.5) has no
+read-side counterpart until now: extracting a field from an arbitrary
+serialized transaction/object previously meant either a host call per
+field (`otxn_field`/`sto_subfield`) or nothing at all. `sto_read` adds a
+guest-side, zero-copy decoder — genuinely opt-in, since (per the flatten
+pass, 6.2b) its cost lands only where it's actually called, and unreferenced
+code is dropped entirely by the reachability GC (6.2 step 3).
+
+- **`StoReader<'a>`**: a forward-only cursor over `&'a [u8]`. `next()`
+  decodes one field per call (header + typed value) and is intentionally
+  unguarded — a hand-rolled loop calling it must carry its own `guard!`,
+  matching every other Hook API-adjacent loop in this codebase. `for_each_field(max_fields, f)`
+  is the guarded, higher-level alternative (calls `guard!(max_fields)`
+  internally), taking an `FnMut(Field) -> ControlFlow<()>` so callers can
+  stop early.
+- **Type scope (Phase 1)**: `UInt16`/`UInt32`/`UInt64`,
+  `Hash128`/`Hash160`/`Hash256`, `AccountID` (VL, exactly 20 bytes),
+  `Amount` (discriminated into native XRP/XAH drops vs. a 48-byte IOU
+  amount by the wire's top-bit convention), and `Blob`/VL. Nested
+  `STObject`/`STArray` fields are **skip-only**: the reader returns their
+  raw inner-content bytes (`FieldValue::Nested`) without parsing inside —
+  every other field type is a `HookError::ParseError` rather than a
+  guessed-at length (an unrecognized-length guess would desynchronize the
+  rest of the scan).
+- **No recursion for nested-container skipping**: C5 (§2) bans recursion
+  outright, and the flatten pass's bottom-up inlining does not terminate
+  for a self-referencing function — so skipping an arbitrarily-nested
+  `STObject`/`STArray` cannot be "call yourself on the inner object". The
+  private `scan_container` helper instead walks sibling field headers in
+  one flat loop with a `depth: u32` counter: entering a nested container
+  increments `depth`, its end marker (`sfObjectEndMarker`/
+  `sfArrayEndMarker`, field code `1` in both the `STI_OBJECT`(14)/
+  `STI_ARRAY`(15) namespaces) decrements it, and the scan stops on a
+  depth-`0` end marker.
+- **`PaymentView<'a>`**: a small typed convenience over `StoReader` —
+  `amount()`, `destination()`, `account()`, `flags()`, `sequence()`
+  (`Err(DoesntExist)` if absent) and `destination_tag()`
+  (`Ok(None)` if absent, since it's optional on the wire) — each doing its
+  own bounded `for_each_field` scan.
+- **Cost guidance (documented in the module's rustdoc, not just here)**:
+  reading a handful of *known* fields is usually cheaper via
+  `otxn_field`/`sto_subfield` directly (one host call each, paid for by
+  the host); reach for `sto_read` when genuinely walking an object
+  generically (unknown field count, an array like `Memos`/`Signers`).
+- **Round-trip tested against the encoder**: `sto_read`'s test suite
+  builds `txn_template!`-declared templates, sets fields via their
+  generated setters, and parses the resulting bytes back through
+  `StoReader`/`PaymentView`, asserting the decoded values match what was
+  set — the strongest evidence that encode and decode genuinely agree
+  (plus dedicated tests for truncated input, oversized VL lengths, and
+  nested-container skipping, none of which panic).
+
 ## 6. hooks-build
 
 `std` crate: `src/main.rs` (clap CLI) + `src/lib.rs` (pipeline as pure
