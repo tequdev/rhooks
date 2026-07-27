@@ -2,12 +2,28 @@
 
 ## What you'll learn
 
-How to use `#[derive(HookData)]` to treat a **composite, multi-field
-struct** as a hook-state key, a hook-state value, and an `otxn_param`/
-`hook_param` payload — instead of hand-packing each into a raw byte buffer
-yourself — and how to confirm the derive costs nothing extra at the wasm
+How to use four narrow, purpose-built derives — `#[derive(HookKey)]`,
+`#[derive(HookData)]`, `#[derive(ParamName)]`, `#[derive(ParamValue)]` — to
+treat **composite, multi-field structs** as a hook-state key, a hook-state
+value, a Hook API parameter name, and a Hook API parameter value,
+respectively — instead of hand-packing each into a raw byte buffer
+yourself — and how to confirm every derive costs nothing extra at the wasm
 level (a real worst-case-instruction-count measurement, not just an
 assertion).
+
+| derive | role | generates | example struct |
+|---|---|---|---|
+| `HookKey` | hook-state **key** | `ToBytes` + `StateKeyEncode` (≤32-byte check) | `DepositKey` |
+| `HookData` | hook-state **value** | `ToBytes` + `FromBytes` + `FixedRead` + `LEN` | `DepositValue` |
+| `ParamName` | Hook API parameter **name** | `ToBytes` (1–32-byte check) | `AdminName` |
+| `ParamValue` | Hook API parameter **value** | `FromBytes` + `FixedRead` | `Config`, `Instruction`, `PauseSwitch` |
+
+A key/name is only ever *encoded outward* (to locate something); a
+value/payload is only ever *decoded* (read back) — that read/write split is
+exactly why these are four separate derives rather than one covering
+everything. See each derive's own rustdoc (`hooks_lib::{HookKey, HookData,
+ParamName, ParamValue}`) for the full rationale, grammar, and
+`compile_fail` examples pinning misuse.
 
 ## The hook
 
@@ -31,7 +47,7 @@ deadline ledger sequence, and a flags byte. Both are declared as ordinary
 Rust structs:
 
 ```rust
-#[derive(HookData, Clone, Copy)]
+#[derive(HookKey, Clone, Copy)]
 struct DepositKey {
     tag: u8,
     owner: AccountId,
@@ -54,74 +70,91 @@ let current = state_get_kv(&key)?.unwrap_or(EMPTY_DEPOSIT);
 state_set_kv(&key, &next)?;
 ```
 
-## Pairing a key with its value type (and a param name with its type)
+## Pairing a key with its value type (and a param name with its value type)
 
 `state_get`/`state_set_typed` take the key and the value type as two
 *independent* generic parameters — nothing stops calling
 `state_get::<SomeOtherValue>(&key)` for a `key`/`SomeOtherValue` combination
 that was never meant to go together, as long as `SomeOtherValue: FromBytes`
 (true of nearly every fixed-size type, including some *other* key's value
-type). The same shape of bug exists for `otxn_param_exact`/`hook_param_exact`:
+type). The same shape of bug existed for `otxn_param_exact`/`hook_param_exact`:
 the parameter name and the value type are independent arguments, so nothing
 stops decoding the `INS` parameter as `Config` by mistake.
 
-This crate closes both gaps instead of relying on "just don't mix them up":
+This crate closes both gaps the same way — a one-line pairing declaration,
+then an accessor that takes **a reference to a key/name value** and
+resolves the paired type from it, never a turbofish or an independently
+inferred return type:
 
 ```rust
 // Ties DepositKey to exactly one value type.
 hook_state!(DepositKey => DepositValue);
 
-// Ties Config/Instruction to exactly one parameter name — hook_parameter!
-// for a hook's own installed parameter, otxn_parameter! for one attached
-// to the originating transaction (same grammar, same ParamName impl).
-// The name comes first, the type it names comes last — name => Ty,
-// mirroring hook_state!'s Key => Value (the name locates, like a key;
-// the type is what's retrieved, like a value).
-hook_parameter!(CFG_PARAM => Config);
-otxn_parameter!(INS_PARAM => Instruction);
+// Ties CfgName/InsName to exactly one parameter value type each —
+// hook_parameter! for a hook's own installed parameter, otxn_parameter!
+// for one attached to the originating transaction (same grammar, same
+// TypedParamName impl). The name TYPE comes first, the value type it
+// names comes last — Name => Ty, exactly mirroring hook_state!'s
+// Key => Value (the name locates, like a key; the type is what's
+// retrieved, like a value). A plain byte-string name still needs a
+// small marker type to hang the pairing on (`CfgName`/`InsName` below,
+// zero-sized — see "Hook parameter hex encoding" for why).
+struct CfgName;
+struct InsName;
+hook_parameter!(CfgName, CFG_PARAM => Config);
+otxn_parameter!(InsName, INS_PARAM => Instruction);
 ```
 
-`state_get_kv`/`state_set_kv` (used above) then resolve
-`DepositKey`'s value type from `DepositKey` itself — there is no second,
-independently-chosen `T` left for a mismatch to hide in — and
-`hook_param_kv::<Config>()`/`otxn_param_kv::<Instruction>()` resolve
-their parameter name from the type itself, with **no name argument at the
-call site at all**. Passing the wrong value type for `DepositKey` (e.g.
+`state_get_kv(&key)`/`state_set_kv(&key, &value)` (used above) resolve
+`DepositKey`'s value type from the `key` argument itself — there is no
+second, independently-chosen `T` left for a mismatch to hide in — and
+`hook_param_kv(&CfgName)`/`otxn_param_kv(&InsName)` resolve `Config`/
+`Instruction` from the *name argument*, the same way. `Config`/
+`Instruction`/`DepositValue` never need a type annotation anywhere in
+`src/lib.rs` (see `config()`/`my_hook()`) — the argument alone always picks
+the right type. Passing the wrong value type for `DepositKey` (e.g.
 `state_set_kv(&key, &some_other_struct)`) is now a compile error, not
 a silent bug waiting to be discovered on a live node — see
-`hooks_lib::state::TypedStateKey`'s and `hooks_lib::convert::ParamName`'s
-doc comments for the full rationale, and `hooks_lib::HookData`'s doc
-comment for a `compile_fail` example pinning the mismatch case. `state_get_kv`/
-`state_set_kv` and `hook_param_kv`/`otxn_param_kv` cost nothing beyond
-the loose functions they replace: this crate's worst-case instruction
-count is identical either way (413).
+`hooks_lib::state::TypedStateKey`'s and `hooks_lib::convert::TypedParamName`'s
+doc comments for the full rationale, and `hooks_lib::HookKey`'s doc
+comment for a `compile_fail` example pinning the mismatch case.
+`state_get_kv`/`state_set_kv` and `hook_param_kv`/`otxn_param_kv` cost
+nothing beyond the loose functions they replace, *for a plain-tag
+parameter name* — measured at 413 worst-case instructions either way, the
+same as this hook's logic minus the `AdminName` pause switch covered next
+(see that section for the one place this hook's cost *does* go up, and
+why).
 
 A Hook API parameter name isn't always a plain tag like `"CFG"`/`"INS"`,
 either — per the Hook API itself, it's a genuine variable-length key of up
 to 32 bytes, and (exactly like a hook state key) can be a whole composite,
-struct-shaped value instead of a literal byte string. `ParamName` covers
-both: `hook_parameter!(b"..." => Ty)`/`otxn_parameter!(b"..." => Ty)`
-(used above, for this crate's plain `CFG`/`INS` tags) and
-`hook_parameter!(NameType, value => Ty)`/`otxn_parameter!(NameType, value => Ty)`
-(for a **composite**, struct-shaped name) both implement the same trait,
-read by the same `hook_param_kv`/`otxn_param_kv` — there's no separate
-"typed" vs. "typed for a composite name" function to choose between.
-(`hook_parameter!`/`otxn_parameter!` are two separate macros with
-identical grammar and expansion — purely so the declaration site
-documents which of `hook_param`/`otxn_param` a type's name is meant for;
-see `hooks_lib::convert::ParamName`'s doc comment.)
-Only the plain-tag form is free, though: `ParamName::name_bytes` defaults
-to a small, genuine runtime encode (unavoidable for an arbitrary
-`ToBytes` type — Rust has no stable way to run a trait method at compile
-time), and the simple macro form overrides it to hand over the
-already-`'static` bytes directly instead, which is why this crate's
-plain-tag `CFG`/`INS` names still cost nothing. See
-`hooks_lib::convert::ParamName`'s doc comment for the composite-name
-worked example and the full zero-cost rationale.
+struct-shaped value instead of a literal byte string. `hook_parameter!`/
+`otxn_parameter!` cover both, with the *same* two-argument `Name => Ty`
+grammar either way (used above for `CfgName`/`InsName`, and below for the
+composite `AdminName`) — there's no separate "typed" vs. "typed for a
+composite name" function to choose between, and both forms are read by the
+exact same `hook_param_kv`/`otxn_param_kv`. (`hook_parameter!`/
+`otxn_parameter!` are two separate macros with identical grammar and
+expansion — purely so the declaration site documents which of
+`hook_param`/`otxn_param` a name is meant for; see
+`hooks_lib::convert::TypedParamName`'s doc comment.) Only a *plain,
+already-known-at-compile-time* name is free, though — that's why
+`hook_parameter!`/`otxn_parameter!` actually have **two** grammar forms
+under the hood: `hook_parameter!(Name, bytes => Ty)` (used above — `Name` a
+declared marker type, `bytes` the literal, `TypedParamName::name_bytes`
+overridden to hand over the already-`'static` bytes directly, at zero
+runtime cost) and `hook_parameter!(Name => Ty)` (used below, for
+`AdminName` — relies on `TypedParamName::name_bytes`'s default body, a
+small, genuine runtime encode via `Name`'s own `ToBytes` impl, unavoidable
+for an arbitrary composite type — Rust has no stable way to run a trait
+method at compile time). See `hooks_lib::convert::TypedParamName`'s doc
+comment for the full zero-cost rationale, and the "Composite parameter
+names" section below for this hook's own worked composite-name example and
+its measured cost.
 
-## Before/after: what `#[derive(HookData)]` replaces
+## Before/after: what `#[derive(HookKey)]`/`#[derive(HookData)]` replace
 
-Without it, `DepositKey`/`DepositValue` would have to be hand-packed into
+Without them, `DepositKey`/`DepositValue` would have to be hand-packed into
 raw byte buffers — the way every hook (including this crate's `Config`/
 `Instruction`, if this feature didn't exist) had to before this feature:
 
@@ -175,21 +208,26 @@ added, removed, or reordered.
 `docs/DESIGN.md` and this crate's own doc comments repeatedly warn that a
 "clean-looking" abstraction can silently introduce an unguarded loop
 (`memcpy`/`memset`/`bcmp` lowering — see `examples/06_guard-patterns` and
-the root README's "`--auto-guard`" section). `#[derive(HookData)]` avoids
-that by construction (every offset is a compile-time constant, every
-per-field copy an inlined `ToBytes::write`/`FromBytes::read` call — see its
-doc comment's "Zero-cost by construction" section) — but the only way to
-*prove* that is to build both versions through `hooks-build` and compare
-`hooks-build check`'s reported worst-case instruction count.
+the root README's "`--auto-guard`" section). `#[derive(HookKey)]`/
+`#[derive(HookData)]`/`#[derive(ParamValue)]` avoid that by construction
+(every offset is a compile-time constant, every per-field copy an inlined
+`ToBytes::write`/`FromBytes::read` call — see `HookData`'s doc comment's
+"Zero-cost by construction" section, which all three derives share) — but
+the only way to *prove* that is to build both versions through
+`hooks-build` and compare `hooks-build check`'s reported worst-case
+instruction count.
 
-This table is a real `hooks-build build`/`check` measurement of this exact
-hook's logic, built twice — once as committed (`#[derive(HookData)]`), once
-with `DepositKey`/`DepositValue`/`Config`/`Instruction` replaced by the
-hand-packed functions above (everything else byte-for-byte identical):
+This table is a real `hooks-build build`/`check` measurement of this hook's
+core deposit-ledger logic (the state key/value pairing plus the plain-tag
+`CFG`/`INS` parameters; not yet counting the `AdminName` composite
+parameter name covered below), built twice — once with the derives
+(`DepositKey`/`DepositValue`/`Config`/`Instruction`, as committed), once
+with all four replaced by the hand-packed functions above (everything else
+byte-for-byte identical):
 
 | version | worst-case instructions | wasm size |
 |---|---|---|
-| `#[derive(HookData)]` (this crate, as committed) | 413 | 1433 bytes |
+| derived (this crate, as committed) | 413 | 1433 bytes |
 | hand-packed (`.get()`/`.get_mut()` per field, as most hooks write it today) | 545 | 1708 bytes |
 
 The derive isn't just *as cheap as* hand-packing here — it measures
@@ -210,11 +248,12 @@ why it's the idiom this crate prefers).
 
 ## Hook parameter hex encoding
 
-Both `CFG` (installed at `SetHook` time) and `INS` (attached to each
-`Invoke` transaction) are `#[derive(HookData)]` structs, so their wire
-layout is exactly "every field, in declaration order, little-endian,
-back-to-back" (`hooks_lib::convert`'s crate-wide convention — see
-`Config`/`Instruction`'s generated `LEN` rustdoc for the field table).
+Both `CFG` (installed at `SetHook` time, named by `CfgName`) and `INS`
+(attached to each `Invoke` transaction, named by `InsName`) decode as
+`#[derive(ParamValue)]` structs, so their wire layout is exactly "every
+field, in declaration order, little-endian, back-to-back"
+(`hooks_lib::convert`'s crate-wide convention — see `Config`/
+`Instruction`'s generated field-layout rustdoc).
 
 `Config { min_amount: u64, lock_ledgers: u32 }` — **12 bytes**. For
 `min_amount = 5,000,000` drops (5 XAH) and `lock_ledgers = 20`:
@@ -268,6 +307,114 @@ Attached directly to the `Invoke` transaction's own `HookParameters` array
 A `withdraw` needs no meaningful `amount` (it always empties the whole
 balance) but the field still has to be present — 9 bytes total, e.g.
 `02` + 8 zero bytes = `020000000000000000`.
+
+## Composite (struct-shaped) parameter names: `AdminName`/`PauseSwitch`
+
+`CFG` and `INS` above are both plain byte-string tags — the common case,
+but per the Hook API itself a parameter name is really a variable-length
+key of up to 32 bytes, and (exactly like a hook state key) can be a whole
+composite, struct-shaped value instead of a literal string. This hook's
+operator-controlled pause switch is named that way:
+
+```rust
+#[derive(ParamName, Clone, Copy)]
+struct AdminName {
+    section: u8,
+    field: u8,
+}
+
+const ADMIN_PAUSE: AdminName = AdminName { section: 0, field: 0 };
+
+#[derive(ParamValue, Clone, Copy)]
+struct PauseSwitch {
+    paused: u8,
+}
+
+hook_parameter!(AdminName => PauseSwitch);
+```
+
+`AdminName` uses **`#[derive(ParamName)]`, not `#[derive(HookData)]`** — a
+Hook parameter *name* is a genuinely different concept from a hook-state
+key/value or a parameter *payload* (`PauseSwitch`, which — being something
+this hook actually reads back and decodes — is `ParamValue`, same as
+`Config`/`Instruction`): a name is only ever **written**, to locate a
+value, never read back and decoded as itself. `ParamName` reflects that by
+generating only `ToBytes` (no `FromBytes`, no `FixedRead`, no inherent
+`LEN` const) — see `hooks_lib::ParamName`'s doc comment for the full
+rationale, and its `compile_fail` examples pinning that a `ParamName` type
+can't be read back as a value. Note the macro call here has **no third
+argument** (unlike `CfgName`/`InsName` above): `AdminName` already carries
+its own runtime field data and its own `ToBytes` impl, so
+`hook_parameter!(AdminName => PauseSwitch)` relies on
+`TypedParamName::name_bytes`'s default (genuine-encode) body instead of an
+override — see the "Measured cost of a composite name" section below for
+what that costs. The pairing declared, `hook_param_kv` takes **a reference
+to an `AdminName` value** (`&ADMIN_PAUSE` in [`deposits_paused`],
+`hooks_lib::PauseSwitch`'s type inferred from that argument, no
+annotation).
+
+### The 1–32-byte constraint
+
+A Hook API parameter name must be **1 to 32 bytes** (`hook_api.h`:
+`TOO_SMALL` below 1, `TOO_BIG` above 32 — see
+`hooks_lib::convert::PARAM_NAME_MAX_LEN`). `AdminName` encodes to
+`section` (1 byte) + `field` (1 byte) = **2 bytes**, comfortably inside
+that range. Unlike an oversized `HookData` struct (which has no such bound
+at all — a state *value* has no fixed size cap), `#[derive(ParamName)]`
+checks this bound **unconditionally, at the struct's own definition** — a
+`ParamName` struct that encoded to, say, 40 bytes would fail to compile
+right there, before anything tried to use it as a parameter name at all
+(the same derive-time-check idea `#[derive(HookKey)]` applies to a
+33+-byte state key, just with an added *lower* bound a key doesn't have).
+See `hooks_lib::ParamName`'s doc comment for the `compile_fail` example
+pinning exactly that case.
+
+### Hex encoding
+
+`AdminName { section: 0, field: 0 }` — **2 bytes** (`section`, then
+`field`, no padding — `hooks_lib::convert`'s crate-wide "every field, in
+declaration order, back-to-back" convention, same as `Config`/
+`Instruction` above): `0000`.
+
+`PauseSwitch { paused: 1 }` — **1 byte**: `01`.
+
+Installed at `SetHook` time (an administrative control, not something a
+depositor sets per transaction — hence `hook_param`, not `otxn_param`):
+
+```json
+{
+  "HookParameter": {
+    "HookParameterName": "0000",
+    "HookParameterValue": "01"
+  }
+}
+```
+
+Omitting this `HookParameter` entirely (or setting `HookParameterValue`
+to `00`) leaves deposits unpaused — `deposits_paused()` treats "absent, or
+the wrong size" the same as `paused == 0`.
+
+### Measured cost of a composite name
+
+Unlike the plain `CFG`/`INS` tags (measured identical to the loose API in
+the "Pairing a key with its value type" section above), a **composite**
+parameter name is not free: `TypedParamName::name_bytes`'s default body has
+to actually run `AdminName::write(..)` at runtime (Rust has no stable way to
+run a trait method at compile time, so this can't be folded away for an
+arbitrary `ToBytes` type — see `hooks_lib::convert::TypedParamName`'s doc
+comment). Measured by building this exact hook twice — once as committed
+(with the `AdminName`/`PauseSwitch` pause switch), once with that whole
+feature removed (everything else byte-for-byte identical):
+
+| version | worst-case instructions | wasm size |
+|---|---|---|
+| without the `AdminName` pause switch | 413 | 1433 bytes |
+| with the `AdminName` pause switch (as committed) | 463 | 1584 bytes |
+
++50 instructions, +151 bytes — the honest, unavoidable cost of one
+composite-name-keyed `hook_param` lookup (the struct encode itself, plus
+the extra branch/rollback path checking it). Still guard-clean at the
+source level: no `--auto-guard`/`--default-maxiter` needed either way.
 
 ## Build
 

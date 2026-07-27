@@ -69,7 +69,7 @@
 //! rejects (at compile time) a payload whose [`crate::convert::ToBytes::MAX_LEN`]
 //! does not leave room for the discriminant byte in the 32-byte key.
 //!
-//! # Struct keys (`#[derive(crate::HookData)]`) vs. `state_keys!`
+//! # Struct keys (`#[derive(crate::HookKey)]`) vs. `state_keys!`
 //!
 //! [`state_keys!`](crate::state_keys) suits a **small, fixed set** of
 //! distinct state entries: every variant is a separate, independently named
@@ -80,22 +80,28 @@
 //! payload) and previously had to be hand-packed into a raw
 //! [`crate::types::StateKey`] byte buffer.
 //!
-//! [`crate::HookData`] closes that gap: derive it on an ordinary named-field
+//! [`crate::HookKey`] closes that gap: derive it on an ordinary named-field
 //! struct (every field a fixed-size type — see its doc comment for the exact
 //! grammar), and the struct becomes directly usable as a `state_get`/
-//! `state_set_typed` key, via the blanket [`StateKeyEncode`] impl below —
+//! `state_set_typed` key, via the [`StateKeyEncode`] impl it generates —
 //! `state_get(&MyKey { .. })` works with no `state_keys!` declaration at all.
 //! The two are complementary, not competing: `state_keys!` for a handful of
-//! named, independent key *cases*; a `#[derive(HookData)]` struct for one key
+//! named, independent key *cases*; a `#[derive(HookKey)]` struct for one key
 //! shape built out of several *fields* — and nothing stops a `state_keys!`
-//! tuple variant's single payload from itself being a `HookData` struct, for
-//! a hybrid of both.
+//! tuple variant's single payload from itself being a `HookKey`-derived
+//! struct, for a hybrid of both. See [`crate::HookKey`]'s doc comment for why
+//! this is a *separate* derive from [`crate::HookData`] (the state-*value*
+//! counterpart) rather than one derive serving both roles.
 //!
-//! Any [`crate::convert::ToBytes`] type — not just a `HookData` struct — gets
-//! [`StateKeyEncode`] for free this way, zero-padded up to the 32-byte key
-//! space; a type whose [`crate::convert::ToBytes::MAX_LEN`] exceeds 32 fails
-//! to compile as a key (the same monomorphized `const` assert pattern as
-//! [`encode_write`]'s value-side check below), not silently truncate.
+//! Only a [`crate::HookKey`]-derived struct, a
+//! [`state_keys!`](crate::state_keys) enum, or [`crate::types::StateKey`]
+//! itself implements [`StateKeyEncode`] — an ordinary
+//! [`crate::convert::ToBytes`] type (a plain `#[derive(HookData)]` value
+//! struct included) does **not** automatically qualify, so a state *value*
+//! type can never be passed where a key is expected by accident.
+//! [`crate::HookKey`]'s derive checks at compile time that the struct fits
+//! the 32-byte key space (the same bound [`encode_write`]'s value-side check
+//! enforces below), rather than silently truncating.
 //!
 //! # Pairing a key with its value type: [`TypedStateKey`]
 //!
@@ -112,54 +118,43 @@
 //! `_foreign` twins) — these read `K::Value` off the key's own type, so a
 //! mismatched value type has no generic parameter left to hide in; it's a
 //! compile error instead of a latent bug. Prefer these whenever a key type
-//! only ever pairs with one value type (every `HookData` key in practice).
+//! only ever pairs with one value type (every `HookKey` key in practice).
 //!
 //! # Relationship to the `hook_param`/`otxn_param` typed layer
 //!
-//! [`crate::convert::ParamName`] is this module's counterpart for Hook API
-//! parameters, deliberately shaped to *feel* the same even though the two
-//! mechanisms aren't identical:
+//! [`crate::convert::TypedParamName`] is this module's counterpart for Hook
+//! API parameters, deliberately shaped to *feel* the same even though the
+//! two mechanisms aren't identical:
 //!
-//! | | this module (hook state) | [`crate::convert::ParamName`] (params) |
+//! | | this module (hook state) | [`crate::convert::TypedParamName`] (params) |
 //! |---|---|---|
-//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(name => Ty)` |
-//! | safe accessor(s) | `state_get_kv`/`state_set_kv`/`state_update_kv` | `hook_param_kv`/`otxn_param_kv` |
+//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(Name => Ty)` |
+//! | safe accessor(s) | `state_get_kv(&key)`/`state_set_kv`/`state_update_kv` | `hook_param_kv(&name)`/`otxn_param_kv(&name)` |
 //! | loose escape hatch | [`state_get`]/[`state_set_typed`]/[`state_update_typed`] (independent `T`) | `hook_param_exact`/`otxn_param_exact` (independent `T`) |
-//! | shared foundation | both built on [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`]/[`crate::HookData`] — the same composite struct works as a state key/value *or* a param name/value |
+//! | shared foundation | both built on [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`] — see [`crate::HookKey`]/[`crate::HookData`] (state key/value) and [`crate::ParamName`]/[`crate::ParamValue`] (param name/value) for the analogous but separate derives each side uses |
 //!
 //! Both follow the identical shape: declare a pairing once, then call an
-//! accessor that resolves the paired type from the key/name itself instead
-//! of a second, independently-spelled generic parameter or argument — no
-//! turbofish, no chance of a mismatch. Two real mechanism differences keep
-//! them from going further than that:
+//! accessor that takes **a reference to a key/name value** and resolves the
+//! paired type from it — no turbofish, no chance of a mismatch, and (unlike
+//! an earlier design of this crate's param layer) no return-type-driven
+//! inference either: the argument, not the call site's inferred return
+//! type, is what picks `Value`. The one real mechanism difference: a
+//! `hook_param`/`otxn_param` is read-only from the reading hook's own
+//! perspective (`hook_param_set` writes a *different* hook's parameter, not
+//! this one) — so `TypedParamName`'s accessors are `_kv`-suffixed like this
+//! module's, but there is only ever a "get" shape, never a "set"/"update"
+//! one.
 //!
-//! - **One key type, many key values, vs. one name value per type.** A
-//!   state key type has many *runtime instances* (`DepositKey { tag: 1,
-//!   owner: alice }`, `DepositKey { tag: 1, owner: bob }`, ... — a genuine
-//!   key-value store), so [`TypedStateKey`] is a separate trait pairing a
-//!   *key type* with a *value type*. A Hook API parameter is normally one
-//!   compile-time-known name per type (`Config` always means `CFG`), so
-//!   `ParamName` fuses "the name" (`Self::NAME`, a `const`) and "the
-//!   value" (`Self`, read via [`crate::convert::FixedRead`]) into a
-//!   *single* type — there's no separate "param key type" to speak of.
-//! - **Read/write/update, vs. read-only.** Hook state is mutable and
-//!   persisted, so this module has `_get`/`_set`/`_update` (+ `_foreign`
-//!   twins) for both the loose and paired APIs. A `hook_param`/
-//!   `otxn_param` is read-only from the reading hook's own perspective
-//!   (`hook_param_set` writes a *different* hook's parameter, not this
-//!   one) — so `ParamName`'s accessors are `_kv`-suffixed like this
-//!   module's, but there is only ever a "get" shape, never a "set"/
-//!   "update" one.
-//!
-//! Also see [`crate::HookData`]'s doc comment for the composite-struct
-//! story both layers share, and [`crate::convert::ParamName`]'s doc
-//! comment for the reciprocal comparison and its own zero-cost story
-//! (parameter names have a cost dimension state keys don't: see that doc
-//! comment's "Zero-cost" section).
+//! Also see [`crate::HookKey`]/[`crate::HookData`]'s doc comments for the
+//! composite-struct story this module's side shares with
+//! [`crate::ParamName`]/[`crate::ParamValue`], and
+//! [`crate::convert::TypedParamName`]'s doc comment for the reciprocal
+//! comparison and its own zero-cost story (parameter names have a cost
+//! dimension state keys don't: see that doc comment's "Zero-cost" section).
 
 use crate::convert::{FromBytes, ToBytes};
 use crate::error::{HookError, Result};
-use crate::types::{STATE_KEY_LEN, StateKey};
+use crate::types::StateKey;
 
 /// Maximum byte length of any value [`state_get`]/[`state_set_typed`]/
 /// [`state_update_typed`] (and their `_foreign` twins) read or write.
@@ -185,36 +180,27 @@ const MAX_TYPED_STATE_LEN: usize = 32;
 /// Encodes a value into the fixed 32-byte hook-state key space.
 ///
 /// Implemented by every enum the [`state_keys!`](crate::state_keys) macro
-/// generates, and — via the blanket impl below — by every
-/// [`crate::convert::ToBytes`] type, [`crate::types::StateKey`] itself
-/// included (identity: a raw, already-32-byte key, e.g. one built with
-/// [`crate::pad!`], works directly with the typed functions in this module).
-/// See the module doc comment's "Struct keys" section for how a
-/// [`crate::HookData`]-derived struct fits in.
+/// generates, by every [`crate::HookKey`]-derived struct (see the module doc
+/// comment's "Struct keys" section for the grammar and the compile-time
+/// 32-byte check that derive applies), and — as the identity case — by
+/// [`crate::types::StateKey`] itself (a raw, already-32-byte key, e.g. one
+/// built with [`crate::pad!`], works directly with the typed functions in
+/// this module). Deliberately **not** implemented for every
+/// [`crate::convert::ToBytes`] type: an ordinary state *value* struct (a
+/// plain `#[derive(HookData)]`) has no business also being usable as a key
+/// by accident — see [`crate::HookKey`]'s doc comment for why key and value
+/// are two separate derives.
 pub trait StateKeyEncode {
     /// The 32-byte state key `self` encodes to.
     fn encode(&self) -> StateKey;
 }
 
-/// Blanket impl: any fixed-size [`crate::convert::ToBytes`] value can be
-/// used directly as a state key, zero-padded up to
-/// [`crate::types::STATE_KEY_LEN`] (32) bytes. A `T` whose
-/// [`crate::convert::ToBytes::MAX_LEN`] exceeds 32 fails to compile — the
-/// `const` assert is monomorphized per `T` and only fires when `encode` is
-/// actually instantiated for that `T` (i.e., when it's actually used as a
-/// key), mirroring [`encode_write`]'s identical value-side check.
-impl<T: ToBytes> StateKeyEncode for T {
+/// Identity impl: a raw, already-32-byte [`crate::types::StateKey`] (e.g.
+/// one built with [`crate::pad!`]) is already a valid key as-is.
+impl StateKeyEncode for StateKey {
     #[inline(always)]
     fn encode(&self) -> StateKey {
-        const {
-            assert!(
-                T::MAX_LEN <= STATE_KEY_LEN,
-                "hooks_lib::state: T::MAX_LEN exceeds the 32-byte state key space"
-            );
-        }
-        let mut raw = [0u8; STATE_KEY_LEN];
-        let _ = self.write(&mut raw);
-        StateKey::from(raw)
+        *self
     }
 }
 
@@ -232,7 +218,7 @@ impl<T: ToBytes> StateKeyEncode for T {
 /// the key's own type, so there is no second, independently-chosen value
 /// type left for a mismatch to hide in. Prefer these over the loose
 /// `state_get`/`state_set_typed`/`state_update_typed` whenever a key type
-/// only ever pairs with one value type — which is every `#[derive(HookData)]`
+/// only ever pairs with one value type — which is every `#[derive(HookKey)]`
 /// key, and every `state_keys!` variant that doesn't need to share its enum
 /// with variants of differing value types.
 pub trait TypedStateKey: StateKeyEncode {
@@ -658,9 +644,9 @@ macro_rules! __state_keys_step {
 ///
 /// ```
 /// use hooks_lib::prelude::*;
-/// use hooks_lib::{hook_state, HookData};
+/// use hooks_lib::{hook_state, HookData, HookKey};
 ///
-/// #[derive(HookData, Clone, Copy)]
+/// #[derive(HookKey, Clone, Copy)]
 /// struct MyKey {
 ///     tag: u8,
 /// }

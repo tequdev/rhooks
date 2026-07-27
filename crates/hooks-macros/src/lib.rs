@@ -17,13 +17,30 @@
 //!   `txn_template!` used before this crate existed. `#[doc(hidden)]` and
 //!   re-exported from `hooks-lib` as `hooks_lib::__paste` — internal use
 //!   only, not part of the public API.
-//! - [`macro@HookData`] (see the [`hook_data`] module) — a derive macro
-//!   turning a plain, fixed-size, named-field struct into a fixed-offset
-//!   `hooks_lib::convert::ToBytes`/`FromBytes`/`FixedRead` triple. Re-exported
-//!   from `hooks-lib` as `hooks_lib::HookData` — see that re-export's doc
-//!   comment for the full user-facing writeup (grammar, examples, the
-//!   zero-cost codegen shape); hook authors are not expected to depend on
-//!   this crate directly.
+//! - Four fixed-offset struct derives, split by role rather than one
+//!   derive covering everything (see each module's own doc comment for the
+//!   full rationale) — all four share struct-shape parsing via
+//!   [`shape`], differing only in which `hooks_lib::convert` impls they
+//!   generate:
+//!     - [`macro@HookKey`] (see [`hook_key`]) — a hook-**state key**:
+//!       `ToBytes` plus an explicit `hooks_lib::state::StateKeyEncode`
+//!       impl (zero-padded to 32 bytes, checked at derive time). Re-exported
+//!       as `hooks_lib::HookKey`.
+//!     - [`macro@HookData`] (see [`hook_data`]) — a hook-**state value**:
+//!       the full `ToBytes`/`FromBytes`/`FixedRead` triple. Re-exported as
+//!       `hooks_lib::HookData`.
+//!     - [`macro@ParamName`] (see [`param_name`]) — a composite **Hook API
+//!       parameter name**: write-only `ToBytes`, with the Hook API's own
+//!       1–32-byte parameter-name bound checked at derive time.
+//!       Re-exported as `hooks_lib::ParamName`.
+//!     - [`macro@ParamValue`] (see [`param_value`]) — a **Hook API
+//!       parameter value**: read-only `FromBytes`/`FixedRead`. Re-exported
+//!       as `hooks_lib::ParamValue`.
+//!
+//!   See each re-export's doc comment (in `hooks-lib`) for the full
+//!   user-facing writeup (grammar, examples, zero-cost codegen shape,
+//!   compile-fail cases); hook authors are not expected to depend on this
+//!   crate directly.
 //!
 //! # Why hand-rolled `proc_macro`, not `syn`/`quote`
 //!
@@ -44,6 +61,10 @@
 use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
 
 mod hook_data;
+mod hook_key;
+mod param_name;
+mod param_value;
+mod shape;
 
 /// Turns a plain `fn name() -> i64 { .. }` into the Hook host's required
 /// `hook` export.
@@ -93,15 +114,53 @@ pub fn cbak(attr: TokenStream, item: TokenStream) -> TokenStream {
     entry_point("cbak", attr, item)
 }
 
+/// Derives `hooks_lib::convert::ToBytes` plus an explicit
+/// `hooks_lib::state::StateKeyEncode` impl for a fixed-size, named-field
+/// struct used as a **composite hook-state key** — see
+/// `hooks_lib::HookKey`'s doc comment (the public-facing re-export hook
+/// authors actually use) for the full writeup. Implemented in
+/// [`hook_key`]; kept as a thin `#[proc_macro_derive]` entry point here,
+/// mirroring [`hook`]/[`cbak`]'s split between the `#[proc_macro...]`
+/// entry point and its implementation.
+#[proc_macro_derive(HookKey)]
+pub fn derive_hook_key(input: TokenStream) -> TokenStream {
+    hook_key::derive(input)
+}
+
 /// Derives `hooks_lib::convert::ToBytes`/`FromBytes`/`FixedRead` for a
-/// fixed-size, named-field struct — see `hooks_lib::HookData`'s doc comment
-/// (the public-facing re-export hook authors actually use) for the full
-/// writeup. Implemented in [`hook_data`]; kept as a thin `#[proc_macro_derive]`
-/// entry point here, mirroring [`hook`]/[`cbak`]'s split between the
-/// `#[proc_macro...]` entry point and its implementation.
+/// fixed-size, named-field struct used as a **hook-state value** — see
+/// `hooks_lib::HookData`'s doc comment (the public-facing re-export hook
+/// authors actually use) for the full writeup. Implemented in
+/// [`hook_data`]; kept as a thin `#[proc_macro_derive]` entry point here,
+/// mirroring [`hook`]/[`cbak`]'s split between the `#[proc_macro...]`
+/// entry point and its implementation.
 #[proc_macro_derive(HookData)]
 pub fn derive_hook_data(input: TokenStream) -> TokenStream {
     hook_data::derive(input)
+}
+
+/// Derives `hooks_lib::convert::ToBytes` (only — no `FromBytes`/`FixedRead`)
+/// for a fixed-size, named-field struct used as a **composite Hook API
+/// parameter name** — see `hooks_lib::ParamName`'s doc comment (the
+/// public-facing re-export hook authors actually use) for the full
+/// writeup. Implemented in [`param_name`]; kept as a thin
+/// `#[proc_macro_derive]` entry point here, mirroring [`macro@HookData`]'s
+/// split between the `#[proc_macro...]` entry point and its implementation.
+#[proc_macro_derive(ParamName)]
+pub fn derive_param_name(input: TokenStream) -> TokenStream {
+    param_name::derive(input)
+}
+
+/// Derives `hooks_lib::convert::FromBytes`/`FixedRead` (only — no
+/// `ToBytes`) for a fixed-size, named-field struct used as a **Hook API
+/// parameter value** — see `hooks_lib::ParamValue`'s doc comment (the
+/// public-facing re-export hook authors actually use) for the full
+/// writeup. Implemented in [`param_value`]; kept as a thin
+/// `#[proc_macro_derive]` entry point here, mirroring [`macro@HookData`]'s
+/// split between the `#[proc_macro...]` entry point and its implementation.
+#[proc_macro_derive(ParamValue)]
+pub fn derive_param_value(input: TokenStream) -> TokenStream {
+    param_value::derive(input)
 }
 
 /// Shared implementation for [`hook`] and [`cbak`]: validates the annotated

@@ -1,7 +1,7 @@
 //! Information about the originating transaction (the transaction that
 //! triggered this hook invocation).
 
-use crate::convert::{FixedRead, ParamName};
+use crate::convert::{FixedRead, TypedParamName};
 use crate::error::{Result, res};
 use crate::tx_type::TxType;
 use crate::types::Hash;
@@ -122,7 +122,7 @@ pub fn otxn_param<B: AsMut<[u8]> + ?Sized>(out: &mut B, name: &[u8]) -> Result<u
 /// Read a Hook parameter attached to the originating transaction, requiring
 /// it to be exactly `T`'s length — any [`crate::convert::FixedRead`] type,
 /// most commonly a `hooks_lib::types` newtype, a raw `[u8; N]`, or a
-/// [`crate::HookData`]-derived struct. A parameter longer than that already
+/// [`crate::ParamValue`]-derived struct. A parameter longer than that already
 /// fails as [`crate::error::HookError::TooSmall`] from the underlying host
 /// call; a parameter shorter is caught by `T::read_exact` itself and mapped
 /// to the same variant — see [`otxn_field_exact`]/`state_exact` (`state.rs`)
@@ -146,24 +146,26 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 }
 
 /// Read a Hook parameter attached to the originating transaction, named by
-/// `T` itself — see [`crate::convert::ParamName`]'s doc comment for why
-/// this is the safer alternative to [`otxn_param_exact`] when a parameter
-/// is always meant to decode as one specific type: there is no separate
-/// `name` argument that could name a *different* parameter than the one
-/// `T` was declared for.
+/// `name` itself — see [`crate::convert::TypedParamName`]'s doc comment
+/// for why this is the safer alternative to [`otxn_param_exact`] when a
+/// parameter is always meant to decode as `name`'s one paired value type:
+/// there is no separate `name` argument spelled independently of the type
+/// that could name a *different* parameter than the one actually
+/// intended. `N::Value` (the return type) is inferred from `name`'s own
+/// type — no turbofish.
 ///
 /// Costs nothing beyond [`otxn_param_exact`] for the common
-/// plain-byte-string-name case (e.g. `T::NAME = b"INS"`, via
-/// [`param_name!`](crate::param_name)'s simple form) — see
-/// [`crate::convert::ParamName`]'s "Zero-cost" section. A **composite,
-/// struct-shaped** name costs a small, genuine runtime encode instead
-/// (unavoidable for an arbitrary type) — see the same doc comment.
+/// plain-byte-string-name case (e.g. via
+/// [`otxn_parameter!`](crate::otxn_parameter)'s two-argument form) — see
+/// [`crate::convert::TypedParamName`]'s "Zero-cost" section. A
+/// **composite, struct-shaped** name costs a small, genuine runtime encode
+/// instead (unavoidable for an arbitrary type) — see the same doc comment.
 ///
 /// # Examples
 ///
 /// ```
 /// use hooks_lib::api::otxn::otxn_param_kv;
-/// use hooks_lib::convert::ParamName;
+/// use hooks_lib::convert::TypedParamName;
 /// use hooks_lib::error::{HookError, Result};
 ///
 /// struct Instruction([u8; 9]);
@@ -174,19 +176,27 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 ///     }
 /// }
 ///
-/// impl ParamName for Instruction {
-///     type Name = [u8; 3];
-///     const NAME: [u8; 3] = *b"INS";
+/// struct InsName;
+///
+/// impl hooks_lib::convert::ToBytes for InsName {
+///     const MAX_LEN: usize = 3;
+///     fn write(&self, buf: &mut [u8]) -> usize {
+///         hooks_lib::convert::ToBytes::write(b"INS", buf)
+///     }
 /// }
 ///
-/// let value: Result<Instruction> = otxn_param_kv();
+/// impl TypedParamName for InsName {
+///     type Value = Instruction;
+/// }
+///
+/// let value = otxn_param_kv(&InsName);
 /// assert_eq!(value.err(), Some(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn otxn_param_kv<T: ParamName>() -> Result<T> {
+pub fn otxn_param_kv<N: TypedParamName>(name: &N) -> Result<N::Value> {
     let mut name_buf = [0u8; crate::convert::PARAM_NAME_MAX_LEN];
-    let name = T::name_bytes(&mut name_buf);
-    otxn_param_exact::<T>(name)
+    let name = name.name_bytes(&mut name_buf);
+    otxn_param_exact::<N::Value>(name)
 }
 
 #[cfg(test)]
@@ -220,15 +230,18 @@ mod tests {
             otxn_param_exact::<[u8; 4]>(b"x"),
             Err(HookError::NotImplemented)
         );
-        assert_eq!(otxn_param_kv::<TestParam>(), Err(HookError::NotImplemented));
         assert_eq!(
-            otxn_param_kv::<TestKeyParam>(),
+            otxn_param_kv(&TestParamName),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            otxn_param_kv(&TestKeyParamName { tag: 1 }),
             Err(HookError::NotImplemented)
         );
     }
 
-    // Simple form: `Name` is a plain `[u8; N]`, `name_bytes` overridden to
-    // skip the default (encoding) body entirely.
+    // Simple/static form: `Name` is a marker type, `name_bytes` overridden
+    // to skip the default (encoding) body entirely.
     #[derive(Debug, PartialEq)]
     struct TestParam([u8; 4]);
 
@@ -238,17 +251,30 @@ mod tests {
         }
     }
 
-    impl crate::convert::ParamName for TestParam {
-        type Name = [u8; 1];
-        const NAME: [u8; 1] = *b"x";
+    struct TestParamName;
 
-        fn name_bytes(_buf: &mut [u8; crate::convert::PARAM_NAME_MAX_LEN]) -> &[u8] {
-            &Self::NAME
+    impl crate::convert::ToBytes for TestParamName {
+        const MAX_LEN: usize = 1;
+
+        fn write(&self, buf: &mut [u8]) -> usize {
+            crate::convert::ToBytes::write(b"x", buf)
         }
     }
 
-    // Composite form: relies on `ParamName::name_bytes`'s default body
-    // (the genuine runtime encode, exercised here with a trivial `Name`).
+    impl crate::convert::TypedParamName for TestParamName {
+        type Value = TestParam;
+
+        fn name_bytes<'buf>(
+            &self,
+            _buf: &'buf mut [u8; crate::convert::PARAM_NAME_MAX_LEN],
+        ) -> &'buf [u8] {
+            b"x"
+        }
+    }
+
+    // Composite form: relies on `TypedParamName::name_bytes`'s default
+    // body (the genuine runtime encode, exercised here with a trivial
+    // one-field name).
     #[derive(Debug, PartialEq)]
     struct TestKeyParam([u8; 4]);
 
@@ -258,8 +284,19 @@ mod tests {
         }
     }
 
-    impl crate::convert::ParamName for TestKeyParam {
-        type Name = [u8; 1];
-        const NAME: [u8; 1] = *b"x";
+    struct TestKeyParamName {
+        tag: u8,
+    }
+
+    impl crate::convert::ToBytes for TestKeyParamName {
+        const MAX_LEN: usize = 1;
+
+        fn write(&self, buf: &mut [u8]) -> usize {
+            crate::convert::ToBytes::write(&self.tag, buf)
+        }
+    }
+
+    impl crate::convert::TypedParamName for TestKeyParamName {
+        type Value = TestKeyParam;
     }
 }

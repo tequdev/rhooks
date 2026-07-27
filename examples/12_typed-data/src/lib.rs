@@ -1,5 +1,6 @@
-//! `typed-data` — a per-account deposit ledger, keyed and valued by
-//! `#[derive(HookData)]` structs instead of hand-packed byte buffers.
+//! `typed-data` — a per-account deposit ledger, keyed by a
+//! `#[derive(HookKey)]` struct and valued by a `#[derive(HookData)]` struct,
+//! instead of hand-packed byte buffers.
 //!
 //! Each invocation carries a per-transaction `Instruction` (attached via
 //! the Invoke transaction's own `HookParameters`, read with `otxn_param`)
@@ -19,6 +20,22 @@
 //! `examples/03_hook-params` uses for a single `u64`, extended here to a
 //! multi-field struct.
 //!
+//! An operator can also pause new deposits entirely, via a **composite**
+//! (struct-shaped, not a plain byte-string tag) Hook parameter name —
+//! [`AdminName`], a `#[derive(ParamName)]` struct — demonstrating
+//! [`hook_parameter!`]'s other grammar form alongside [`CFG_PARAM`]/
+//! [`INS_PARAM`]'s plain-tag one. Withdrawals are never paused: a
+//! depositor can always get their own money back.
+//!
+//! Four derives, four roles: [`HookKey`] for the composite state key
+//! ([`DepositKey`]), [`HookData`] for the composite state value
+//! ([`DepositValue`]), [`ParamName`] for the composite parameter name
+//! ([`AdminName`]), and [`ParamValue`] for every parameter payload
+//! ([`Config`]/[`Instruction`]/[`PauseSwitch`]) — see each derive's own doc
+//! comment (`hooks_lib::{HookKey, HookData, ParamName, ParamValue}`) for why
+//! these are four separate, narrower derives rather than one covering
+//! everything.
+//!
 //! See the README for the hand-packed-vs-derived byte layout this replaces,
 //! the measured worst-case-instruction-count comparison proving the derive
 //! is zero-cost, and why every key/value pair and every named parameter
@@ -32,7 +49,8 @@
 
 use hooks_lib::prelude::*;
 use hooks_lib::{
-    HookData, accept, hook, hook_errors, hook_parameter, hook_state, otxn_parameter, rollback,
+    HookData, HookKey, ParamName, ParamValue, accept, hook, hook_errors, hook_parameter,
+    hook_state, otxn_parameter, rollback,
 };
 
 /// The one key "kind" this hook stores (reserved for future expansion —
@@ -41,14 +59,25 @@ const DEPOSIT_TAG: u8 = 1;
 
 /// Name of the Hook parameter (installed at `SetHook` time) carrying this
 /// hook's `Config`. `&[u8; 3]` (a fixed-size array reference, not a bare
-/// `&[u8]` slice) so `hook_parameter!`'s simple form can infer
-/// `ParamName::Name` as `[u8; 3]` from it.
+/// `&[u8]` slice) so `hook_parameter!`'s two-argument form can infer the
+/// generated [`CfgName`] marker's `ToBytes::MAX_LEN` as exactly `3` from it.
 const CFG_PARAM: &[u8; 3] = b"CFG";
+
+/// Marker type naming the [`CFG_PARAM`] Hook parameter — see
+/// [`hook_parameter!`]'s doc comment for why a plain byte-string name still
+/// needs a small marker type declared for it (one Hook API name = one
+/// distinct Rust type, so `hook_param_kv`'s argument always resolves
+/// [`Config`] unambiguously, even though `CfgName` itself carries no data).
+struct CfgName;
 
 /// Name of the Hook parameter attached to each Invoke transaction itself,
 /// carrying that invocation's `Instruction`. See [`CFG_PARAM`] for why this
 /// is `&[u8; 3]`, not `&[u8]`.
 const INS_PARAM: &[u8; 3] = b"INS";
+
+/// Marker type naming the [`INS_PARAM`] Hook parameter — see [`CfgName`]
+/// for why.
+struct InsName;
 
 /// `Instruction::action` value for a deposit.
 const ACTION_DEPOSIT: u8 = 1;
@@ -62,6 +91,9 @@ const DEFAULT_MIN_AMOUNT: u64 = 1_000_000;
 const DEFAULT_LOCK_LEDGERS: u32 = 10;
 
 /// Composite hook-state **key**: which account's deposit record this is.
+/// `#[derive(HookKey)]`, not `#[derive(HookData)]` — a key is only ever
+/// encoded outward to locate an entry, never read back and decoded as
+/// itself (see `hooks_lib::HookKey`'s doc comment).
 ///
 /// `tag` is a constant discriminant (always [`DEPOSIT_TAG`] in this hook) —
 /// reserved so a future second record kind could share the same key space
@@ -69,7 +101,7 @@ const DEFAULT_LOCK_LEDGERS: u32 = 10;
 /// plays, but expressed as an ordinary struct field instead of an enum
 /// variant. See the README's "Before/after" section for the hand-packed
 /// 21-byte buffer this replaces.
-#[derive(HookData, Clone, Copy)]
+#[derive(HookKey, Clone, Copy)]
 struct DepositKey {
     tag: u8,
     owner: AccountId,
@@ -97,8 +129,11 @@ struct DepositValue {
 hook_state!(DepositKey => DepositValue);
 
 /// This hook's configuration, installed via the [`CFG_PARAM`] Hook
-/// parameter — see [`config`].
-#[derive(HookData, Clone, Copy)]
+/// parameter — see [`config`]. `#[derive(ParamValue)]`, not
+/// `#[derive(HookData)]` — a parameter value is only ever read back and
+/// decoded, never itself used to locate anything (see
+/// `hooks_lib::ParamValue`'s doc comment).
+#[derive(ParamValue, Clone, Copy)]
 struct Config {
     /// Minimum drops a single `deposit` instruction must carry.
     min_amount: u64,
@@ -107,19 +142,20 @@ struct Config {
     lock_ledgers: u32,
 }
 
-// Ties `Config` to its own parameter name (see `hooks_lib::convert::ParamName`'s
-// doc comment): `hook_param_kv::<Config>()` below reads `CFG_PARAM` because
-// `Config` says so, not because some call site happened to pass the right
-// byte string for the right type. `hook_parameter!` (not `otxn_parameter!`)
-// because `Config` is read via `hook_param_kv` (this hook's own installed
-// parameters) below.
-hook_parameter!(CFG_PARAM => Config);
+// Pairs `CfgName` with `Config` (see `hooks_lib::convert::TypedParamName`'s
+// doc comment): `hook_param_kv(&CfgName)` below reads `CFG_PARAM` and
+// decodes the result as `Config` because `CfgName` says so — the name
+// argument, not a turbofish or an inferred return type, picks `Config`.
+// `hook_parameter!` (not `otxn_parameter!`) because `CfgName` is read via
+// `hook_param_kv` (this hook's own installed parameters) below.
+hook_parameter!(CfgName, CFG_PARAM => Config);
 
 /// Per-invocation instruction, read from the *originating transaction's
 /// own* `HookParameters` (via `otxn_param`, not `hook_param`) — every
 /// Invoke that calls this hook attaches its own [`INS_PARAM`], distinct
-/// from the hook's installed [`CFG_PARAM`] configuration.
-#[derive(HookData)]
+/// from the hook's installed [`CFG_PARAM`] configuration. `#[derive(ParamValue)]`
+/// — see [`Config`]'s doc comment for why.
+#[derive(ParamValue)]
 struct Instruction {
     /// [`ACTION_DEPOSIT`] or [`ACTION_WITHDRAW`].
     action: u8,
@@ -128,10 +164,59 @@ struct Instruction {
     amount: u64,
 }
 
-// Same idea as `Config` above, for the per-transaction `INS` parameter —
-// `otxn_parameter!` (not `hook_parameter!`) because `Instruction` is read
-// via `otxn_param_kv` below.
-otxn_parameter!(INS_PARAM => Instruction);
+// Same idea as `CfgName`/`Config` above, for the per-transaction `INS`
+// parameter — `otxn_parameter!` (not `hook_parameter!`) because `InsName`
+// is read via `otxn_param_kv` below.
+otxn_parameter!(InsName, INS_PARAM => Instruction);
+
+/// A **composite, struct-shaped** Hook parameter *name* — `{section,
+/// field}` — as opposed to [`CFG_PARAM`]/[`INS_PARAM`]'s plain byte-string
+/// tags. `#[derive(ParamName)]`, not `#[derive(HookData)]`: a parameter
+/// name is only ever written (handed to `hook_param` to locate
+/// [`PauseSwitch`] below), never read back and decoded as itself — see
+/// `hooks_lib::ParamName`'s doc comment for the full rationale (write-only,
+/// no `FromBytes`/`FixedRead`, and the Hook API's 1–32-byte parameter-name
+/// bound checked right here at the derive, not only later at a call site).
+///
+/// `section`/`field` are reserved so future administrative parameters
+/// could share this same structured "Admin" name scheme without a naming
+/// collision — the same role [`DepositKey`]'s `tag` plays for state keys,
+/// applied to a Hook parameter name instead.
+#[derive(ParamName, Clone, Copy)]
+struct AdminName {
+    section: u8,
+    field: u8,
+}
+
+/// The one [`AdminName`] value naming the "pause switch" parameter below
+/// ([`PauseSwitch`]) — `section = 0` reserved for hook-wide administrative
+/// controls, `field = 0` the first (and, so far, only) control in that
+/// section.
+const ADMIN_PAUSE: AdminName = AdminName {
+    section: 0,
+    field: 0,
+};
+
+/// Whether new deposits are currently paused — installed via the
+/// composite [`AdminName`] Hook parameter above (`hook_param`, not
+/// `otxn_param`: an operator-controlled switch, not something a depositor
+/// sets per transaction). See [`deposits_paused`]. `#[derive(ParamValue)]`
+/// — see [`Config`]'s doc comment for why.
+#[derive(ParamValue, Clone, Copy)]
+struct PauseSwitch {
+    /// Nonzero: new deposits are rejected. Zero (or the parameter absent
+    /// entirely): deposits proceed normally.
+    paused: u8,
+}
+
+// Pairs the composite `AdminName` with `PauseSwitch` (not a plain byte
+// string like `CfgName`/`Config`) — `hook_parameter!`'s composite form,
+// `Name => Ty`, mirroring `hook_state!`'s `Key => Value` exactly: the name
+// *type* (here, a whole struct) comes first, the type it names comes last.
+// Unlike the plain-name form, no literal is baked in here — any `AdminName`
+// *value* (see `ADMIN_PAUSE` above) can be passed to `hook_param_kv` at the
+// call site, carrying real runtime field data.
+hook_parameter!(AdminName => PauseSwitch);
 
 hook_errors! {
     /// `typed-data` rollback codes.
@@ -139,8 +224,9 @@ hook_errors! {
         /// The originating transaction has no `sfAccount` field (should be
         /// unreachable — every real transaction has one).
         AccountFieldMissing = 1,
-        /// The `INS` Hook parameter is missing, or not exactly
-        /// [`Instruction::LEN`] bytes.
+        /// The `INS` Hook parameter is missing, or not exactly 9 bytes
+        /// (`Instruction`'s encoded length — `#[derive(ParamValue)]` gives
+        /// it no inherent `LEN` const to name here, unlike `#[derive(HookData)]`).
         InstructionMissing = 2,
         /// `Instruction::action` is neither [`ACTION_DEPOSIT`] nor
         /// [`ACTION_WITHDRAW`].
@@ -158,22 +244,38 @@ hook_errors! {
         StateReadFailed = 7,
         /// Writing the updated `DepositValue` back failed.
         StateSetFailed = 8,
+        /// A `deposit` instruction, but the [`AdminName`] pause switch is
+        /// currently set. Withdrawals are never rejected for this reason.
+        DepositsPaused = 9,
     }
 }
 
-/// Reads this hook's [`Config`] from the [`CFG_PARAM`] Hook parameter,
-/// falling back to [`DEFAULT_MIN_AMOUNT`]/[`DEFAULT_LOCK_LEDGERS`] if it
-/// isn't set (or is the wrong size to be a valid `Config`) — the same
-/// `hook_param_kv` + `.unwrap_or(..)` pattern
+/// Reads this hook's [`Config`] from the [`CFG_PARAM`] Hook parameter
+/// (named by [`CfgName`]), falling back to [`DEFAULT_MIN_AMOUNT`]/
+/// [`DEFAULT_LOCK_LEDGERS`] if it isn't set (or is the wrong size to be a
+/// valid `Config`) — the same `hook_param_kv` + `.unwrap_or(..)` pattern
 /// `examples/03_hook-params`'s `min_drops` uses for a single `u64` (there,
-/// `hook_param_exact`), here reading a whole struct in one call with no
-/// `CFG_PARAM` argument at the call site at all (see the `hook_parameter!`
-/// declaration above `Config`).
+/// `hook_param_exact`), here reading a whole struct in one call: passing
+/// `&CfgName` picks `Config` as the result type (see the `hook_parameter!`
+/// declaration above `Config`) — no turbofish, no return-type annotation.
 fn config() -> Config {
-    hook_param_kv().unwrap_or(Config {
+    hook_param_kv(&CfgName).unwrap_or(Config {
         min_amount: DEFAULT_MIN_AMOUNT,
         lock_ledgers: DEFAULT_LOCK_LEDGERS,
     })
+}
+
+/// Reads the [`AdminName`]-named [`PauseSwitch`] Hook parameter, returning
+/// whether new deposits are currently paused. Absent (never configured, or
+/// the wrong size) is treated as "not paused" — the same
+/// `hook_param_kv` + fallback pattern [`config`] uses, here collapsing the
+/// result down to a plain `bool` since the caller only needs the one bit.
+/// `PauseSwitch` (the closure's inferred parameter type) again comes from
+/// the `&ADMIN_PAUSE` argument, not an annotation.
+fn deposits_paused() -> bool {
+    hook_param_kv(&ADMIN_PAUSE)
+        .map(|s| s.paused != 0)
+        .unwrap_or(false)
 }
 
 /// An all-zero deposit record: no deposit ever made (or one already fully
@@ -195,7 +297,9 @@ fn my_hook() -> i64 {
         ),
     };
 
-    let instruction: Instruction = match otxn_param_kv() {
+    // `Instruction` (the binding's inferred type) comes from the `&InsName`
+    // argument, not an annotation.
+    let instruction = match otxn_param_kv(&InsName) {
         Ok(v) => v,
         Err(_) => rollback!(
             b"typed-data: INS parameter missing or malformed",
@@ -220,6 +324,12 @@ fn my_hook() -> i64 {
 
     let next = match instruction.action {
         ACTION_DEPOSIT => {
+            if deposits_paused() {
+                rollback!(
+                    b"typed-data: deposits are currently paused",
+                    TypedDataError::DepositsPaused
+                );
+            }
             if instruction.amount < cfg.min_amount {
                 rollback!(
                     b"typed-data: deposit below configured minimum",

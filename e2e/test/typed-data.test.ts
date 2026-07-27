@@ -1,16 +1,20 @@
 // e2e: examples/12_typed-data against a standalone Xahau node.
 //
-// `hook()` maintains a per-account deposit ledger keyed/valued by
-// `#[derive(HookData)]` structs (`DepositKey`/`DepositValue` - see
-// examples/12_typed-data/src/lib.rs and its README). Every Invoke carries
-// its own `Instruction` (action + amount) as an `INS` Hook parameter
-// attached to the transaction itself (read via `otxn_param`), separate
-// from the hook's installed `Config` (`CFG`, read via `hook_param`).
+// `hook()` maintains a per-account deposit ledger keyed by a
+// `#[derive(HookKey)]` struct and valued by a `#[derive(HookData)]` struct
+// (`DepositKey`/`DepositValue` - see examples/12_typed-data/src/lib.rs and
+// its README). Every Invoke carries its own `Instruction` (action +
+// amount, `#[derive(ParamValue)]`) as an `INS` Hook parameter attached to
+// the transaction itself (read via `otxn_param`), separate from the
+// hook's installed `Config` (`CFG`, read via `hook_param`). An operator
+// can also pause new deposits via a **composite**, struct-shaped
+// `#[derive(ParamName)]` parameter name (`AdminName`) - see the last
+// nested `describe` block below.
 //
-// Every `#[derive(HookData)]` struct's wire layout is "every field, in
-// declaration order, little-endian, back-to-back" - see the README's
-// "Hook parameter hex encoding" section for the worked byte layouts this
-// suite's `cfgHex`/`insHex` helpers reproduce.
+// Every `#[derive(HookData)]`/`#[derive(ParamValue)]` struct's wire layout
+// is "every field, in declaration order, little-endian, back-to-back" -
+// see the README's "Hook parameter hex encoding" section for the worked
+// byte layouts this suite's `cfgHex`/`insHex` helpers reproduce.
 import {
   ExecutionUtility,
   Xrpld,
@@ -32,8 +36,11 @@ import { calculateHookOn, convertStringToHex, type TransactionMetadata } from 'x
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-typed-data'
-// hooks-build's printed worst case for typed_data.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 413
+// hooks-build's printed worst case for typed_data.wasm (`mise run build-examples`)
+// - includes the composite `AdminName`/`PauseSwitch` pause-switch path (see
+// the README's "Measured cost of a composite name" section: 413 without it,
+// 463 as committed).
+const WORST_CASE_INSTRUCTIONS = 463
 
 const ACTION_DEPOSIT = 1
 const ACTION_WITHDRAW = 2
@@ -243,5 +250,88 @@ describe('typed-data', () => {
       insHex(99, 0n),
     )
     await expect(response).rejects.toThrow('typed-data: unknown INS action')
+  })
+
+  describe('deposit pause switch (composite AdminName parameter)', () => {
+    // `AdminName { section: 0, field: 0 }` - 2 bytes, back-to-back, no
+    // padding (README's "Hex encoding" section under "Composite
+    // (struct-shaped) parameter names").
+    const ADMIN_NAME_HEX = '0000'
+
+    beforeAll(async () => {
+      // Re-install the same hook with an additional composite `AdminName`
+      // Hook parameter, `PauseSwitch { paused: 1 }` (hex `01`) - pauses new
+      // deposits without touching any existing `DepositValue` state (the
+      // HookNamespace, and so every account's state entry, is unchanged by
+      // a SetHook that only replaces the hook definition/parameters).
+      const hook: iHook = {
+        CreateCode: readHookBinaryHexFromNS('typed_data', 'wasm'),
+        Flags: HookFlags.hsfOverride,
+        HookOn: calculateHookOn(['Invoke']),
+        HookNamespace: hexNamespace(namespace),
+        HookApiVersion: 0,
+        HookParameters: [
+          hookParam('CFG', cfgHex(MIN_DROPS, LOCK_LEDGERS)),
+          {
+            HookParameter: {
+              HookParameterName: ADMIN_NAME_HEX,
+              HookParameterValue: '01',
+            },
+          },
+        ],
+      }
+      await setHooksV3({
+        client: testContext.client,
+        seed: testContext.hook1.seed,
+        hooks: [{ Hook: hook }],
+      } as unknown as SetHookParams)
+    })
+
+    afterAll(async () => {
+      // Restore the unpaused hook (no `AdminName` parameter at all - absent
+      // is treated the same as `paused: 0`, per `deposits_paused`'s doc
+      // comment) so nothing after this block observes deposits paused.
+      const hook: iHook = {
+        CreateCode: readHookBinaryHexFromNS('typed_data', 'wasm'),
+        Flags: HookFlags.hsfOverride,
+        HookOn: calculateHookOn(['Invoke']),
+        HookNamespace: hexNamespace(namespace),
+        HookApiVersion: 0,
+        HookParameters: [hookParam('CFG', cfgHex(MIN_DROPS, LOCK_LEDGERS))],
+      }
+      await setHooksV3({
+        client: testContext.client,
+        seed: testContext.hook1.seed,
+        hooks: [{ Hook: hook }],
+      } as unknown as SetHookParams)
+    })
+
+    it('rejects a deposit while the AdminName pause switch is set', async () => {
+      // bob has no outstanding deposit at this point in the suite (his two
+      // earlier invokes both rolled back, so no state was ever written) -
+      // a deposit here exercises the pause check regardless.
+      const response = invoke(
+        testContext,
+        testContext.bob,
+        insHex(ACTION_DEPOSIT, MIN_DROPS),
+      )
+      await expect(response).rejects.toThrow(
+        'typed-data: deposits are currently paused',
+      )
+    })
+
+    it('still allows a withdraw while paused (withdrawals are never paused)', async () => {
+      // bob still has no outstanding deposit, so this hits the *other*
+      // rollback path (`NothingToWithdraw`) rather than succeeding - but
+      // reaching that check at all (instead of `DepositsPaused`) proves
+      // `deposits_paused()` is only ever consulted on the deposit branch,
+      // exactly as documented.
+      const response = invoke(
+        testContext,
+        testContext.bob,
+        insHex(ACTION_WITHDRAW, 0n),
+      )
+      await expect(response).rejects.toThrow('typed-data: nothing to withdraw')
+    })
   })
 })

@@ -1,13 +1,26 @@
 //! `#[derive(HookData)]` — backs `hooks_lib::HookData`.
 //!
 //! Turns a plain, fixed-size, named-field struct into a fixed-offset,
-//! zero-cost `hooks_lib::convert::ToBytes`/`FromBytes`/`FixedRead` triple, so
-//! the struct can be used directly as a hook-state/`otxn_param`/`hook_param`
-//! *value* — or, via `hooks_lib::state`'s blanket `StateKeyEncode` impl over
-//! any `ToBytes` type, as a state *key* too (see `hooks_lib::state`'s module
-//! doc comment). See `hooks_lib::HookData`'s doc comment (the public-facing
-//! re-export site) for the full user-facing writeup, grammar, and worked/
+//! zero-cost `hooks_lib::convert::ToBytes`/`FromBytes`/`FixedRead` triple,
+//! for a **hook-state value** — read back and decoded by
+//! `state_get_kv`/`state_get`, written by `state_set_kv`/`state_set_typed`.
+//! See `hooks_lib::HookData`'s doc comment (the public-facing re-export
+//! site) for the full user-facing writeup, grammar, and worked/
 //! compile-fail examples — this module only implements the codegen.
+//!
+//! Three sibling derives cover the other three roles a fixed-offset struct
+//! plays in this crate — see each one's own doc comment for the full
+//! rationale for why these are four separate, deliberately narrower
+//! derives rather than one derive covering everything:
+//!
+//! - [`crate::hook_key`]'s `#[derive(HookKey)]` — a hook-state **key**
+//!   (write-only, plus an explicit `StateKeyEncode` impl with a 32-byte
+//!   bound checked at derive time).
+//! - [`crate::param_name`]'s `#[derive(ParamName)]` — a composite Hook API
+//!   parameter **name** (write-only, with the Hook API's 1–32-byte
+//!   parameter-name bound checked at derive time).
+//! - [`crate::param_value`]'s `#[derive(ParamValue)]` — a Hook API
+//!   parameter **value** (read-only).
 //!
 //! # Why hand-rolled, not `syn`/`quote`
 //!
@@ -16,7 +29,9 @@
 //! struct, each field a bare `name: Type` pair, `Type` being a path or a
 //! `[u8; N]` array) — never a general Rust-item/type parser. `syn`+`quote`'s
 //! compile cost would be paid on every build of every hook crate for a
-//! job this small, token-shape-matching pass handles directly.
+//! job this small, token-shape-matching pass handles directly. Shared with
+//! [`crate::hook_key`]/[`crate::param_name`]/[`crate::param_value`] via
+//! [`crate::shape`].
 //!
 //! # Codegen strategy
 //!
@@ -54,229 +69,15 @@
 //! derive does not assume).
 
 use crate::err;
-use proc_macro::{Delimiter, Spacing, Span, TokenStream, TokenTree};
-use std::iter::Peekable;
-
-/// One `name: Type` field, as captured from the input tokens.
-struct FieldShape {
-    /// The field's name, verbatim.
-    name: String,
-    /// The field's type, reconstructed as source text (see
-    /// [`tokens_to_string`]) — never type-checked by this macro itself;
-    /// a type that doesn't implement `ToBytes`/`FromBytes` surfaces as an
-    /// ordinary rustc trait-bound error against the generated impl, not a
-    /// diagnostic this macro produces directly.
-    ty: String,
-}
-
-/// A named-field struct's shape, as captured from the input tokens.
-struct StructShape {
-    /// The struct's name, verbatim.
-    name: String,
-    /// Span of the struct's name, used to anchor struct-level errors (e.g.
-    /// "must have at least one field").
-    name_span: Span,
-    /// Fields in declaration order — the order every generated offset,
-    /// the layout doc table, and the struct literal in `FromBytes::read`
-    /// all follow.
-    fields: Vec<FieldShape>,
-}
+use crate::shape::{StructShape, parse_struct};
+use proc_macro::TokenStream;
 
 /// Entry point invoked by `#[proc_macro_derive(HookData)]` in `lib.rs`.
 pub fn derive(input: TokenStream) -> TokenStream {
-    match parse_struct(input) {
+    match parse_struct(input, "HookData") {
         Ok(shape) => generate(&shape),
         Err(e) => e,
     }
-}
-
-/// Advances past any leading `#[...]` attributes (including doc comments,
-/// which the compiler already desugars to `#[doc = "..."]` by the time this
-/// macro sees them). Input to a derive macro is always a syntactically
-/// valid item (rustc parses it before invoking the derive), so this never
-/// needs to report an error — an attribute here is always exactly `#`
-/// followed by a bracketed group.
-fn skip_attrs(iter: &mut Peekable<impl Iterator<Item = TokenTree>>) {
-    loop {
-        match iter.peek() {
-            Some(TokenTree::Punct(p)) if p.as_char() == '#' => {
-                iter.next();
-                iter.next();
-            }
-            _ => break,
-        }
-    }
-}
-
-/// Advances past an optional leading `pub`/`pub(...)` visibility.
-fn skip_vis(iter: &mut Peekable<impl Iterator<Item = TokenTree>>) {
-    if let Some(TokenTree::Ident(id)) = iter.peek() {
-        if id.to_string() == "pub" {
-            iter.next();
-            if let Some(TokenTree::Group(g)) = iter.peek() {
-                if g.delimiter() == Delimiter::Parenthesis {
-                    iter.next();
-                }
-            }
-        }
-    }
-}
-
-/// Parses the derive input into a [`StructShape`], or a `compile_error!`
-/// `TokenStream` describing the first shape violation found.
-fn parse_struct(input: TokenStream) -> Result<StructShape, TokenStream> {
-    let mut iter = input.into_iter().peekable();
-
-    skip_attrs(&mut iter);
-    skip_vis(&mut iter);
-
-    match iter.next() {
-        Some(TokenTree::Ident(id)) if id.to_string() == "struct" => {}
-        Some(TokenTree::Ident(id)) if id.to_string() == "enum" => {
-            return Err(err(
-                id.span(),
-                "HookData can only be derived for a struct, not an enum",
-            ));
-        }
-        Some(TokenTree::Ident(id)) if id.to_string() == "union" => {
-            return Err(err(
-                id.span(),
-                "HookData can only be derived for a struct, not a union",
-            ));
-        }
-        Some(other) => return Err(err(other.span(), "HookData: expected a struct")),
-        None => return Err(err(Span::call_site(), "HookData: expected a struct")),
-    }
-
-    let name_id = match iter.next() {
-        Some(TokenTree::Ident(id)) => id,
-        Some(other) => return Err(err(other.span(), "HookData: expected a struct name")),
-        None => return Err(err(Span::call_site(), "HookData: expected a struct name")),
-    };
-    let name_span = name_id.span();
-    let name = name_id.to_string();
-
-    if let Some(TokenTree::Punct(p)) = iter.peek() {
-        if p.as_char() == '<' {
-            return Err(err(p.span(), "HookData does not support generic structs"));
-        }
-    }
-
-    match iter.next() {
-        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace => {
-            let fields = parse_fields(g.stream())?;
-            if fields.is_empty() {
-                return Err(err(
-                    name_span,
-                    "HookData: struct must have at least one field",
-                ));
-            }
-            Ok(StructShape {
-                name,
-                name_span,
-                fields,
-            })
-        }
-        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis => Err(err(
-            g.span(),
-            "HookData does not support tuple structs — use named fields",
-        )),
-        Some(TokenTree::Punct(p)) if p.as_char() == ';' => Err(err(
-            p.span(),
-            "HookData does not support unit structs — a state key/value needs at least one field",
-        )),
-        Some(other) => Err(err(
-            other.span(),
-            "HookData: expected a `{ .. }` field list",
-        )),
-        None => Err(err(name_span, "HookData: expected a `{ .. }` field list")),
-    }
-}
-
-/// Parses a brace group's inner stream into an ordered list of fields.
-/// Every field must be `name: Type` (attributes and a leading `pub`/
-/// `pub(...)` are skipped, not validated); `Type` is captured as raw tokens
-/// up to the next top-level comma, so a bracketed array type (`[u8; 20]`)
-/// or a multi-segment path (`crate::types::AccountId`) both work — nothing
-/// deeper than one field-list nesting level is inspected.
-fn parse_fields(stream: TokenStream) -> Result<Vec<FieldShape>, TokenStream> {
-    let mut iter = stream.into_iter().peekable();
-    let mut fields = Vec::new();
-
-    while iter.peek().is_some() {
-        skip_attrs(&mut iter);
-        skip_vis(&mut iter);
-
-        if iter.peek().is_none() {
-            break;
-        }
-
-        let name_id = match iter.next() {
-            Some(TokenTree::Ident(id)) => id,
-            Some(other) => return Err(err(other.span(), "HookData: expected a field name")),
-            None => break,
-        };
-        let field_span = name_id.span();
-        let field_name = name_id.to_string();
-
-        match iter.next() {
-            Some(TokenTree::Punct(p)) if p.as_char() == ':' => {}
-            Some(other) => {
-                return Err(err(other.span(), "HookData: expected `:` after field name"));
-            }
-            None => {
-                return Err(err(field_span, "HookData: expected `:` after field name"));
-            }
-        }
-
-        let mut ty_tokens: Vec<TokenTree> = Vec::new();
-        loop {
-            match iter.peek() {
-                Some(TokenTree::Punct(p)) if p.as_char() == ',' => {
-                    iter.next();
-                    break;
-                }
-                Some(_) => {
-                    if let Some(tt) = iter.next() {
-                        ty_tokens.push(tt);
-                    }
-                }
-                None => break,
-            }
-        }
-        if ty_tokens.is_empty() {
-            return Err(err(field_span, "HookData: expected a field type"));
-        }
-
-        fields.push(FieldShape {
-            name: field_name,
-            ty: tokens_to_string(&ty_tokens),
-        });
-    }
-
-    Ok(fields)
-}
-
-/// Reconstructs a type's source text from its captured tokens, preserving
-/// exactly the adjacency `hooks-macros`' own tokenizer already recorded via
-/// each `Punct`'s [`Spacing`] — so a multi-token compound like the `::` in
-/// `crate::types::AccountId` round-trips as `::` (no space, which Rust's
-/// path grammar requires) rather than `: :` (two independent colons, a
-/// parse error in path position). A space is inserted before every other
-/// token boundary; this is always syntactically safe (it can only ever
-/// separate two tokens that were already distinct, never accidentally glue
-/// two identifiers/literals into one).
-fn tokens_to_string(tokens: &[TokenTree]) -> String {
-    let mut out = String::new();
-    let mut prev_joint = false;
-    for tt in tokens {
-        if !out.is_empty() && !prev_joint {
-            out.push(' ');
-        }
-        out.push_str(&tt.to_string());
-        prev_joint = matches!(tt, TokenTree::Punct(p) if p.spacing() == Spacing::Joint);
-    }
-    out
 }
 
 /// Builds a rustdoc table (declaration order, field name, field type) for
