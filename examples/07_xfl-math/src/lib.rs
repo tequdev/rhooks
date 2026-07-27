@@ -1,10 +1,13 @@
 //! `xfl-math` — reads the originating transaction's `Amount` (native or
 //! IOU — XFL handles both uniformly) via a slot, computes a percentage of
 //! it with `mulratio`, and rolls back if that computed share is below a
-//! fixed minimum XFL value. Demonstrates the `Result`-based XFL API: every
-//! `float_*` operation can fail (division by zero, mantissa/exponent
-//! overflow, ...), and this hook handles each failure explicitly instead of
-//! assuming success.
+//! fixed minimum XFL value. Also demonstrates hooks-lib's XFL operator API
+//! end to end: the checked `Sub`/`PartialOrd` operators on plain `XFL` for
+//! a sanity check, and `XFLUnchecked`'s poison-propagating chain for a
+//! small illustrative compounding computation. Every fallible step's
+//! `Result` is still handled explicitly instead of assuming success — the
+//! operators change *how* each step is spelled, not whether failure is
+//! handled.
 //!
 //! Build: `hooks-build build --manifest-path examples/07_xfl-math/Cargo.toml`
 
@@ -36,16 +39,37 @@ hook_errors! {
         /// `XFL::new` failed to construct the fixed minimum-share
         /// constant.
         MinShareConstructFailed = 5,
-        /// The `.lt()` comparison between the computed share and the
-        /// minimum failed.
-        ComparisonFailed = 6,
         /// The computed share fell below the fixed minimum.
-        BelowMinimum = 7,
+        BelowMinimum = 6,
+        /// `amount - share` (the checked `Sub` operator) failed.
+        RemainingComputeFailed = 7,
+        /// `amount - share` computed but was not strictly positive — would
+        /// mean `share >= amount`, which `mulratio(1, 100)` should never
+        /// produce for a positive `amount`.
+        NotEnoughRemaining = 8,
+        /// `XFL::new` failed to construct the fixed growth-factor constant
+        /// used by the `XFLUnchecked` compounding demonstration below.
+        GrowthConstructFailed = 9,
+        /// The `XFLUnchecked` compounding chain's final `validate()` call
+        /// failed.
+        CompoundValidationFailed = 10,
+        /// The compounded value (computed at a `>1` growth factor) did not
+        /// come out strictly greater than the starting `share` — would
+        /// mean something is wrong with the compounding chain above.
+        CompoundNotIncreasing = 11,
     }
 }
 
 /// Hook entry point.
 #[hook]
+// Every `+`/`-`/`*` below dispatches to `hooks_lib::xfl`'s/
+// `hooks_lib::xfl_unchecked`'s `XFL`/`XFLUnchecked` operator impls (a
+// fallible host round trip, or a documented-safe local bit operation) —
+// never raw integer arithmetic that could silently wrap. `clippy::
+// arithmetic_side_effects` can't see past the operator syntax to tell the
+// difference, so it flags every use of `+`/`-`/`*` in this function
+// unconditionally; there is nothing here for it to actually warn about.
+#[allow(clippy::arithmetic_side_effects)]
 fn my_hook() -> i64 {
     // Load the originating transaction into a slot, then navigate to its
     // `Amount` field's own slot. `slot_subfield`'s `new_slot = 0` means
@@ -85,6 +109,8 @@ fn my_hook() -> i64 {
     };
 
     // `self * (num / den)`: 1% of the transaction amount, rounding down.
+    // No operator equivalent — `mulratio` takes two extra scale
+    // parameters beyond `self`/`rhs`, so it stays a named method.
     let share = match amount.mulratio(false, PERCENT_NUM, PERCENT_DEN) {
         Ok(x) => x,
         // E.g. `XflOverflow` if the amount is large enough that the scaled
@@ -111,19 +137,75 @@ fn my_hook() -> i64 {
         ),
     };
 
-    // `XFL` has no `PartialOrd` (comparison is a fallible host call, see
-    // `hooks_lib::xfl`'s module doc comment) — `.lt()` returns `Result<bool>`
-    // and is handled explicitly, same as every other XFL operation here.
-    match share.lt(min_share) {
-        Ok(true) => rollback!(
+    // `share < min_share` — hooks_lib's local `PartialOrd` impl on `XFL`
+    // (see `hooks_lib::xfl`'s module doc comment): a pure bit/order
+    // comparison, no host call, and infallible for canonical
+    // (host-produced) operands like these, so there is no `Err` arm to
+    // handle here at all — a strict improvement over the old
+    // `float_compare`-backed `.lt()` method this replaces (see the
+    // example's README migration note).
+    if share < min_share {
+        rollback!(
             b"xfl-math: computed share below minimum",
             XflMathError::BelowMinimum
-        ),
-        Ok(false) => {}
+        );
+    }
+
+    // --- Checked operators: `Sub` + local `PartialOrd` -------------------
+    // `amount - share`: what would remain of the transaction amount after
+    // setting the computed share aside. `Sub`'s `Output` is
+    // `Result<XFL, HookError>` (implemented as `amount + (-share)`: one
+    // local sign flip plus one `float_sum` host call — see
+    // `hooks_lib::xfl`'s module doc comment), matched explicitly like
+    // every other fallible step above.
+    let remaining = match amount - share {
+        Ok(x) => x,
         Err(_) => rollback!(
-            b"xfl-math: comparison failed",
-            XflMathError::ComparisonFailed
+            b"xfl-math: amount - share failed",
+            XflMathError::RemainingComputeFailed
         ),
+    };
+    // Canonical zero needs no host call to construct — the all-zero bit
+    // pattern is always valid (see `hooks_lib::xfl`'s module doc comment).
+    // `<=` comes from the same local `PartialOrd` impl as the minimum-share
+    // check above.
+    if remaining <= XFL::from_raw_bits(0) {
+        rollback!(
+            b"xfl-math: amount - share was not positive",
+            XflMathError::NotEnoughRemaining
+        );
+    }
+
+    // --- XFLUnchecked: a hot-path compounding chain -----------------------
+    // Purely illustrative (a real 3-multiply chain is nowhere near where
+    // per-step `Result` handling would be the measured bottleneck worth
+    // optimizing away — see `hooks_lib::xfl_unchecked`'s module doc
+    // comment) — compounds `share` at a fixed 1.01x growth factor across 3
+    // periods with **no** intermediate `Result` handling, then validates
+    // once at the end.
+    let growth = match XFL::new(-15, 1_010_000_000_000_000) {
+        Ok(x) => x, // 1.01
+        Err(_) => rollback!(
+            b"xfl-math: could not construct growth factor",
+            XflMathError::GrowthConstructFailed
+        ),
+    };
+    let compounded_raw =
+        share.unchecked() * growth.unchecked() * growth.unchecked() * growth.unchecked();
+    let compounded = match compounded_raw.validate() {
+        Ok(x) => x,
+        Err(_) => rollback!(
+            b"xfl-math: compounded share failed to validate",
+            XflMathError::CompoundValidationFailed
+        ),
+    };
+    // Another local, infallible `PartialOrd` sanity check: compounding at
+    // a `>1` growth factor must strictly increase the value.
+    if compounded <= share {
+        rollback!(
+            b"xfl-math: compounded share did not increase",
+            XflMathError::CompoundNotIncreasing
+        );
     }
 
     // Slots are a limited resource (see `docs/DESIGN.md` and the Slot API
