@@ -166,7 +166,13 @@ const EXPONENT_MASK: u64 = 0xFF;
 /// `xfl.into()`) alongside `raw_bits`'s `i64` shape — pick whichever the
 /// call site actually needs; there is no corresponding `From<u64> for
 /// XFL` in the other direction, only [`XFL::from_raw_bits`] (`i64`), to
-/// keep exactly one documented construction path.
+/// keep exactly one documented construction path. Both directions
+/// (`XFL` → `u64` here, [`crate::xfl_unchecked::XFLUnchecked`] → `i64`)
+/// are bare bit-pattern reinterpretations, not validity checks — exactly
+/// as honest as [`XFL::raw_bits`]/[`XFL::from_raw_bits`] already are, and
+/// no more claim-laden: reading the bits back out never asserted they
+/// were valid to begin with, so there is nothing here for a fallible
+/// conversion to usefully guard.
 ///
 /// `PartialEq`/`PartialOrd` are implemented, backed by the fallible
 /// `float_compare` host call, with a `false`/`None` fallback on failure
