@@ -39,7 +39,7 @@ Numbered in suggested reading order — see
 | 04 | [`errors`](examples/04_errors) | a meaningful `hook_errors!`-based rollback error-code system, matched to `HookReturnCode` |
 | 05 | [`firewall`](examples/05_firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
 | 06 | [`guard-patterns`](examples/06_guard-patterns) | `guard!`/`guard_m!` correctness, choosing `maxiter`, and the array-`==` memcmp-loop pitfall |
-| 07 | [`xfl-math`](examples/07_xfl-math) | reading `Amount` as XFL, `mulratio`, `Result`-based comparisons |
+| 07 | [`xfl-math`](examples/07_xfl-math) | reading `Amount` as XFL, `mulratio`, checked XFL operators, and `XFLUnchecked`'s hot-path chain |
 | 08 | [`slot-ledger`](examples/08_slot-ledger) | `otxn_slot`/`slot_subfield`/`slot`/`slot_size`: transaction field access via slots |
 | 09 | [`state-foreign`](examples/09_state-foreign) | `state_foreign`: reading another account's hook state |
 | 10 | [`emit-txn`](examples/10_emit-txn) | `etxn_reserve` + a user-declared `txn_template!` Payment, with a `cbak` |

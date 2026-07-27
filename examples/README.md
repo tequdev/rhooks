@@ -23,7 +23,7 @@ directory is prefixed) and matches what its own README, `Cargo.toml`, and
 | 04 | [`errors`](04_errors) | a meaningful `hook_errors!`-based rollback error-code system, matched to `HookReturnCode` |
 | 05 | [`firewall`](05_firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
 | 06 | [`guard-patterns`](06_guard-patterns) | `guard!`/`guard_m!` correctness, choosing `maxiter`, and the array-`==` memcmp-loop pitfall |
-| 07 | [`xfl-math`](07_xfl-math) | reading `Amount` as XFL (`slot_float`/`sto_set`), `mulratio`, `Result`-based comparisons |
+| 07 | [`xfl-math`](07_xfl-math) | reading `Amount` as XFL (`slot_float`/`sto_set`), `mulratio`, checked `Add`/`Sub`/`Mul`/`Div`/`PartialOrd` operators, and `XFLUnchecked`'s hot-path chain |
 | 08 | [`slot-ledger`](08_slot-ledger) | `otxn_slot`/`slot_subfield`/`slot`/`slot_size`: transaction field access via slots |
 | 09 | [`state-foreign`](09_state-foreign) | `state_foreign`: reading another (hook-parameter-configured) account's hook state |
 | 10 | [`emit-txn`](10_emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |

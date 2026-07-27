@@ -196,7 +196,8 @@ src/
 ├── state.rs       # typed state layer (state_get/state_set_typed/state_update_typed) + state_keys!
 ├── buf_eq.rs      # loop-free, panic-free fixed-size buffer equality (buf_eq_8/20/32/...)
 ├── errors.rs      # hook_errors! user error enum -> rollback code mapping
-├── xfl.rs         # XFL newtype over i64
+├── xfl.rs         # XFL newtype over i64, checked operators, local PartialEq/PartialOrd
+├── xfl_unchecked.rs # XFLUnchecked: poison-propagating hot-path counterpart to XFL
 ├── txn.rs         # txn_template! macro + generic field-encoding primitives
 ├── static_cell.rs # HookStatic: take-once cell for static hook buffers
 ├── macros.rs      # guard!, trace!, rollback!, accept!, pad!
@@ -235,6 +236,30 @@ fn res(code: i64) -> Result<i64> { if code < 0 { Err(HookError::from(code)) } el
 Non-negative returns are payload (usually "bytes written"); negative maps to
 `HookError`. Functions whose success value is meaningful keep it
 (`Ok(len)`, `Ok(slot_no)`, …).
+
+**Nesting-depth rule: at most one specific-`HookError`-variant match site per
+function.** `res`'s `HookError::from(i64)` decode compiles to a wasm
+`br_table` needing roughly one nested `block` per known error code (~40 at
+the time of writing) — but only at a call site that actually inspects
+*which* specific `HookError` variant a failure was (`match ... {
+Err(HookError::Xxx) => ..., ... }`). A call site that only asks "did this
+fail" (`.is_err()`, `Err(_) => ...`, comparing the whole `Result` against
+one `Ok` value) never forces the decode, and the optimizer discards it
+entirely, keeping just the "is the raw code negative" branch. `hooks-build`'s
+Guard-type pipeline inlines every function in a crate into `hook()`/`cbak()`
+(§6.2c) and then must keep the merged function's block/loop/if nesting under
+the vendored guard checker's 32-level limit (§6.3) — a crate with more than
+one specific-variant match site pays that ~40-block decode's nesting cost
+*at every one of them*, since each is inlined into the same function body.
+In practice this means: default to `Err(_) => ...`/`.is_err()` at every Hook
+API call site, and reserve `Err(HookError::SpecificVariant) => ...` for the
+rare case that genuinely needs to distinguish one failure from another —
+budget for at most one such site per crate before nesting depth becomes a
+build-time concern. (Originally isolated independently in two example
+crates' READMEs, `examples/80_reward` and `examples/81_govern`, each of
+which needed exactly one specific-variant match site and is worth reading
+for the concrete before/after nesting-depth numbers; promoted here as the
+general rule.)
 
 ### 5.2 API wrapper conventions
 
@@ -324,30 +349,101 @@ pub fn hook_account_buf() -> Result<AccountId>;   // fixed-size convenience
 
 ### 5.3 XFL
 
-`#[derive(Clone, Copy)] pub struct XFL(i64);` — Xahau 64-bit decimal float.
-The inner field is **private**: XFL host calls return negative values as
-error codes, and a public field would let users smuggle an error code in as
-a "value". Escape hatches are explicit: `XFL::from_raw_bits(i64)` /
-`xfl.raw_bits()` (documented as unchecked representation access).
-All arithmetic goes through host calls and is fallible, so **no `core::ops`
-operator overloads** (they would need to panic). Methods:
+`#[derive(Clone, Copy, Debug)] pub struct XFL(i64);` — Xahau 64-bit decimal
+float. The inner field is **private**: XFL host calls return negative
+values as error codes, and a public field would let users smuggle an error
+code in as a "value". Escape hatches are explicit: `XFL::from_raw_bits(i64)`
+/ `xfl.raw_bits()` (documented as unchecked representation access, and
+documented as the boundary past which `PartialEq`/`PartialOrd` below stop
+being guaranteed correct).
+
+Revised from the original no-operators design: `XFL` still has **no
+panicking arithmetic** — the original design avoided `core::ops` entirely
+specifically to avoid a panicking `Add`/`Mul`/...; the fix that keeps
+operators without introducing a panic is a fallible `Output` type, not a
+change to the "must not panic" constraint itself. `XFL` now implements
+`core::ops::{Add, Sub, Mul, Div}` with `Output = Result<XFL, HookError>`,
+plus `Neg` with `Output = XFL`
+(infallible — a pure local sign-bit flip, no host call) and local
+`PartialEq`/`PartialOrd` (pure bit/order comparisons, no host call, sound
+only for canonical host-produced values). `mul`/`add`/`div`/`neg`/`eq`/
+`lt`/`gt`/`compare` — the original named-method surface for the same
+operations — are gone; the operators replace them exactly (`a.mul(b)` →
+`a * b`, `a.lt(b)` → `a < b`, ...). To keep multi-step arithmetic ergonomic
+despite `Add`/`Sub`/`Mul`/`Div`'s fallible `Output`, hooks-lib additionally
+implements each of those traits for `Result<XFL, HookError>` on either side
+of a plain `XFL` (legal here specifically because `XFL` is local to this
+crate — a downstream crate cannot replicate the trick for its own types;
+see `xfl.rs`'s module doc comment for the full orphan-rule argument, plus
+the one combination — `Result<XFL, HookError>` on *both* sides at once —
+that is *not* legal and was confirmed unavailable by attempting it and
+reading rustc's own diagnostic, not just reasoned about).
 
 ```rust
 impl XFL {
     pub fn new(exponent: i32, mantissa: i64) -> Result<XFL>;      // float_set
     pub fn one() -> XFL;
-    pub fn mul(self, rhs: XFL) -> Result<XFL>;                     // float_multiply
-    pub fn add(self, rhs: XFL) -> Result<XFL>;                     // float_sum
-    pub fn div(self, rhs: XFL) -> Result<XFL>;
-    pub fn neg(self) -> Result<XFL>; pub fn invert(self) -> Result<XFL>;
+    pub fn unchecked(self) -> XFLUnchecked;                        // zero-cost reinterpret, see below
+    pub fn invert(self) -> Result<XFL>;
     pub fn mulratio(self, round_up: bool, num: u32, den: u32) -> Result<XFL>;
     pub fn mantissa(self) -> Result<i64>; pub fn exponent(self) -> Result<i64>;
     pub fn sign(self) -> Result<bool>;
     pub fn to_int(self, decimal_places: u32, absolute: bool) -> Result<i64>;
-    pub fn compare(self, rhs: XFL, mode: u32) -> Result<bool>;     // float_compare
     pub fn log(self) -> Result<XFL>; pub fn root(self, n: u32) -> Result<XFL>;
 }
+impl core::ops::Add for XFL { type Output = Result<XFL>; ... }   // float_sum
+impl core::ops::Sub for XFL { type Output = Result<XFL>; ... }   // self + (-rhs): local negate + float_sum
+impl core::ops::Mul for XFL { type Output = Result<XFL>; ... }   // float_multiply
+impl core::ops::Div for XFL { type Output = Result<XFL>; ... }   // float_divide
+impl core::ops::Neg for XFL { type Output = XFL; ... }           // local sign-bit flip, no host call
+impl PartialEq for XFL { ... }   // local bitwise equality, no host call
+impl PartialOrd for XFL { ... }  // local sign-magnitude-aware ordering, no host call
 ```
+
+Two Hook API functions that exist for XFL — `float_negate` and
+`float_compare` — are deliberately never called by this crate: negation and
+comparison are both fully computable from the bit pattern alone (a sign-bit
+flip; a sign-magnitude-aware key comparison), so a host round trip for
+either would just be a slower way to reach the same answer already
+verified against vendored `HookAPI.h`'s `invert_sign`/`is_negative`.
+
+**`XFLUnchecked`** (`hooks_lib::xfl_unchecked`) is the poison-propagating
+hot-path counterpart, for arithmetic chains where even the checked
+operators' per-step `Result` branch is the measured cost problem:
+
+```rust
+pub struct XFLUnchecked(i64);   // no PartialEq/PartialOrd -- comparing unvalidated values invites silent-wrong-answer bugs
+impl XFLUnchecked {
+    pub fn from_raw_bits(bits: i64) -> XFLUnchecked;
+    pub fn raw_bits(self) -> i64;
+    pub fn validate(self) -> Result<XFL>;   // float_sum(self, 0) -- a host round trip, not a guest-side check
+}
+impl core::ops::{Add, Sub, Mul, Div} for XFLUnchecked { type Output = XFLUnchecked; ... }  // no per-step guest check
+impl core::ops::Neg for XFLUnchecked { type Output = XFLUnchecked; ... }  // poisoned (negative) input propagates unchanged
+```
+
+Its operators skip guest-side validation entirely and pass the raw `i64`
+straight into the next host call (or, for `Neg`, a local bit flip); this is
+sound only because xahaud's `RETURN_IF_INVALID_FLOAT` gate (verified against
+`applyHook.cpp`) runs on **every** `float_*` host function's operands
+**before** any arithmetic, independent of what the guest validated — so a
+poisoned/invalid operand can never produce a spuriously "valid" result from
+any host-routed operator; it collapses to `INVALID_FLOAT` at the first one
+it passes through (see `xfl_unchecked.rs`'s module doc comment for the full
+audit, table, and the one caveat: this collapsing means a specific upstream
+`HookError` is not preserved through the chain — only that *some* failure
+occurred). `validate()`'s `float_sum(self, 0)` was checked against
+`HookAPI::float_sum`'s C++ body specifically for a `float1 == 0`/
+`float2 == 0` short-circuit that might skip validating the non-zero operand
+— it does not skip it: that short-circuit lives inside `HookAPI::float_sum`,
+reached only *after* the `DEFINE_HOOK_FUNCTION` wrapper's
+`RETURN_IF_INVALID_FLOAT` has already validated both operands, so
+`float_sum(self, 0)` fully validates `self` with no deviation needed.
+Measured (`crates/hooks-lib`'s scratch WCE bench, chained `Mul`, N=1/4/8):
+marginal cost is **+3 instructions per chained op**, exactly matching a
+hand-written raw `float_multiply` chain's marginal cost (`+3`/op) and well
+under the checked `Result`-chain operators' `+14`/op — see the PR that
+introduced this section for the full table.
 
 `PartialEq`/`PartialOrd` are NOT implemented (comparison is a fallible host
 call, and a silent "false on error" comparison is too dangerous for
@@ -928,8 +1024,14 @@ Settled during the external design review (recommendations adopted):
 2. **Module-shape validation broadened**: start section, passive segments,
    data-count, imported memories/tables/globals, element-segment forms,
    mutable globals, multiple memories are all explicitly ruled on (6.4).
-3. **XFL stays without `PartialEq`/`PartialOrd`**; explicit `bits_eq` if
-   representation equality is ever needed.
+3. ~~**XFL stays without `PartialEq`/`PartialOrd`**; explicit `bits_eq` if
+   representation equality is ever needed.~~ **Superseded** by the
+   `feat/xfl-operators` revision (§5.3): `XFL` now has local (no
+   host-call) `PartialEq`/`PartialOrd` impls, plus `Add`/`Sub`/`Mul`/`Div`/
+   `Neg` operators. The underlying constraint this decision was protecting
+   — no panicking arithmetic — still holds; what changed is *how* a
+   fallible operation avoids panicking (a `Result`-typed `Output`, not the
+   absence of `core::ops` impls altogether).
 4. **`call_indirect` is a v1 hard error** (keeps recursion detection and
    reachability sound); table + element segments are dropped by the cleaner.
 5. **`hooks-build new` deferred** — copying `examples/01_accept-all` is the
