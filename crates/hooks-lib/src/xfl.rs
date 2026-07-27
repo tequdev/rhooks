@@ -218,7 +218,7 @@ impl XFL {
     #[inline(always)]
     #[must_use]
     pub fn unchecked(self) -> crate::xfl_unchecked::XFLUnchecked {
-        crate::xfl_unchecked::XFLUnchecked::from_raw_bits(self.0 as i64)
+        crate::xfl_unchecked::XFLUnchecked::from_raw_bits(self.raw_bits())
     }
 
     /// Construct a normalized XFL from `exponent` and `mantissa`.
@@ -238,21 +238,21 @@ impl XFL {
     /// `1 / self`.
     #[inline(always)]
     pub fn invert(self) -> Result<XFL> {
-        res(unsafe { hooks_core::float_invert(self.0 as i64) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_invert(self.raw_bits()) }).map(XFL::from_raw_bits)
     }
 
     /// `self * (num / den)`, rounding up when `round_up` is set, down
     /// otherwise.
     #[inline(always)]
     pub fn mulratio(self, round_up: bool, num: u32, den: u32) -> Result<XFL> {
-        res(unsafe { hooks_core::float_mulratio(self.0 as i64, round_up as u32, num, den) })
+        res(unsafe { hooks_core::float_mulratio(self.raw_bits(), round_up as u32, num, den) })
             .map(XFL::from_raw_bits)
     }
 
     /// The mantissa component of `self` (`0` to `9_999_999_999_999_999`).
     #[inline(always)]
     pub fn mantissa(self) -> Result<i64> {
-        res(unsafe { hooks_core::float_mantissa(self.0 as i64) })
+        res(unsafe { hooks_core::float_mantissa(self.raw_bits()) })
     }
 
     /// The unbiased exponent component of `self` (`-96` to `+80`).
@@ -281,7 +281,7 @@ impl XFL {
     /// zero, `1` = negative — so `true` here means "negative").
     #[inline(always)]
     pub fn sign(self) -> Result<bool> {
-        res(unsafe { hooks_core::float_sign(self.0 as i64) }).map(|v| v != 0)
+        res(unsafe { hooks_core::float_sign(self.raw_bits()) }).map(|v| v != 0)
     }
 
     /// Convert `self` to an integer, keeping `decimal_places` fractional
@@ -289,7 +289,7 @@ impl XFL {
     /// instead of erroring on a negative result.
     #[inline(always)]
     pub fn to_int(self, decimal_places: u32, absolute: bool) -> Result<i64> {
-        res(unsafe { hooks_core::float_int(self.0 as i64, decimal_places, absolute as u32) })
+        res(unsafe { hooks_core::float_int(self.raw_bits(), decimal_places, absolute as u32) })
     }
 
     /// Compare `self` to `rhs` under the bitmask `mode` (see
@@ -298,7 +298,8 @@ impl XFL {
     /// `float_compare` host call.
     #[inline(always)]
     pub fn compare(self, rhs: XFL, mode: u32) -> Result<bool> {
-        res(unsafe { hooks_core::float_compare(self.0 as i64, rhs.0 as i64, mode) }).map(|v| v != 0)
+        res(unsafe { hooks_core::float_compare(self.raw_bits(), rhs.raw_bits(), mode) })
+            .map(|v| v != 0)
     }
 
     /// `self == rhs`.
@@ -322,13 +323,13 @@ impl XFL {
     /// `log10(self)`.
     #[inline(always)]
     pub fn log(self) -> Result<XFL> {
-        res(unsafe { hooks_core::float_log(self.0 as i64) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_log(self.raw_bits()) }).map(XFL::from_raw_bits)
     }
 
     /// `self ^ (1/n)`.
     #[inline(always)]
     pub fn root(self, n: u32) -> Result<XFL> {
-        res(unsafe { hooks_core::float_root(self.0 as i64, n) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_root(self.raw_bits(), n) }).map(XFL::from_raw_bits)
     }
 
     /// Encode `self` as a serialized Amount into `out`. Thin forwarding call
@@ -390,7 +391,7 @@ impl core::ops::Neg for XFL {
     /// `self`.
     #[inline(always)]
     fn neg(self) -> Result<XFL> {
-        res(unsafe { hooks_core::float_negate(self.0 as i64) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_negate(self.raw_bits()) }).map(XFL::from_raw_bits)
     }
 }
 
@@ -400,7 +401,8 @@ impl core::ops::Add for XFL {
     /// `self + rhs`, via the `float_sum` host call.
     #[inline(always)]
     fn add(self, rhs: XFL) -> Result<XFL> {
-        res(unsafe { hooks_core::float_sum(self.0 as i64, rhs.0 as i64) }).map(XFL::from_raw_bits)
+        res(unsafe { hooks_core::float_sum(self.raw_bits(), rhs.raw_bits()) })
+            .map(XFL::from_raw_bits)
     }
 }
 
@@ -430,7 +432,7 @@ impl core::ops::Mul for XFL {
     /// `self * rhs`, via the `float_multiply` host call.
     #[inline(always)]
     fn mul(self, rhs: XFL) -> Result<XFL> {
-        res(unsafe { hooks_core::float_multiply(self.0 as i64, rhs.0 as i64) })
+        res(unsafe { hooks_core::float_multiply(self.raw_bits(), rhs.raw_bits()) })
             .map(XFL::from_raw_bits)
     }
 }
@@ -441,7 +443,7 @@ impl core::ops::Div for XFL {
     /// `self / rhs`, via the `float_divide` host call.
     #[inline(always)]
     fn div(self, rhs: XFL) -> Result<XFL> {
-        res(unsafe { hooks_core::float_divide(self.0 as i64, rhs.0 as i64) })
+        res(unsafe { hooks_core::float_divide(self.raw_bits(), rhs.raw_bits()) })
             .map(XFL::from_raw_bits)
     }
 }
