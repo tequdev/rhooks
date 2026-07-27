@@ -13,7 +13,12 @@
 //! - [`buf_eq`] — loop-free, panic-free equality checks for those fixed-size
 //!   buffers/newtypes (use instead of `==`, which can compile to an
 //!   unguarded `compiler_builtins` `bcmp` loop).
-//! - [`xfl::XFL`] — the Xahau decimal floating-point type.
+//! - [`xfl::XFL`] — the Xahau decimal floating-point type, with
+//!   `Result`-returning `Add`/`Sub`/`Mul`/`Div`/`Neg` operators plus
+//!   `PartialEq`/`PartialOrd`.
+//! - [`xfl_unchecked::XFLUnchecked`] — a poison-propagating hot-path
+//!   counterpart to `XFL`: unchecked operators, one `validate()` call at
+//!   the end of a chain.
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
 //! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
 //!   terse macros for common patterns (see `macros.rs`).
@@ -51,6 +56,7 @@ pub mod static_cell;
 pub mod txn;
 pub mod types;
 pub mod xfl;
+pub mod xfl_unchecked;
 
 // `pad!` expands to `$crate::padded_bytes(...)`; the helper lives in the
 // private `macros` module, so re-export it (hidden) at the crate root.
@@ -83,12 +89,13 @@ pub use hooks_macros::paste as __paste;
 
 /// Common imports for hook developers: `use hooks_lib::prelude::*;` pulls in
 /// every `api::*` wrapper function, the fixed-size buffer type aliases, the
-/// [`xfl::XFL`] type, [`error::HookError`]/[`error::Result`], and the
-/// C-verbatim constant families (`sfXxx`, `ttXxx`, `lsfXxx`, `tfXxx`, and
-/// `hookapi.h`'s `KEYLET_*`/`COMPARE_*`/... constants). Deliberately does
-/// NOT re-export all of `hooks_core` (its raw `api::*` functions share names
-/// with this crate's own wrappers, e.g. both define `state`) — only the
-/// constant-only modules are pulled in, so there is no ambiguity between a
+/// [`xfl::XFL`]/[`xfl_unchecked::XFLUnchecked`] types,
+/// [`error::HookError`]/[`error::Result`], and the C-verbatim constant
+/// families (`sfXxx`, `ttXxx`, `lsfXxx`, `tfXxx`, and `hookapi.h`'s
+/// `KEYLET_*`/`COMPARE_*`/... constants). Deliberately does NOT re-export
+/// all of `hooks_core` (its raw `api::*` functions share names with this
+/// crate's own wrappers, e.g. both define `state`) — only the constant-only
+/// modules are pulled in, so there is no ambiguity between a
 /// prelude-imported name and a hooks-lib wrapper.
 pub mod prelude {
     pub use crate::api::*;
@@ -102,6 +109,7 @@ pub mod prelude {
     pub use crate::static_cell::HookStatic;
     pub use crate::types::*;
     pub use crate::xfl::XFL;
+    pub use crate::xfl_unchecked::XFLUnchecked;
     pub use hooks_core::{consts::*, ls_flags::*, sfcodes::*, tts::*, tx_flags::*};
 }
 
