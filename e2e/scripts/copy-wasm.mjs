@@ -30,6 +30,8 @@ const examples = {
   '08_slot-ledger': 'slot_ledger',
   '09_state-foreign': 'state_foreign',
   '10_emit-txn': 'emit_txn',
+  '80_reward': 'reward',
+  '81_govern': 'govern',
 }
 
 mkdirSync(buildDir, { recursive: true })
