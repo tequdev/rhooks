@@ -96,6 +96,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "typed-data"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
 name = "xfl-math"
 version = "0.1.0"
 dependencies = [

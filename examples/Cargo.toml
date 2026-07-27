@@ -11,6 +11,7 @@ members = [
     "08_slot-ledger",
     "09_state-foreign",
     "10_emit-txn",
+    "12_typed-data",
     "80_reward",
     "81_govern",
 ]
