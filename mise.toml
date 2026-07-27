@@ -80,6 +80,18 @@ cargo run -p hooks-build -- check examples/09_state-foreign/out/state_foreign.wa
 # output buffer, so no compiler-generated memset/memcpy loops exist.
 cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
 cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
+
+# 80+: production hooks (see examples/README.md's "80+" section). Both
+# need every fallible Hook API call routed through their own `src/raw.rs`
+# (bypassing hooks-lib's Result<_, HookError> wrapper) and reward/govern.c
+# is the reader if you are debugging one of these two — no extra CLI
+# flags either, per each crate's own README "Toolchain limitation"
+# section.
+cargo run -p hooks-build -- build --manifest-path examples/80_reward/Cargo.toml
+cargo run -p hooks-build -- check examples/80_reward/out/reward.wasm
+
+cargo run -p hooks-build -- build --manifest-path examples/81_govern/Cargo.toml
+cargo run -p hooks-build -- check examples/81_govern/out/govern.wasm
 """
 
 [tasks."e2e:node-up"]

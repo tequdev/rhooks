@@ -31,6 +31,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "govern"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
 name = "guard-patterns"
 version = "0.1.0"
 dependencies = [
@@ -59,6 +66,13 @@ dependencies = [
 [[package]]
 name = "hooks-macros"
 version = "0.0.0"
+
+[[package]]
+name = "reward"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
 
 [[package]]
 name = "slot-ledger"

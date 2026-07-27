@@ -28,6 +28,23 @@ directory is prefixed) and matches what its own README, `Cargo.toml`, and
 | 09 | [`state-foreign`](09_state-foreign) | `state_foreign`: reading another (hook-parameter-configured) account's hook state |
 | 10 | [`emit-txn`](10_emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
 
+## 80+: Production hooks in Rust
+
+Unlike `01`-`10` (one concept each, in suggested reading order), the
+`80`+ series are behavior-equivalent Rust ports of real, deployed xahaud
+C hooks — read them after `01`-`10`, not instead of them. Each has its
+own README with a full behavior-equivalence table against its C source,
+a differences table for any intentional deviation, and a "Toolchain
+limitation" section documenting a real Guard-type nesting-depth/
+floating-point constraint discovered while porting them (see
+`80_reward`'s README for the first, fullest writeup; `81_govern`'s adds
+two more findings).
+
+| # | example | ports |
+|---|---|---|
+| 80 | [`reward`](80_reward) | [`hook/genesis/reward.c`](https://raw.githubusercontent.com/Xahau/xahaud/dev/hook/genesis/reward.c) — the `RewardHook`: computes and emits a `GenesisMint` crediting `ClaimReward` claimants and active-validator L1 seats |
+| 81 | [`govern`](81_govern) | [`hook/genesis/govern.c`](https://raw.githubusercontent.com/Xahau/xahaud/dev/hook/genesis/govern.c) — the `GovernanceHook`: the 20-seat L1/L2 round-table governance state machine |
+
 ## Entry points: `#[hook]` / `#[cbak]`
 
 Every example declares its entry point as a plain, safe function annotated

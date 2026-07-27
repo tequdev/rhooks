@@ -11,6 +11,8 @@ members = [
     "08_slot-ledger",
     "09_state-foreign",
     "10_emit-txn",
+    "80_reward",
+    "81_govern",
 ]
 
 [workspace.package]
@@ -40,3 +42,19 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+# `reward`/`govern` (examples/README.md's "80+" section) need `opt-level =
+# 3` specifically, not just "not z": see both crates' READMEs'
+# "Toolchain limitation" sections — at `opt-level = "z"`, LLVM leaves
+# enough dead `HookError`-decoding/error-handling machinery in place that
+# `hook()` doesn't fit the Hook API's 32-level block/loop/if nesting
+# limit once `hooks-build`'s Guard-type pipeline inlines every function in
+# the crate into it, even after every source-level mitigation short of
+# this. `opt-level`/`codegen-units` are the only `[profile]` keys Cargo
+# allows overriding per package (`lto`/`panic`/`strip` are build-wide), so
+# every other example keeps `opt-level = "z"` (optimize for size, the
+# right default for a Hook binary) unaffected.
+[profile.release.package.reward]
+opt-level = 3
+[profile.release.package.govern]
+opt-level = 3
