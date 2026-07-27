@@ -13,9 +13,9 @@ table voting on an L1 topic, forwarded to L1 as an `Invoke`.
 Build: `hooks-build build --manifest-path examples/81_govern/Cargo.toml`
 (also wired into `mise run build-examples`).
 
-- Worst-case instructions: **41510** (`hook`), 0 (`cbak` — none declared)
+- Worst-case instructions: **44560** (`hook`), 0 (`cbak` — none declared)
 - Max block/loop/if nesting: **22** (limit: 32)
-- Binary size: **13757 bytes**
+- Binary size: **14373 bytes**
 
 ## Files
 
@@ -24,7 +24,11 @@ Build: `hooks-build build --manifest-path examples/81_govern/Cargo.toml`
 | `src/lib.rs` | Hook entry point, setup, vote processing/threshold logic, the three action handlers (`action_reward`/`action_hook`/`action_seat`), vote garbage collection |
 | `src/keys.rs` | State-key layouts (`vote_key`, `vote_count_key`, seat/member keys) |
 | `src/txn.rs` | Byte-exact encoders for the two transactions this hook emits (L1-vote-forward `Invoke`, `HookSet`) |
-| `src/raw.rs` | Thin raw Hook API wrappers — see "Toolchain limitation" below |
+
+This crate has no `raw` module: every Hook API call goes through
+`hooks_lib::api`'s ordinary `Result`-based wrappers — see "Toolchain
+limitation" below for why, and for the one call site that needed a small
+structural (not `raw`) adjustment to fit under the nesting limit.
 
 ## Hook state
 
@@ -93,7 +97,7 @@ Each row is an input case and the govern.c branch it corresponds to
 | 1 | `rollback`/`accept` codes are `__LINE__` | Codes are a small `hook_errors!` enum (`GovernError`) or `0` | Same rationale as `../80_reward`'s `RewardError` — see its README. |
 | 2 | The "D" debug-line `Invoke` parameter (`trace_num` of a test-supplied line number) | Not implemented | Purely a debug aid for govern.c's own C++ test harness (`XahauGenesis_test.cpp`'s `DBGLN` trace); never observable in `accept`/`rollback`/state/emitted-txn output. |
 | 3 | `q80`/`q51` computed via `member_count * 0.8`/`* 0.51` (hardware `double` multiplication, truncated) | Computed via exact integer arithmetic (`* 4 / 5`, `* 51 / 100`) | The Hook API's guard checker **rejects wasm floating-point opcodes outright** for a Guard-type hook — `f64.mul` et al. are not in the allowed instruction set. For every `member_count` this hook ever sees (`0..=20`), the two give identical truncated results (`0.8`'s `double` representation is exact enough that no value in range is within rounding distance of an integer boundary) — see the source comment in `lib.rs` for the full argument. |
-| 4 | Every Hook API call is called through `hooks_core`'s raw FFI directly (`src/raw.rs`), not `hooks_lib::api`'s `Result<_, HookError>` wrappers | See "Toolchain limitation" below — a build constraint, not a behavior change. |
+| 4 | `state()` returning `DOESNT_EXIST` specifically (vs. any other failure) selects the setup path | `state_i64(...)`'s `Result` is matched as `Err(_)` (any failure), not the specific `HookError::DoesntExist` variant | See "Toolchain limitation" below — a build constraint, not a behavior change. On the fixed 2-byte `"MC"` key, a well-formed table can only ever fail this read with "value not yet written"; no other `HookError` is reachable in practice. |
 | 5 | `n > HOOK_MAX` (`HOOK_MAX = 10`) lets hook topic `n == 10` through, even though only hook slots `0..=9` exist on a 10-element `Hooks` array | Preserved exactly (`HOOK_MAX: u8 = 10`, same `>` comparison) | Matches govern.c's own off-by-one; a vote for topic `H10` records/threshold-checks normally but its *actioning* (`action_hook`) would address a nonexistent 11th slot. Not independently verified against a live node (see "Testing" below) — flagged here rather than silently "fixed." |
 
 No other intentional behavioral differences. The setup sequence, the vote
@@ -127,12 +131,38 @@ GenesisMint, which bakes in reward.c's own 35-byte zero-filled form).
 
 ## Toolchain limitation: `HookError` decoding and nesting depth
 
-See `examples/80_reward`'s README for the full writeup (discovered while
-porting that hook first) — the identical constraint applies here, more so
-(govern.c is the larger of the two genesis hooks, and its vote-processing
-path alone makes more distinct fallible Hook API calls than reward.c's
-entire reward computation). Two additional findings from porting this
-hook specifically, beyond `examples/80_reward`'s:
+See `examples/80_reward`'s README for the mechanism this section refers
+to throughout: `hooks_lib::error::res`'s `HookError::from(i64)` decode
+compiles to a ~40-nested-`block` `br_table`, but **only** at a call site
+that pattern-matches a *specific* `HookError` variant — a call site that
+only asks "did this fail" (`.is_err()`, `.unwrap_or(default)`, comparing
+the whole `Result` against one `Ok` value) never forces the decode; the
+optimizer discards it. This crate has exactly **one** call site that
+originally needed the specific-variant form: the very first hook-state
+read, `state_i64(&keys::MEMBER_COUNT)`, whose result decides whether to
+run `setup()` (govern.c's `== DOESNT_EXIST` check). Written as `Err(_) =>
+setup(...)` (see the comment at that call site in `lib.rs`), rather than
+`Err(HookError::DoesntExist) => ...`, that call site — like every other
+Hook API call in this crate — never forces the decode, so this crate
+needs **no `raw` module at all**: every call goes through
+`hooks_lib::api`'s ordinary `Result`-based wrappers (`_exact`/`_buf`
+convenience variants where they fit, the plain wrapper otherwise).
+
+An earlier version of this crate *did* route every Hook API call through
+a `raw` module the same way `examples/80_reward`'s reward-rate math still
+does — before the single fix above was isolated, replacing every
+`Result`-based call with `hooks_lib::api`'s wrappers pushed `hook()`'s
+nesting to depth 56 (over the 32-level limit; confirmed via
+`crates/hooks-build/examples/diag.rs` + `wasm-tools print`, which showed
+the inlined ~43-nested-`block` `br_table` from exactly that one
+`Err(HookError::DoesntExist)` match sitting inside an already ~13-deep
+branch context). Making just that one call site stop inspecting the
+specific variant dropped max nesting straight to 22 — confirming the
+broad `raw`-module approach had been solving a narrower problem than it
+looked like, in both crates.
+
+Three additional findings from porting this hook specifically, beyond
+`examples/80_reward`'s:
 
 - **Floating point is rejected outright, not just costly.** The Hook
   API's guard checker flags any `f64`/`f32` wasm opcode as a hard error
@@ -142,15 +172,14 @@ hook specifically, beyond `examples/80_reward`'s:
   to be replaced with exact integer arithmetic — see the differences
   table above.
 - **The number of distinct fallible-call *sites* in one function matters
-  as much as each call's own cost.** Beyond the `raw`-module fix
-  (`examples/80_reward`'s primary finding), consolidating
-  `txn.rs`'s transaction encoders from ~30 individual `push`/
-  `push_field_header` calls down to ~10 combined ones (concatenating
-  adjacent constant/semi-constant byte fragments into single `push::<N>`
-  calls, and eliminating placeholder-then-patch round trips for fields
-  already known at write time) took this hook's `hook()` from nesting
-  depth 42–56 (rejected) to 22 (comfortably under the 32-level limit) —
-  see `txn.rs`'s `write_common_header`'s doc comment for the pattern.
+  as much as each call's own cost, independent of which API wraps them.**
+  Consolidating `txn.rs`'s transaction encoders from ~30 individual
+  `push`/`push_field_header` calls down to ~10 combined ones
+  (concatenating adjacent constant/semi-constant byte fragments into
+  single `push::<N>` calls, and eliminating placeholder-then-patch round
+  trips for fields already known at write time) — kept regardless of the
+  `HookError`-variant fix above, and part of why this crate's nesting
+  depth (22) has headroom to spare under the limit.
 - **`guard!`'s iteration budget is scoped to the static call site for the
   whole hook execution, not to each dynamic loop entry.** Confirmed live,
   via this crate's own e2e suite: `garbage_collect_votes`'s inner loop

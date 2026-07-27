@@ -35,7 +35,6 @@
 //! not `unsafe`" guarantee `Result` gave.
 
 use hooks_lib::prelude::*;
-use hooks_lib::raw as hooks_core;
 use hooks_lib::rollback;
 use hooks_lib::txn::codec;
 
@@ -288,20 +287,16 @@ impl MintTxn {
         let Some(region) = self.buf.get_mut(start..end) else {
             fail(b"reward: mint txn overflow");
         };
-        // Raw `etxn_details` (bypassing `hooks_lib::api::etxn::etxn_details`'s
-        // `Result` wrapper) — see the module doc comment's nesting-depth
-        // rationale, same as every other raw call in this file.
-        let written =
-            unsafe { hooks_core::etxn_details(region.as_mut_ptr() as u32, region.len() as u32) };
-        if written < 0 {
-            fail(b"reward: could not write EmitDetails");
-        }
+        let written = match etxn_details(region) {
+            Ok(n) => n,
+            Err(_) => fail(b"reward: could not write EmitDetails"),
+        };
         // `written` (116 without a declared `cbak`, 138 with one — this
         // hook declares neither) may be less than the reserved worst-case
         // region; only the actually-written prefix is part of the
         // transaction, so the cursor advances by `written`, not by the
         // full reservation.
-        let Some(new_len) = start.checked_add(written as usize) else {
+        let Some(new_len) = start.checked_add(written) else {
             fail(b"reward: mint txn overflow");
         };
         self.len = new_len;
@@ -372,17 +367,17 @@ impl MintTxn {
         let Some(bytes) = self.buf.get(..self.len) else {
             fail(b"reward: mint txn overflow");
         };
-        let fee = unsafe { hooks_core::etxn_fee_base(bytes.as_ptr() as u32, bytes.len() as u32) };
-        if fee < 0 {
-            fail(b"reward: could not compute GenesisMint fee");
-        }
+        let fee = match etxn_fee_base(bytes) {
+            Ok(f) => f,
+            Err(_) => fail(b"reward: could not compute GenesisMint fee"),
+        };
         let Some(fee_end) = self.fee_offset.checked_add(8) else {
             fail(b"reward: mint txn overflow");
         };
         let Some(fee_dst) = self.buf.get_mut(self.fee_offset..fee_end) else {
             fail(b"reward: mint txn overflow");
         };
-        write_native_amount(fee_dst, fee as u64);
+        write_native_amount(fee_dst, fee);
 
         let Some(bytes) = self.buf.get(..self.len) else {
             fail(b"reward: mint txn overflow");

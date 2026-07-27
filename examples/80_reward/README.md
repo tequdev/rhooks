@@ -13,9 +13,9 @@ active-validator L1 governance seat.
 Build: `hooks-build build --manifest-path examples/80_reward/Cargo.toml`
 (also wired into `mise run build-examples`).
 
-- Worst-case instructions: **13269** (`hook`), 0 (`cbak` — none declared)
-- Max block/loop/if nesting: **23** (limit: 32)
-- Binary size: **6862 bytes**
+- Worst-case instructions: **13698** (`hook`), 0 (`cbak` — none declared)
+- Max block/loop/if nesting: **24** (limit: 32)
+- Binary size: **7205 bytes**
 
 ## Files
 
@@ -24,7 +24,7 @@ Build: `hooks-build build --manifest-path examples/80_reward/Cargo.toml`
 | `src/lib.rs` | Hook entry point: otxn/config checks, reward-rate math, orchestrates `mint_txn` and the L1-seat reward loop |
 | `src/mint_txn.rs` | Byte-exact `GenesisMint` transaction builder |
 | `src/message.rs` | The `ClaimReward`-too-early rollback message (digit-patched, matching reward.c's `msg_buf`) |
-| `src/raw.rs` | Thin raw Hook API wrappers — see "Toolchain limitation" below |
+| `src/raw.rs` | `float_*`/`slot_float` raw Hook API wrappers, scoped to the XFL reward-rate math — see "Toolchain limitation" below |
 
 ## Hook state
 
@@ -54,7 +54,7 @@ target — see "Differences from reward.c" below.
 |---|---|---|---|---|
 | 1 | `otxn_type() != ttCLAIM_REWARD` | L106 | `my_hook`, first check | `accept("Reward: Passing non-claim txn")` |
 | 2 | sender == hook account (hook's own outgoing txn) | L117 | `buf_eq_20` check | `accept("Reward: Passing outgoing txn")` |
-| 3 | `RR`/`RD` state missing | L125-126 | `raw::state_xfl_or` defaults | Falls back to compiled-in defaults, continues |
+| 3 | `RR`/`RD` state missing | L125-126 | `state_xfl(...).unwrap_or(default)` | Falls back to compiled-in defaults, continues |
 | 4 | `RR <= 0` or `RD <= 0` | L129 | `rewards_disabled` check | `rollback("Reward: Rewards are disabled by governance.")` |
 | 5 | `RD` truncates to a negative second count, or `RR` is negative/`> 1`, or `RD < 1` | L134-137 | `misconfigured` check | `rollback("Reward: Rewards incorrectly configured by governance or unrecoverable error.")` |
 | 6 | Sender's AccountRoot has no `RewardAccumulator` (first-ever claim) | L147-148 | `slot_subfield(..., sfRewardAccumulator, ...)` check | `accept("Reward: Passing reward setup txn")` |
@@ -64,7 +64,7 @@ target — see "Differences from reward.c" below.
 | 10 | Valid claim, matured | L200-230 | reward-rate math (`raw::float_*`) | Builds and emits a `GenesisMint`: rewardee entry (accrued reward + otxn fee refund) plus one entry per L1 seat held by an active validator |
 | 11 | `UNLReport` object absent/unreadable | L269-311 | `push_l1_seat_entries` early-returns | Rewardee-only `GenesisMint` (no L1 seat entries) — matches reward.c's `if (slot_set(...) == 1 && ...)` guard around the whole L1 distribution |
 | 12 | A validator's owning account isn't a current governance seat holder | L288 | `can_reward` lookup miss | That validator's seat gets no entry |
-| 13 | `emit()` fails | L343-344 | `raw::emit` check | `rollback("Reward: Emit loopback failed.")` |
+| 13 | `emit()` fails | L343-344 | `emit_buf` check | `rollback("Reward: Emit loopback failed.")` |
 | 14 | Emit succeeds | L347 | — | `accept("Reward: Emitted reward txn successfully.")` |
 
 ## `GenesisMint` wire format
@@ -91,7 +91,7 @@ field list; `GenesisMints` is a variable-length array.
 |---|---|---|---|
 | 1 | `rollback`/`accept` codes are `__LINE__` (the C source's line number) | Codes are a small `hook_errors!` enum (`RewardError`, see `lib.rs`) or `0` | reward.c's line-number codes aren't meaningful protocol data (only debugging aid for the C source); this repo's convention is a stable enum. `ter` (`tesSUCCESS`/`tecHOOK_REJECTED`) and the rollback/accept **message** are unaffected and match exactly. |
 | 2 | `seat > L1SEATS` (not `>=`) lets a stored seat byte of exactly 20 through, then writes `can_reward[20]` — out of bounds on a 20-element C array (UB) | Same `> L1_SEATS` condition preserved for state-layout parity, but `can_reward.get_mut(seat)` turns the out-of-range write into a safe no-op | `seat` values only ever come from govern.rs/govern.c, which never assigns seat 20 (`SEAT_COUNT = 20`, loop bound `i < member_count <= 20`), so this is unreachable in practice either way — this crate just doesn't reproduce the UB if it somehow were reached. |
-| 3 | Every Hook API call in the reward-rate math (`float_set`/`float_divide`/`float_multiply`/`float_int`, `slot`, `state`, `util_keylet`, ...) is called through `hooks_core`'s raw FFI directly (`src/raw.rs`), not `hooks_lib::api`'s `Result<_, HookError>` wrappers | See "Toolchain limitation" below — a build constraint, not a behavior change; every raw call's numeric semantics match reward.c's own (mostly unchecked) raw-return-code handling exactly, in several cases *more* closely than the `Result`-wrapped version would. |
+| 3 | reward.c's `float_*`/`slot_float` reward-rate math treats every host-call result as a raw, unchecked `i64` | `src/raw.rs` calls `float_set`/`float_divide`/`float_multiply`/`float_int`/`float_sign`/`float_one`/`float_compare`/`slot_float` through `hooks_core`'s raw FFI directly, not `hooks_lib::xfl::XFL`'s validated `Result<XFL, HookError>` API | Not a build constraint — a deliberate semantic match: reward.c folds host failure into the *same* validity checks it already needs for legitimately out-of-range values, never asking "did this call fail" on its own. See `src/raw.rs`'s module doc comment. Every other Hook API call in this crate uses `hooks_lib::api`'s ordinary wrappers — see "Toolchain limitation" below. |
 
 No other intentional behavioral differences. In particular: the reward
 formula, the delay/rate validity bounds, the fee-refund addition, the
@@ -112,21 +112,35 @@ matches a plain `rollback!(literal_message, literal_code)` call exactly.
 `hooks_lib::error::res` (the function every `hooks_lib::api::*`/`XFL`
 wrapper funnels its host-call result through) converts a negative raw
 return code to a concrete `HookError` value via a ~40-arm `match` —
-`HookError::from(i64)`. That conversion happens unconditionally on the
-error path, even when a caller only compares the resulting `Result` to a
-specific `Ok` value or discards the `Err` payload with `_`. Measured
-directly (via `crates/hooks-build/examples/diag.rs`, a throwaway
-pipeline-stage dumper written during this investigation — dumps the
-`clean`/`flatten`/`unnest` intermediate `.wasm` at each stage so
-`wasm-tools print` can inspect real nesting depth and find the exact
-construct responsible) this compiles to a wasm `br_table` needing ~40
-nested `block`s per call site once inlined, and this hook has enough
-distinct fallible calls that, combined, they pushed `hook()`'s nesting
-past 32 even after:
+`HookError::from(i64)`. Measured directly (via
+`crates/hooks-build/examples/diag.rs`, a throwaway pipeline-stage dumper
+written during this investigation — dumps the `clean`/`flatten`/`unnest`
+intermediate `.wasm` at each stage so `wasm-tools print` can inspect real
+nesting depth and find the exact construct responsible), this compiles
+to a wasm `br_table` needing ~40 nested `block`s. It shows up, though,
+**only** at a call site that actually inspects which specific
+`HookError` variant a failure was — `match ... { Err(HookError::Xxx) =>
+..., ... }` — because the compiler then has to prove which of the ~40
+raw codes it is. A call site that only asks "did this fail"
+(`.is_err()`, `.unwrap_or(default)`, comparing the whole `Result` against
+one specific `Ok` value) never reads which variant it got, so the
+optimizer discards the decode entirely and keeps just the "is the raw
+code negative" branch. This crate's every Hook API call (besides the XFL
+math below) is written the second way, so `hooks_lib::api`'s ordinary
+`Result`-based wrappers (including `_exact`/`_buf` convenience variants
+where they fit) are used directly throughout `lib.rs` and
+`mint_txn.rs` — no `raw` module needed for any of it. (`../81_govern`
+has exactly one call site where the specific-variant form was actually
+wanted — see its README's copy of this section for why, and how it was
+avoided there too.)
+
+Getting comfortably under the 32-level limit (measured: max nesting
+depth 24) took the structural techniques below, independent of which API
+wraps each call:
 
 - bumping `examples/Cargo.toml`'s shared `[profile.release]` `opt-level`
-  from `"z"` to `3` (helps LLVM eliminate more of the unused decode, but
-  not enough alone);
+  from `"z"` to `3` for this crate specifically (helps LLVM eliminate
+  more dead code, including the unused-variant decode above);
 - restructuring boolean chains to use eager `|`/`&` instead of
   short-circuiting `||`/`&&` feeding `.unwrap_or(default)`;
 - converting `MintTxn`'s internal API from `Result`-propagating (`?`) to
@@ -156,24 +170,22 @@ past 32 even after:
   out of the required first-three-instructions position the checker
   looks for.
 
-`src/raw.rs` is what closes the remaining gap: every fallible Hook API
-call reward.c itself makes is called through a thin `unsafe` wrapper
-around `hooks_core`'s raw extern declaration instead of through
-`hooks_lib::api`, entirely bypassing `HookError` construction. This
-crate's own `raw` module is deliberately narrow — it only exposes the
-handful of signatures reward.c actually uses, each documented against the
-exact reward.c line it stands in for.
+`src/raw.rs` closes the one remaining, deliberately narrow gap: every
+`float_*`/`slot_float` call reward.c's reward-rate math makes is called
+through a thin `unsafe` wrapper around `hooks_core`'s raw extern
+declaration instead of `hooks_lib::xfl::XFL`. This is **not** primarily a
+nesting-depth workaround — see `src/raw.rs`'s module doc comment for the
+XFL-validation-semantics rationale, which is the actual reason it exists.
 
-This is flagged here as a **candidate `hooks-lib`/`hooks-build` fix**
-(e.g. `res()` could special-case comparisons that never need the decoded
-`HookError` variant, or `HookError` could be represented in a way `match`
-compiles more cheaply, or `flatten.rs` could re-run a cheap DCE pass after
-merging) rather than something every non-trivial Guard-type hook should
-have to work around by hand — `examples/07_xfl-math` and the other
-smaller examples in this repo don't hit it simply because they don't
-combine enough distinct fallible calls in one function for the ~40-block
-cost per call site to matter. `govern` (`../81_govern`) hits the same
-wall — see its own README for how the same fixes apply there.
+The unavoidable-per-call-site `HookError` decode cost above is still
+flagged as a **candidate `hooks-lib`/`hooks-build` fix** (e.g. `flatten.rs`
+re-running a cheap DCE pass after merging, so a Rust-level-inlined
+non-generic `res()` doesn't need every call site to independently prove
+its result unused) for the rarer case where a hook genuinely needs to
+distinguish specific `HookError` variants at several call sites at once —
+`examples/07_xfl-math` and the other smaller examples in this repo don't
+hit it simply because they don't have that many such call sites in one
+function.
 
 ## Testing
 

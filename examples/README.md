@@ -38,7 +38,7 @@ a differences table for any intentional deviation, and a "Toolchain
 limitation" section documenting a real Guard-type nesting-depth/
 floating-point constraint discovered while porting them (see
 `80_reward`'s README for the first, fullest writeup; `81_govern`'s adds
-two more findings).
+three more findings).
 
 | # | example | ports |
 |---|---|---|

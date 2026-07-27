@@ -15,14 +15,14 @@
 //! `codec::field_header` calls — both empirically required to stay under
 //! the Hook API's 32-level block/loop/if nesting limit once
 //! `hooks-build`'s Guard-type pipeline inlines every function in this
-//! crate into `hook()`).
+//! crate into `hook()`). Every Hook API call here goes through
+//! `hooks_lib::api`'s ordinary `Result`-based wrappers (`etxn_fee_base`,
+//! `etxn_details`, `emit_buf`) — see `crate`'s module doc comment.
 
 use hooks_lib::prelude::*;
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::txn::codec;
 use hooks_lib::{guard, rollback};
-
-use crate::raw;
 
 /// Rolls the hook back — every failure path in this module funnels here.
 /// `-204` matches `crate::GovernError::EmitFailed`'s code.
@@ -242,11 +242,11 @@ impl TxnBuf {
         let Some(bytes) = self.buf.get(..self.len) else {
             fail(b"govern: txn buffer overflow");
         };
-        let fee = raw::etxn_fee_base(bytes);
-        if fee < 0 {
-            fail(b"govern: could not compute emitted txn fee");
-        }
-        let native = encode_native_amount(fee as u64);
+        let fee = match etxn_fee_base(bytes) {
+            Ok(f) => f,
+            Err(_) => fail(b"govern: could not compute emitted txn fee"),
+        };
+        let native = encode_native_amount(fee);
         let Some(fee_end) = fee_offset.checked_add(8) else {
             fail(b"govern: txn buffer overflow");
         };
@@ -324,7 +324,7 @@ pub fn emit_l1_vote_forward(
     topic_data: &[u8],
 ) -> bool {
     let txn = take_txn_buf();
-    let cls = raw::ledger_seq();
+    let cls = ledger_seq();
     let fee_offset = txn.write_common_header(ttINVOKE as u16, cls, hook_accid);
     txn.push_destination(genesis);
 
@@ -348,8 +348,7 @@ pub fn emit_l1_vote_forward(
     txn.push(&[OBJECT_END, ARRAY_END]);
 
     let bytes = txn.finish_fee(fee_offset);
-    let mut emit_hash = Hash::zeroed();
-    raw::emit(emit_hash.as_mut(), bytes) == 32
+    emit_buf(bytes).is_ok()
 }
 
 /// Builds and emits a `HookSet` actioning a hook-topic vote — govern.c's
@@ -360,7 +359,7 @@ pub fn emit_l1_vote_forward(
 /// == 0` branch).
 pub fn emit_hookset(hook_accid: &AccountId, slot_index: u8, hash: Option<&[u8; 32]>) -> bool {
     let txn = take_txn_buf();
-    let cls = raw::ledger_seq();
+    let cls = ledger_seq();
     let fee_offset = txn.write_common_header(ttHOOK_SET as u16, cls, hook_accid);
 
     // `EmitDetails`, reserved worst-case then trimmed to the actually
@@ -373,11 +372,11 @@ pub fn emit_hookset(hook_accid: &AccountId, slot_index: u8, hash: Option<&[u8; 3
     let Some(region) = txn.buf.get_mut(start..end) else {
         fail(b"govern: txn buffer overflow");
     };
-    let written = raw::etxn_details(region);
-    if written < 0 {
-        fail(b"govern: could not write EmitDetails");
-    }
-    let Some(new_len) = start.checked_add(written as usize) else {
+    let written = match etxn_details(region) {
+        Ok(n) => n,
+        Err(_) => fail(b"govern: could not write EmitDetails"),
+    };
+    let Some(new_len) = start.checked_add(written) else {
         fail(b"govern: txn buffer overflow");
     };
     txn.len = new_len;
@@ -406,6 +405,5 @@ pub fn emit_hookset(hook_accid: &AccountId, slot_index: u8, hash: Option<&[u8; 3
     txn.push(&[ARRAY_END]);
 
     let bytes = txn.finish_fee(fee_offset);
-    let mut emit_hash = Hash::zeroed();
-    raw::emit(emit_hash.as_mut(), bytes) == 32
+    emit_buf(bytes).is_ok()
 }

@@ -4,8 +4,8 @@
 //! `hooks_lib::types::StateKey` newtype, because govern.c's keys are not
 //! uniformly 32 bytes (`"MC"` is 2 bytes, a seat-forward key is 1 byte,
 //! a member-reverse key is 20 bytes; only the vote/vote-count keys are a
-//! fixed 32 bytes) and `hooks_lib::raw::state`'s raw key parameter
-//! already accepts any length directly.
+//! fixed 32 bytes) and `hooks_lib::api::state::state`'s key parameter
+//! (`AsRef<[u8]>`) already accepts any length directly.
 
 use hooks_lib::guard;
 use hooks_lib::types::AccountId;

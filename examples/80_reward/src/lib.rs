@@ -10,41 +10,14 @@
 //! output/state effect, matched against reward.c's branches) and this
 //! crate's differences from reward.c.
 //!
-//! # Toolchain limitation: raw Hook API calls in this file
-//!
-//! Every fallible Hook API call below goes through [`raw`]'s thin
-//! `unsafe` wrappers instead of `hooks_lib::api`'s `Result<_, HookError>`
-//! ones. This is a deliberate, narrow exception to the rest of this
-//! repo's hooks-lib-idiomatic style (see e.g. `examples/07_xfl-math`,
-//! which uses the `Result` API throughout without issue): once
-//! `hooks-build`'s Guard-type pipeline inlines every function in a crate
-//! into `hook()` (`docs/DESIGN.md` §6.2c), `HookError`'s ~40-variant
-//! `From<i64>` decode — baked into every error path `hooks_lib::error::res`
-//! funnels through, even when a caller only compares the `Result` to a
-//! specific `Ok` value or discards the `Err` payload entirely — was
-//! measured (via `crates/hooks-build/examples/diag.rs`, a throwaway
-//! pipeline-stage dumper written for this investigation) to compile to a
-//! wasm `br_table` needing roughly 40 nested `block`s per call site. This
-//! hook has enough distinct fallible calls that, combined, they pushed
-//! `hook()`'s block/loop/if nesting well past the vendored guard checker's
-//! 32-level limit (`Guard.h`'s `NESTING_LIMIT`) even after every
-//! source-level mitigation short of this one (bumping `[profile.release]`
-//! `opt-level` from `"z"` to `3`, restructuring boolean chains to use
-//! eager `|`/`&`, factoring checks into dedicated functions, converting
-//! `MintTxn`'s internal API from `Result`-propagating to rollback-on-
-//! failure — see `mint_txn`'s and `message`'s module doc comments for the
-//! ones that carry their own rationale). This crate's own [`raw`] module
-//! only exposes the small subset of `hooks_core`'s raw signatures reward.c
-//! itself calls, each documented against the exact reward.c line(s) it
-//! stands in for; every one matches reward.c's own behavior *more*
-//! closely than the `Result`-wrapped equivalent, since reward.c itself
-//! never separately checks most of these calls either — it reuses the
-//! raw negative-i64-is-an-error convention directly in its own range
-//! checks (`xfl_rr <= 0`, `required_delay < 0`, ...). See the README's
-//! "Toolchain limitation: `HookError` decoding and nesting depth" section
-//! for the full writeup and reproduction steps; this is flagged there as
-//! a candidate `hooks-lib`/`hooks-build` fix, not something every complex
-//! hook should have to work around by hand.
+//! Every Hook API call in this file goes through `hooks_lib`'s ordinary
+//! `Result`-based wrappers (`otxn_field_exact`, `hook_account_buf`,
+//! `slot_subfield`, `slot_u64`, `util_keylet`, `emit_buf`, ...) — the
+//! natural one for each call site (an `_exact`/`_buf` convenience where
+//! one exists and fits, the plain wrapper otherwise) — **except** the
+//! small [`raw`] module, scoped to exactly reward.c's `float_*`/
+//! `slot_float` calls. See [`raw`]'s doc comment for why XFL specifically
+//! is the one place this crate steps around `hooks_lib::xfl::XFL`.
 //!
 //! Build: `hooks-build build --manifest-path examples/80_reward/Cargo.toml`
 
@@ -133,17 +106,18 @@ static MINT_TXN: HookStatic<MintTxn> = HookStatic::new(MintTxn::new());
 /// `HookStatic` for the same reason.
 static AV_BUF: HookStatic<[u8; AV_ARRAY_LEN]> = HookStatic::new([0u8; AV_ARRAY_LEN]);
 
-/// Scratch space for [`raw::account_keylet`]'s 34-byte output. A
-/// `HookStatic` for the same reason as [`MINT_TXN`]/[`AV_BUF`]: a
-/// 34-byte-and-up zero-initialized stack array is exactly the size
-/// `wasm32v1-none`'s codegen can start lowering to an unguarded
-/// `memset`-style loop at some optimization levels (see
-/// `examples/README.md`'s "Statics for templates and large buffers").
+/// Scratch space for the sender's AccountRoot Keylet (34 bytes). A
+/// `HookStatic` rather than a stack local for the same reason
+/// [`MINT_TXN`]/[`AV_BUF`] are: a 34-byte-and-up zero-initialized stack
+/// array is exactly the size `wasm32v1-none`'s codegen can start
+/// lowering to an unguarded `memset`-style loop at some optimization
+/// levels (see `examples/README.md`'s "Statics for templates and large
+/// buffers") — unrelated to which API wraps `util_keylet` itself.
 static ACCOUNT_KEYLET: HookStatic<[u8; KEYLET_LEN]> = HookStatic::new([0u8; KEYLET_LEN]);
 
 #[hook]
 fn my_hook() -> i64 {
-    if raw::etxn_reserve(1) < 0 {
+    if etxn_reserve(1).is_err() {
         RewardError::EmitFailed.rollback(b"reward: etxn_reserve failed");
     }
 
@@ -154,23 +128,23 @@ fn my_hook() -> i64 {
         accept!(b"Reward: Passing non-claim txn", 0);
     }
 
-    let mut sender = AccountId::zeroed();
-    if raw::otxn_field(sender.as_mut(), sfAccount) != ACC_ID_LEN as i64 {
-        RewardError::AssertionFailed.rollback(b"reward: could not read otxn Account");
-    }
-    let mut hook_acc = AccountId::zeroed();
-    if raw::hook_account(hook_acc.as_mut()) != ACC_ID_LEN as i64 {
-        RewardError::AssertionFailed.rollback(b"reward: could not read hook_account");
-    }
+    let sender: AccountId = match otxn_field_exact(sfAccount) {
+        Ok(a) => a,
+        Err(_) => RewardError::AssertionFailed.rollback(b"reward: could not read otxn Account"),
+    };
+    let hook_acc: AccountId = match hook_account_buf() {
+        Ok(a) => a,
+        Err(_) => RewardError::AssertionFailed.rollback(b"reward: could not read hook_account"),
+    };
     // The hook's own emitted ClaimReward-adjacent traffic (there is none
     // today, but reward.c guards this unconditionally) passes through.
     if buf_eq_20(&sender, &hook_acc) {
         accept!(b"Reward: Passing outgoing txn", 0);
     }
 
-    let rr = raw::state_xfl_or(b"RR", DEFAULT_REWARD_RATE_BITS);
-    let rd = raw::state_xfl_or(b"RD", DEFAULT_REWARD_DELAY_BITS);
-    let rewards_disabled = (rr <= 0) | (rd <= 0);
+    let rr = state_xfl(b"RR").unwrap_or(XFL::from_raw_bits(DEFAULT_REWARD_RATE_BITS));
+    let rd = state_xfl(b"RD").unwrap_or(XFL::from_raw_bits(DEFAULT_REWARD_DELAY_BITS));
+    let rewards_disabled = (rr.raw_bits() <= 0) | (rd.raw_bits() <= 0);
     if rewards_disabled {
         RewardError::RewardsDisabled.rollback(b"Reward: Rewards are disabled by governance.");
     }
@@ -180,47 +154,58 @@ fn my_hook() -> i64 {
     // back with the same message — and, since a `float_*` host call
     // returning a raw negative *error* code would *also* read as "< 0" or
     // "!= 0" in reward.c's C, an XFL operation failing outright leads to
-    // exactly the same rollback there too (see the module doc comment for
-    // why every one of these is a raw call).
+    // exactly the same rollback there too. See [`raw`]'s doc comment for
+    // why these specific calls (and only these) bypass `XFL`.
     const MISCONFIGURED_MSG: &[u8] =
         b"Reward: Rewards incorrectly configured by governance or unrecoverable error.";
-    let required_delay = raw::float_int(rd, 0, 0);
+    let required_delay = raw::float_int(rd.raw_bits(), 0, 0);
     let misconfigured = (required_delay < 0)
-        | (raw::float_sign(rr) != 0)
-        | (raw::float_compare(rr, raw::float_one(), COMPARE_GREATER) != 0)
-        | (raw::float_compare(rd, raw::float_one(), COMPARE_LESS) != 0);
+        | (raw::float_sign(rr.raw_bits()) != 0)
+        | (raw::float_compare(rr.raw_bits(), raw::float_one(), COMPARE_GREATER) != 0)
+        | (raw::float_compare(rd.raw_bits(), raw::float_one(), COMPARE_LESS) != 0);
     if misconfigured {
         RewardError::MisconfiguredReward.rollback(MISCONFIGURED_MSG);
     }
 
     // Slot the sender's AccountRoot; `RewardAccumulator` only exists once
     // a prior ClaimReward has already run the protocol-level reward setup
-    // on this account.
+    // on this account. `util_keylet`, not `util_keylet_buf`: the output
+    // still needs to land in the `HookStatic` scratch buffer above, not a
+    // fresh stack-local `Keylet` (see `ACCOUNT_KEYLET`'s doc comment).
     let Some(kl_buf) = ACCOUNT_KEYLET.take() else {
         RewardError::AssertionFailed.rollback(b"reward: account keylet buffer already taken");
     };
-    let kl_len = raw::account_keylet(kl_buf, &sender);
-    if kl_len < 0 {
-        RewardError::AssertionFailed.rollback(b"reward: could not build account keylet");
-    }
-    let Some(kl) = kl_buf.get(..kl_len as usize) else {
+    let kl_len = match util_keylet(
+        kl_buf,
+        KEYLET_ACCOUNT,
+        sender.as_ptr() as u32,
+        ACC_ID_LEN as u32,
+        0,
+        0,
+        0,
+        0,
+    ) {
+        Ok(n) => n,
+        Err(_) => RewardError::AssertionFailed.rollback(b"reward: could not build account keylet"),
+    };
+    let Some(kl) = kl_buf.get(..kl_len) else {
         RewardError::AssertionFailed.rollback(b"reward: could not build account keylet");
     };
-    if raw::slot_set(kl, 1) < 0 {
+    if slot_set(kl, 1).is_err() {
         RewardError::AssertionFailed.rollback(b"reward: could not slot sender account");
     }
-    if raw::slot_subfield(1, sfRewardAccumulator, 2) != 2 {
+    if slot_subfield(1, sfRewardAccumulator, 2) != Ok(2) {
         accept!(b"Reward: Passing reward setup txn", 0);
     }
-    let has_first = raw::slot_subfield(1, sfRewardLgrFirst, 3) == 3;
-    let has_last = raw::slot_subfield(1, sfRewardLgrLast, 4) == 4;
-    let has_balance = raw::slot_subfield(1, sfBalance, 5) == 5;
-    let has_time = raw::slot_subfield(1, sfRewardTime, 6) == 6;
+    let has_first = slot_subfield(1, sfRewardLgrFirst, 3) == Ok(3);
+    let has_last = slot_subfield(1, sfRewardLgrLast, 4) == Ok(4);
+    let has_balance = slot_subfield(1, sfBalance, 5) == Ok(5);
+    let has_time = slot_subfield(1, sfRewardTime, 6) == Ok(6);
     if !(has_first & has_last & has_balance & has_time) {
         RewardError::AssertionFailed.rollback(b"reward: missing reward accounting fields");
     }
 
-    let last_claim_time = raw::slot_i64(6) as u64;
+    let last_claim_time = slot_u64(6).unwrap_or(0);
     let time_elapsed = ledger_last_time().wrapping_sub(last_claim_time);
     let required_delay = required_delay as u64;
     if time_elapsed < required_delay {
@@ -228,10 +213,10 @@ fn my_hook() -> i64 {
         rollback!(&message::wait_message(remaining), 0);
     }
 
-    let accumulator = raw::slot_i64(2);
-    let first = raw::slot_i64(3);
-    let last = raw::slot_i64(4);
-    let raw_balance = raw::slot_i64(5) as u64;
+    let accumulator = slot_u64(2).unwrap_or(0) as i64;
+    let first = slot_u64(3).unwrap_or(0) as i64;
+    let last = slot_u64(4).unwrap_or(0) as i64;
+    let raw_balance = slot_u64(5).unwrap_or(0);
 
     if (first <= 0) | (last <= 0) {
         RewardError::AssertionFailed.rollback(b"Reward: Assertion failure.");
@@ -262,7 +247,9 @@ fn my_hook() -> i64 {
     // whatever raw value the failed call returns, same as reward.c's own
     // `uint64_t reward_drops = float_int(...)` (a negative `float_int`
     // result becomes a huge `u64` via the same two's-complement
-    // reinterpretation C's implicit conversion performs).
+    // reinterpretation C's implicit conversion performs). See [`raw`]'s
+    // doc comment for why this arithmetic chain is exactly where `XFL`'s
+    // validation would both cost the most and matter the least.
     let xfl_accum = raw::float_set(0, accumulator);
     if xfl_accum <= 0 {
         RewardError::AssertionFailed.rollback(b"Reward: Assertion failure.");
@@ -272,7 +259,7 @@ fn my_hook() -> i64 {
         RewardError::AssertionFailed.rollback(b"Reward: Assertion failure.");
     }
     let per_ledger = raw::float_divide(xfl_accum, xfl_elapsed);
-    let xfl_reward = raw::float_multiply(rr, per_ledger);
+    let xfl_reward = raw::float_multiply(rr.raw_bits(), per_ledger);
     let base_reward_drops = raw::float_int(xfl_reward, 6, 1) as u64;
     // `L1_SEATS` (20) is a nonzero compile-time constant; `wrapping_div`'s
     // only panicking case is a zero divisor, which this can never be —
@@ -281,13 +268,16 @@ fn my_hook() -> i64 {
     #[allow(clippy::arithmetic_side_effects)]
     let l1_drops = base_reward_drops.wrapping_div(L1_SEATS as u64);
 
-    if raw::otxn_slot(10) != 10 {
+    let otxn_slot_num = otxn_slot(10);
+    if otxn_slot_num != Ok(10) {
         RewardError::AssertionFailed.rollback(b"reward: could not slot otxn");
     }
-    if raw::slot_subfield(10, sfFee, 11) != 11 {
+    if slot_subfield(10, sfFee, 11) != Ok(11) {
         RewardError::AssertionFailed.rollback(b"reward: could not slot otxn Fee");
     }
-    // reward.c: `int64_t xfl_fee = slot_float(11);` — also unchecked.
+    // reward.c: `int64_t xfl_fee = slot_float(11);` — also unchecked; see
+    // [`raw`]'s doc comment for why this reads the slot as a raw XFL bit
+    // pattern instead of through `XFL::from_slot`.
     let xfl_fee = raw::slot_float(11);
     let rewardee_drops = if xfl_fee > 0 {
         let fee_drops = raw::float_int(xfl_fee, 6, 1);
@@ -310,11 +300,10 @@ fn my_hook() -> i64 {
 
     let bytes = txn.finish(ledger_seq());
 
-    let mut emit_hash = Hash::zeroed();
-    if raw::emit(emit_hash.as_mut(), bytes) < 0 {
-        RewardError::EmitFailed.rollback(b"Reward: Emit loopback failed.");
+    match emit_buf(bytes) {
+        Ok(_hash) => accept!(b"Reward: Emitted reward txn successfully.", 0),
+        Err(_) => RewardError::EmitFailed.rollback(b"Reward: Emit loopback failed."),
     }
-    accept!(b"Reward: Emitted reward txn successfully.", 0)
 }
 
 /// Appends one `GenesisMint` entry per L1 seat currently occupied by an
@@ -323,22 +312,24 @@ fn my_hook() -> i64 {
 /// which treats the whole `UNLReport`-driven L1 distribution as
 /// best-effort and always proceeds to emit at least the rewardee entry).
 fn push_l1_seat_entries(txn: &mut MintTxn, l1_drops: u64) {
-    if raw::slot_set(&UNLREPORT_KEYLET, 1) != 1 {
+    if slot_set(&UNLREPORT_KEYLET, 1) != Ok(1) {
         return;
     }
-    if raw::slot_subfield(1, sfActiveValidators, 1) != 1 {
+    if slot_subfield(1, sfActiveValidators, 1) != Ok(1) {
         return;
     }
     let Some(av_buf) = AV_BUF.take() else {
         return;
     };
-    if raw::slot(av_buf, 1) <= 0 {
+    let Ok(read_len) = slot(av_buf, 1) else {
+        return;
+    };
+    if read_len == 0 {
         return;
     }
-    let count = raw::slot_count(1);
-    if count < 0 {
+    let Ok(count) = slot_count(1) else {
         return;
-    }
+    };
     let av_size = (count as usize).min(MAX_UNL);
 
     // Flattened with `let-else` + `continue` throughout (rather than
@@ -357,7 +348,7 @@ fn push_l1_seat_entries(txn: &mut MintTxn, l1_drops: u64) {
             continue;
         };
         let mut seat = [0u8; 1];
-        if raw::state(&mut seat, key) != 1 {
+        if state(&mut seat, key) != Ok(1) {
             continue;
         }
         let Some(&seat) = seat.first() else {
@@ -395,8 +386,7 @@ fn push_l1_seat_entries(txn: &mut MintTxn, l1_drops: u64) {
             continue;
         }
         let mut destination = AccountId::zeroed();
-        if raw::state(destination.as_mut(), core::slice::from_ref(&this_seat)) != ACC_ID_LEN as i64
-        {
+        if state(destination.as_mut(), core::slice::from_ref(&this_seat)) != Ok(ACC_ID_LEN) {
             continue;
         }
         // At most `L1_SEATS` seat entries are ever pushed here (see

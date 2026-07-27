@@ -11,22 +11,63 @@
 //! layout, hook-parameter table, and full behavior-equivalence table
 //! (govern.c branch -> Rust here -> observable outcome).
 //!
-//! See `examples/80_reward`'s crate doc comment for why every fallible
-//! Hook API call here goes through [`raw`] instead of
-//! `hooks_lib::api`'s `Result<_, HookError>` wrappers — the identical
-//! Guard-type nesting-depth constraint applies here too, and even more
-//! so (govern.c is the larger of the two genesis hooks).
+//! Every Hook API call in this crate goes through `hooks_lib`'s ordinary
+//! `Result`-based wrappers (`otxn_field_exact`, `hook_account_buf`,
+//! `hook_param`, `otxn_param`, `state`, `state_u64`, `state_set`,
+//! `slot_subfield`, `util_keylet`, `emit_buf`, ...) — this crate has no
+//! `raw` module at all, unlike `examples/80_reward` (which keeps one,
+//! narrowly, for `float_*`/`slot_float` — see that crate's `src/raw.rs`
+//! doc comment for why XFL specifically is different). govern.c has no
+//! XFL arithmetic of its own to port, so there is nothing here that needs
+//! the same treatment.
+//!
+//! An earlier version of this crate *did* route every Hook API call
+//! through a `raw` module, on the theory that `hooks_lib::error::res`'s
+//! `HookError::from(i64)` decode (see `examples/80_reward/src/raw.rs`'s
+//! doc comment) would otherwise push `hook()`'s block/loop/if nesting
+//! past the Hook API's 32-level limit once every function in the crate
+//! is inlined into it. That turned out to be broader than necessary:
+//! with the *structural* mitigations below in place — none of which
+//! involve bypassing `hooks_lib::api` — the ordinary `Result`-based
+//! wrappers fit comfortably (see the measurements at the end of this
+//! comment). The structural mitigations, kept:
+//!
+//! - a per-package `opt-level = 3` override for this crate specifically
+//!   (`examples/Cargo.toml`) — `opt-level = "z"` (every other example's
+//!   default) leaves more dead error-decoding code in place;
+//! - [`txn`]'s transaction encoders build each emitted transaction from a
+//!   handful of large, combined `push` calls (concatenating adjacent
+//!   constant/semi-constant byte fragments) instead of one call per
+//!   field, and skip placeholder-then-patch round trips for fields
+//!   already known at write time — see `txn.rs`'s `write_common_header`;
+//! - `HookStatic` scratch buffers (below) instead of stack locals for
+//!   every 32-byte-and-up buffer, and `#[inline(always)]` on the small
+//!   hot helpers that touch them;
+//! - loops are written as manual `while`s (guard call literally first)
+//!   rather than `for x in range`, and a `guard!` bound that must hold
+//!   for a whole hook execution (not just one loop entry) uses the wider
+//!   bound even when the loop's own body would justify a tighter one —
+//!   see [`garbage_collect_votes`]'s doc comment;
+//! - exactly one `Result` is ever matched against a *specific*
+//!   `HookError` variant in this whole crate ([`my_hook`]'s
+//!   `member_count` read) — see the comment right there for why that
+//!   one call site, and only that one, has to avoid it.
+//!
+//! Measured (`hooks-build check examples/81_govern/out/govern.wasm`):
+//! worst-case instructions 44560, max nesting depth 22 (limit 32) — see
+//! the README's "Toolchain limitation" section for the fuller writeup,
+//! including the live `GUARD_VIOLATION` the guard-bound point above
+//! fixes.
 //!
 //! Build: `hooks-build build --manifest-path examples/81_govern/Cargo.toml`
 
 #![no_std]
 
 mod keys;
-mod raw;
 mod txn;
 
 use hooks_lib::prelude::*;
-use hooks_lib::raw::DOESNT_EXIST;
+use hooks_lib::static_cell::HookStatic;
 use hooks_lib::{accept, guard, hook, hook_errors, rollback};
 
 /// `genesis[20]` in govern.c: the network genesis account (see
@@ -70,9 +111,8 @@ hook_errors! {
 // codegen starts lowering a zero-initialized stack array of this size to
 // an unguarded `memset`-style loop (see `examples/README.md`'s "Statics
 // for templates and large buffers", and `examples/80_reward/src/lib.rs`'s
-// `ACCOUNT_KEYLET` for the same fix there).
-use hooks_lib::static_cell::HookStatic;
-
+// `ACCOUNT_KEYLET` for the same fix there) — unrelated to which API wraps
+// the calls that fill them.
 static TOPIC_DATA: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 static PREVIOUS_TOPIC_DATA: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 static HOOK_KEYLET: HookStatic<[u8; 34]> = HookStatic::new([0u8; 34]);
@@ -106,7 +146,7 @@ fn done(msg: &[u8]) -> ! {
 
 #[hook]
 fn my_hook() -> i64 {
-    if raw::etxn_reserve(1) < 0 {
+    if etxn_reserve(1).is_err() {
         GovernError::EmitFailed.nope(b"govern: etxn_reserve failed");
     }
 
@@ -114,41 +154,66 @@ fn my_hook() -> i64 {
         done(b"Governance: Passing non-Invoke txn. HookOn should be changed to avoid this.");
     }
 
-    let mut sender = AccountId::zeroed();
-    if raw::otxn_field(sender.as_mut(), sfAccount) != 20 {
-        GovernError::AssertionFailed.nope(b"govern: could not read otxn Account");
-    }
-    let mut hook_accid = AccountId::zeroed();
-    if raw::hook_account(hook_accid.as_mut()) != 20 {
-        GovernError::AssertionFailed.nope(b"govern: could not read hook_account");
-    }
+    let sender: AccountId = match otxn_field_exact(sfAccount) {
+        Ok(a) => a,
+        Err(_) => GovernError::AssertionFailed.nope(b"govern: could not read otxn Account"),
+    };
+    let hook_accid: AccountId = match hook_account_buf() {
+        Ok(a) => a,
+        Err(_) => GovernError::AssertionFailed.nope(b"govern: could not read hook_account"),
+    };
 
     if buf_eq_20(&sender, &hook_accid) {
-        let mut dest = AccountId::zeroed();
-        if raw::otxn_field(dest.as_mut(), sfDestination) == 20 && !buf_eq_20(&hook_accid, &dest) {
-            done(b"Goverance: Passing outgoing txn.");
+        if let Ok(dest) = otxn_field_exact::<AccountId>(sfDestination) {
+            if !buf_eq_20(&hook_accid, &dest) {
+                done(b"Goverance: Passing outgoing txn.");
+            }
         }
     }
 
     let is_l1_table = buf_eq_20(&hook_accid, &GENESIS_ACCOUNT);
 
-    let member_count_raw = raw::state_i64(&keys::MEMBER_COUNT);
-    if member_count_raw == DOESNT_EXIST {
-        setup(is_l1_table);
-    }
-    let member_count = member_count_raw;
+    // `state_u64`, not `state_i64`: govern.c's own `state_i64(key, len)` is
+    // actually the Hook API's "as-int64" `state(0, 0, key, len)` idiom (the
+    // host packs whatever bytes *are* stored, regardless of their actual
+    // length, into the return value) — the right hooks-lib match for that
+    // is [`state_u64`] (see its doc comment), not [`state_i64`] (which
+    // requires an exact 8-byte stored entry via [`state_exact`] and would
+    // therefore *always* fail on `"MC"`'s actual 1-byte stored value).
+    //
+    // Deliberately `Err(_)`, not `Err(HookError::DoesntExist)`: pattern
+    // matching a *specific* `HookError` variant forces the compiler to
+    // fully resolve `hooks_lib::error::res`'s ~40-arm `HookError::from(i64)`
+    // decode at this call site (measured: pushes local nesting depth to
+    // 56, over the 32-level limit — see `crate`'s module doc comment).
+    // Testing only `is_err()`-equivalent (never reading which specific
+    // error occurred) lets the optimizer discard that decode entirely,
+    // keeping just the "is the raw code negative" branch — this crate's
+    // one and only edit made purely to stay under the nesting limit, and
+    // it changes nothing observable: any `state_u64` failure on the fixed
+    // 2-byte `"MC"` key is unreachable other than "value not yet written"
+    // (`DoesntExist`) for a well-formed table, matching govern.c's own
+    // `== DOESNT_EXIST` check in every reachable case.
+    let member_count = match state_u64(&keys::MEMBER_COUNT) {
+        Ok(v) => v as i64,
+        Err(_) => setup(is_l1_table),
+    };
 
-    let member_id = raw::state_i64(&keys::member_reverse_key(&sender));
+    // Same "as-int64" mode as `member_count` above (a member-reverse
+    // entry's value is a 1-byte seat number).
+    let member_id = state_u64(&keys::member_reverse_key(&sender))
+        .map(|v| v as i64)
+        .unwrap_or(-1);
     if member_id < 0 {
         GovernError::NotAMember
             .nope(b"Governance: You are not currently a governance member at this table.");
     }
 
     let mut topic = [0u8; 2];
-    let topic_result = raw::otxn_param(&mut topic, b"T");
+    let topic_ok = otxn_param(&mut topic, b"T") == Ok(2);
     let t = topic[0];
     let n = topic[1];
-    if topic_result != 2 || (t != b'S' && t != b'H' && t != b'R') {
+    if !topic_ok || (t != b'S' && t != b'H' && t != b'R') {
         GovernError::BadParameter
             .nope(b"Governance: Valid TOPIC must be specified as otxn parameter.");
     }
@@ -166,7 +231,7 @@ fn my_hook() -> i64 {
     let mut l = 1u8;
     if !is_l1_table {
         let mut lbuf = [0u8; 1];
-        if raw::otxn_param(&mut lbuf, b"L") != 1 {
+        if otxn_param(&mut lbuf, b"L") != Ok(1) {
             GovernError::BadParameter
                 .nope(b"Governance: Missing L parameter. Which layer are you voting for?");
         }
@@ -194,9 +259,9 @@ fn my_hook() -> i64 {
         let Some(dst) = topic_data.get_mut(padding..) else {
             GovernError::AssertionFailed.nope(b"govern: bad topic padding");
         };
-        raw::otxn_param(dst, b"V")
+        otxn_param(dst, b"V")
     };
-    if vresult != topic_size as i64 {
+    if vresult != Ok(topic_size) {
         GovernError::BadParameter
             .nope(b"Governance: Missing or incorrect size of VOTE data for TOPIC type.");
     }
@@ -208,10 +273,10 @@ fn my_hook() -> i64 {
         let Some(dst) = previous_topic_data.get_mut(padding..) else {
             GovernError::AssertionFailed.nope(b"govern: bad topic padding");
         };
-        raw::state(dst, &vk)
+        state(dst, &vk).unwrap_or(0)
     };
 
-    if previous_topic_size == topic_size as i64 && buf_eq_32(previous_topic_data, topic_data) {
+    if previous_topic_size == topic_size && buf_eq_32(previous_topic_data, topic_data) {
         done(b"Governance: Your vote is already cast this way for this topic.");
     }
 
@@ -219,7 +284,7 @@ fn my_hook() -> i64 {
         let Some(value) = topic_data.get(padding..) else {
             GovernError::AssertionFailed.nope(b"govern: bad topic padding");
         };
-        if raw::state_set(value, &vk) != topic_size as i64 {
+        if state_set(value, &vk) != Ok(topic_size) {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
     }
@@ -230,19 +295,19 @@ fn my_hook() -> i64 {
         };
         let vck = keys::vote_count_key(t, n, l, prev_value);
         let mut votes = [0u8; 1];
-        if raw::state(&mut votes, &vck) != 1 {
+        if state(&mut votes, &vck) != Ok(1) {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
         if votes[0] == 0 {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
         if votes[0] <= 1 {
-            if raw::state_delete(&vck) < 0 {
+            if state_set(&[], &vck).is_err() {
                 GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
             }
         } else {
             let dec = votes[0].wrapping_sub(1);
-            if raw::state_set(&[dec], &vck) != 1 {
+            if state_set(&[dec], &vck) != Ok(1) {
                 GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
             }
         }
@@ -254,9 +319,9 @@ fn my_hook() -> i64 {
         };
         let vck = keys::vote_count_key(t, n, l, new_value);
         let mut vc = [0u8; 1];
-        let _ = raw::state(&mut vc, &vck); // ignored on failure, matching govern.c
+        let _ = state(&mut vc, &vck); // ignored on failure, matching govern.c
         let new_votes = vc[0].wrapping_add(1);
-        if raw::state_set(&[new_votes], &vck) < 1 {
+        if state_set(&[new_votes], &vck).is_err() {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
         new_votes
@@ -317,11 +382,11 @@ fn my_hook() -> i64 {
 #[inline(never)]
 fn setup(is_l1_table: bool) -> ! {
     let mut imc = [0u8; 1];
-    if raw::hook_param(&mut imc, b"IMC") < 0 {
+    if hook_param(&mut imc, b"IMC").is_err() {
         GovernError::BadParameter
             .nope(b"Governance: Initial Member Count Parameter missing (IMC).");
     }
-    if raw::state_set(&imc, &keys::MEMBER_COUNT) < 1 {
+    if state_set(&imc, &keys::MEMBER_COUNT).is_err() {
         GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
     }
     let member_count = imc[0];
@@ -335,22 +400,22 @@ fn setup(is_l1_table: bool) -> ! {
 
     if is_l1_table {
         let mut irr = [0u8; 8];
-        if raw::hook_param(&mut irr, b"IRR") < 0 {
+        if hook_param(&mut irr, b"IRR").is_err() {
             GovernError::BadParameter
                 .nope(b"Governance: Initial Reward Rate Parameter missing (IRR).");
         }
         let mut ird = [0u8; 8];
-        if raw::hook_param(&mut ird, b"IRD") < 0 {
+        if hook_param(&mut ird, b"IRD").is_err() {
             GovernError::BadParameter
                 .nope(b"Governance: Initial Reward Delay Parameter miss (IRD).");
         }
         if ird == [0u8; 8] {
             GovernError::BadParameter.nope(b"Governance: Initial Reward Delay must be > 0.");
         }
-        if raw::state_set(&irr, &keys::REWARD_RATE) < 1 {
+        if state_set(&irr, &keys::REWARD_RATE).is_err() {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
-        if raw::state_set(&ird, &keys::REWARD_DELAY) < 1 {
+        if state_set(&ird, &keys::REWARD_DELAY).is_err() {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
     }
@@ -361,15 +426,15 @@ fn setup(is_l1_table: bool) -> ! {
         let this_seat = i;
         i = i.wrapping_add(1);
         let member_pkey = [b'I', b'S', this_seat];
-        let mut member_acc = AccountId::zeroed();
-        if raw::hook_param(member_acc.as_mut(), &member_pkey) != 20 {
-            GovernError::BadParameter
-                .nope(b"Governance: One or more initial member account ID's is missing");
-        }
-        if raw::state_set(member_acc.as_ref(), &keys::seat_forward_key(this_seat)) != 20 {
+        let member_acc: AccountId = match hook_param_exact(&member_pkey) {
+            Ok(a) => a,
+            Err(_) => GovernError::BadParameter
+                .nope(b"Governance: One or more initial member account ID's is missing"),
+        };
+        if state_set(member_acc.as_ref(), &keys::seat_forward_key(this_seat)) != Ok(20) {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
-        if raw::state_set(&[this_seat], &keys::member_reverse_key(&member_acc)) != 1 {
+        if state_set(&[this_seat], &keys::member_reverse_key(&member_acc)) != Ok(1) {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
     }
@@ -389,7 +454,7 @@ fn action_reward(_t: u8, n: u8, padding: usize, topic_data: &[u8; 32]) -> ! {
     } else {
         keys::REWARD_DELAY
     };
-    if raw::state_set(value, &key) < 1 {
+    if state_set(value, &key).is_err() {
         GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
     }
     if n == b'R' {
@@ -403,14 +468,25 @@ fn action_reward(_t: u8, n: u8, padding: usize, topic_data: &[u8; 32]) -> ! {
 #[inline(never)]
 fn action_hook(hook_accid: &AccountId, n: u8, topic_data_zero: bool, topic_data: &[u8; 32]) -> ! {
     let keylet = take_scratch(&HOOK_KEYLET);
-    if raw::hook_keylet(keylet, hook_accid) < 0 {
+    if util_keylet(
+        keylet,
+        KEYLET_HOOK,
+        hook_accid.as_ptr() as u32,
+        ACC_ID_LEN as u32,
+        0,
+        0,
+        0,
+        0,
+    )
+    .is_err()
+    {
         GovernError::AssertionFailed.nope(b"govern: could not build hook keylet");
     }
-    if raw::slot_set(keylet, 5) == 5 && raw::slot_subfield(5, sfHooks, 6) == 6 {
-        let existing = raw::slot_subarray(6, u32::from(n), 7);
-        if existing == 7 && raw::slot_subfield(7, sfHookHash, 8) == 8 {
+    if slot_set(keylet, 5) == Ok(5) && slot_subfield(5, sfHooks, 6) == Ok(6) {
+        let existing = slot_subarray(6, u32::from(n), 7);
+        if existing == Ok(7) && slot_subfield(7, sfHookHash, 8) == Ok(8) {
             let existing_hook = take_scratch(&EXISTING_HOOK);
-            if raw::slot(existing_hook, 8) != 32 {
+            if slot(existing_hook, 8) != Ok(32) {
                 GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
             }
             if buf_eq_32(existing_hook, topic_data) {
@@ -421,10 +497,21 @@ fn action_hook(hook_accid: &AccountId, n: u8, topic_data_zero: bool, topic_data:
 
     if !topic_data_zero {
         let hdef_keylet = take_scratch(&HOOK_DEFINITION_KEYLET);
-        if raw::hook_definition_keylet(hdef_keylet, topic_data) < 0 {
+        if util_keylet(
+            hdef_keylet,
+            KEYLET_HOOK_DEFINITION,
+            topic_data.as_ptr() as u32,
+            32,
+            0,
+            0,
+            0,
+            0,
+        )
+        .is_err()
+        {
             GovernError::AssertionFailed.nope(b"govern: could not build hook definition keylet");
         }
-        if raw::slot_set(hdef_keylet, 9) != 9 {
+        if slot_set(hdef_keylet, 9) != Ok(9) {
             GovernError::BadParameter
                 .nope(b"Goverance: Hook Hash doesn't exist on ledger while actioning hook.");
         }
@@ -456,7 +543,7 @@ fn action_seat(n: u8, topic_data_zero: bool, topic_data: &[u8; 32]) -> ! {
         let Some(dst) = previous_member.get_mut(12..32) else {
             GovernError::AssertionFailed.nope(b"govern: bad buffer");
         };
-        raw::state(dst, &keys::seat_forward_key(n)) == 20
+        state(dst, &keys::seat_forward_key(n)) == Ok(20)
     };
 
     if previous_present {
@@ -468,7 +555,8 @@ fn action_seat(n: u8, topic_data_zero: bool, topic_data: &[u8; 32]) -> ! {
         }
     }
 
-    let existing_member = raw::state_i64(new_account);
+    // "as-int64" mode again — see `my_hook`'s `member_count` doc comment.
+    let existing_member = state_u64(new_account).map(|v| v as i64).unwrap_or(-1);
     let existing_member_moving = existing_member >= 0;
 
     let op: u8 = (u8::from(!previous_present) << 2)
@@ -478,7 +566,9 @@ fn action_seat(n: u8, topic_data_zero: bool, topic_data: &[u8; 32]) -> ! {
         GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
     }
 
-    let mut member_count = raw::state_i64(&keys::MEMBER_COUNT);
+    let mut member_count = state_u64(&keys::MEMBER_COUNT)
+        .map(|v| v as i64)
+        .unwrap_or(0);
     if op == 0b001 || op == 0b010 {
         member_count = member_count.wrapping_sub(1);
     } else if op == 0b100 {
@@ -488,16 +578,16 @@ fn action_seat(n: u8, topic_data_zero: bool, topic_data: &[u8; 32]) -> ! {
         GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
     }
     let mc = member_count as u8;
-    if raw::state_set(&[mc], &keys::MEMBER_COUNT) != 1 {
+    if state_set(&[mc], &keys::MEMBER_COUNT) != Ok(1) {
         GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
     }
 
     if existing_member_moving {
         let m = existing_member as u8;
-        if raw::state_delete(&keys::seat_forward_key(m)) != 0 {
+        if state_set(&[], &keys::seat_forward_key(m)).is_err() {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
-        if raw::state_delete(new_account) != 0 {
+        if state_set(&[], new_account).is_err() {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
     }
@@ -513,22 +603,22 @@ fn action_seat(n: u8, topic_data_zero: bool, topic_data: &[u8; 32]) -> ! {
             garbage_collect_votes(previous_member, vote_value, this_tbl);
         }
 
-        if raw::state_delete(&keys::seat_forward_key(n)) != 0 {
+        if state_set(&[], &keys::seat_forward_key(n)).is_err() {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
         let Some(prev_account) = previous_member.get(12..32) else {
             GovernError::AssertionFailed.nope(b"govern: bad buffer");
         };
-        if raw::state_delete(prev_account) != 0 {
+        if state_set(&[], prev_account).is_err() {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
     }
 
     if !topic_data_zero {
-        if raw::state_set(new_account, &keys::seat_forward_key(n)) != 20 {
+        if state_set(new_account, &keys::seat_forward_key(n)) != Ok(20) {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
-        if raw::state_set(&[n], new_account) != 1 {
+        if state_set(&[n], new_account) != Ok(1) {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
         }
     }
@@ -596,9 +686,9 @@ fn garbage_collect_votes(previous_member: &mut [u8; 32], vote_value: &mut [u8; 3
             let Some(dst) = vote_value.get_mut(padding..) else {
                 continue;
             };
-            raw::state(dst, previous_member.as_ref())
+            state(dst, previous_member.as_ref())
         };
-        if read != topic_size as i64 {
+        if read != Ok(topic_size) {
             continue;
         }
 
@@ -607,15 +697,15 @@ fn garbage_collect_votes(previous_member: &mut [u8; 32], vote_value: &mut [u8; 3
         };
         let vck = keys::vote_count_key(topic_type, topic_id, tbl, value);
         let mut vote_count = [0u8; 1];
-        if raw::state(&mut vote_count, &vck) == 1 {
+        if state(&mut vote_count, &vck) == Ok(1) {
             if vote_count[0] <= 1 {
-                let _ = raw::state_delete(&vck);
+                let _ = state_set(&[], &vck);
             } else {
                 let dec = vote_count[0].wrapping_sub(1);
-                let _ = raw::state_set(&[dec], &vck);
+                let _ = state_set(&[dec], &vck);
             }
         }
-        let _ = raw::state_delete(previous_member.as_ref());
+        let _ = state_set(&[], previous_member.as_ref());
     }
 }
 
