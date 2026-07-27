@@ -161,7 +161,12 @@ const EXPONENT_MASK: u64 = 0xFF;
 /// bit pattern actually *is*. This is a documentation/domain-modeling
 /// choice, not an enforced safety property: [`XFL::from_raw_bits`] still
 /// accepts an arbitrary `i64` (including a negative one), bit-cast as-is
-/// into the `u64` field — see its own doc comment.
+/// into the `u64` field — see its own doc comment. `impl From<XFL> for
+/// u64` exposes that native `u64` shape directly (`u64::from(xfl)`/
+/// `xfl.into()`) alongside `raw_bits`'s `i64` shape — pick whichever the
+/// call site actually needs; there is no corresponding `From<u64> for
+/// XFL` in the other direction, only [`XFL::from_raw_bits`] (`i64`), to
+/// keep exactly one documented construction path.
 ///
 /// `PartialEq`/`PartialOrd` are implemented, backed by the fallible
 /// `float_compare` host call, with a `false`/`None` fallback on failure
@@ -355,6 +360,20 @@ impl XFL {
     }
 }
 
+impl From<XFL> for u64 {
+    /// The internal `u64` bit pattern (see the type doc comment) — the same
+    /// value [`XFL::raw_bits`] returns, just as `u64` (`XFL`'s own native
+    /// storage shape) rather than `i64` (the FFI-boundary shape
+    /// `raw_bits`/`from_raw_bits` deliberately keep, for interop with the
+    /// Hook API and persisted-state encodings that speak `i64`). Lets a
+    /// caller who wants the `u64` write `u64::from(xfl)`/`xfl.into()`
+    /// instead of `xfl.raw_bits() as u64`.
+    #[inline(always)]
+    fn from(value: XFL) -> u64 {
+        value.0
+    }
+}
+
 impl core::ops::Neg for XFL {
     type Output = Result<XFL>;
 
@@ -521,6 +540,20 @@ mod tests {
     fn raw_bits_round_trip() {
         for bits in [0i64, 1, -1, i64::MAX, i64::MIN, 42, -42] {
             assert_eq!(XFL::from_raw_bits(bits).raw_bits(), bits);
+        }
+    }
+
+    #[test]
+    fn into_u64_matches_raw_bits_bit_pattern() {
+        // `u64::from(xfl)`/`xfl.into()` and `xfl.raw_bits() as u64` must
+        // agree exactly -- same underlying bits, just `u64` (the native
+        // storage shape) instead of `i64` (the FFI-boundary shape).
+        for bits in [0i64, 1, -1, i64::MAX, i64::MIN, 42, -42] {
+            let xfl = XFL::from_raw_bits(bits);
+            let via_into: u64 = xfl.into();
+            let via_from = u64::from(xfl);
+            assert_eq!(via_into, bits as u64);
+            assert_eq!(via_from, bits as u64);
         }
     }
 

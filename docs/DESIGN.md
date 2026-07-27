@@ -428,6 +428,7 @@ impl core::ops::Div for XFL { type Output = Result<XFL>; ... }   // float_divide
 impl core::ops::Neg for XFL { type Output = Result<XFL>; ... }   // float_negate -- a host round trip, not a bit flip
 impl PartialEq for XFL { ... }   // forwards to XFL::eq (float_compare); false on failure
 impl PartialOrd for XFL { ... }  // forwards to XFL::lt/XFL::gt (float_compare, up to 2 calls); None on failure
+impl From<XFL> for u64 { ... }   // the native u64 shape (see above), alongside raw_bits's i64 shape -- one direction only, no From<u64> for XFL
 ```
 
 `PartialEq`/`PartialOrd` are thin forwarding wrappers over the
@@ -469,6 +470,7 @@ impl XFLUnchecked {
     pub fn validate(self) -> Result<XFL>;   // float_sum(self, 0) -- a host round trip, not a guest-side check
 }
 impl core::ops::{Add, Sub, Mul, Div, Neg} for XFLUnchecked { type Output = XFLUnchecked; ... }  // every one a host round trip, no per-step guest check
+impl From<XFLUnchecked> for i64 { ... }  // identical to raw_bits (already i64) -- idiomatic .into()/i64::from(...) alongside it
 ```
 
 Its operators skip guest-side validation entirely and pass the raw `i64`

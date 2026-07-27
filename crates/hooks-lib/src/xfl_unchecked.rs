@@ -171,6 +171,19 @@ impl XFLUnchecked {
     }
 }
 
+impl From<XFLUnchecked> for i64 {
+    /// The raw, unvalidated `i64` bit pattern — identical to
+    /// [`XFLUnchecked::raw_bits`] (this type's internal storage already
+    /// *is* `i64`, unlike [`XFL`]'s `u64` — see `xfl.rs`'s type doc
+    /// comment for why the two types differ there). Lets a caller write
+    /// `i64::from(unchecked)`/`unchecked.into()` instead of
+    /// `unchecked.raw_bits()`.
+    #[inline(always)]
+    fn from(value: XFLUnchecked) -> i64 {
+        value.0
+    }
+}
+
 impl core::ops::Neg for XFLUnchecked {
     type Output = XFLUnchecked;
 
@@ -278,6 +291,17 @@ mod tests {
     fn raw_bits_round_trip() {
         for bits in [0i64, 1, -1, i64::MAX, i64::MIN, 42, -42] {
             assert_eq!(XFLUnchecked::from_raw_bits(bits).raw_bits(), bits);
+        }
+    }
+
+    #[test]
+    fn into_i64_matches_raw_bits() {
+        for bits in [0i64, 1, -1, i64::MAX, i64::MIN, 42, -42] {
+            let unchecked = XFLUnchecked::from_raw_bits(bits);
+            let via_into: i64 = unchecked.into();
+            let via_from = i64::from(unchecked);
+            assert_eq!(via_into, bits);
+            assert_eq!(via_from, bits);
         }
     }
 
