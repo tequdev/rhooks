@@ -85,6 +85,11 @@ jobs:
           cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
           cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 
+      - name: typed-data
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/12_typed-data/Cargo.toml
+          cargo run -p hooks-build -- check examples/12_typed-data/out/typed_data.wasm
+
       # 80+: production hooks (examples/README.md's "80+" section, needed
       # by e2e/test/reward.test.ts and govern.test.ts).
       - name: reward

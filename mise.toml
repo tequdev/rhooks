@@ -81,6 +81,13 @@ cargo run -p hooks-build -- check examples/09_state-foreign/out/state_foreign.wa
 cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
 cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 
+# typed-data: #[derive(HookData)]-based composite state keys/values and
+# otxn_param/hook_param structs. Guard-clean at the source level (see its
+# own README's "Zero-cost: measured, not assumed" section) and builds with
+# no extra flags.
+cargo run -p hooks-build -- build --manifest-path examples/12_typed-data/Cargo.toml
+cargo run -p hooks-build -- check examples/12_typed-data/out/typed_data.wasm
+
 # 80+: production hooks (see examples/README.md's "80+" section). Both
 # need every fallible Hook API call routed through their own `src/raw.rs`
 # (bypassing hooks-lib's Result<_, HookError> wrapper) and reward/govern.c
