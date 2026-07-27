@@ -79,7 +79,7 @@ param_name!(Instruction, INS_PARAM);
 `state_get_kv`/`state_set_kv` (used above) then resolve
 `DepositKey`'s value type from `DepositKey` itself — there is no second,
 independently-chosen `T` left for a mismatch to hide in — and
-`hook_param_typed::<Config>()`/`otxn_param_typed::<Instruction>()` resolve
+`hook_param_kv::<Config>()`/`otxn_param_kv::<Instruction>()` resolve
 their parameter name from the type itself, with **no name argument at the
 call site at all**. Passing the wrong value type for `DepositKey` (e.g.
 `state_set_kv(&key, &some_other_struct)`) is now a compile error, not
@@ -87,7 +87,7 @@ a silent bug waiting to be discovered on a live node — see
 `hooks_lib::state::TypedStateKey`'s and `hooks_lib::convert::ParamName`'s
 doc comments for the full rationale, and `hooks_lib::HookData`'s doc
 comment for a `compile_fail` example pinning the mismatch case. `state_get_kv`/
-`state_set_kv` and `hook_param_typed`/`otxn_param_typed` cost nothing beyond
+`state_set_kv` and `hook_param_kv`/`otxn_param_kv` cost nothing beyond
 the loose functions they replace: this crate's worst-case instruction
 count is identical either way (413).
 
@@ -98,7 +98,7 @@ struct-shaped value instead of a literal byte string. `ParamName` covers
 both: `param_name!(Ty, b"...")` (used above, for this crate's plain
 `CFG`/`INS` tags) and `param_name!(Ty, NameType, value)` (for a
 **composite**, struct-shaped name) both implement the same trait, read by
-the same `hook_param_typed`/`otxn_param_typed` — there's no separate
+the same `hook_param_kv`/`otxn_param_kv` — there's no separate
 "typed" vs. "typed for a composite name" function to choose between.
 Only the plain-tag form is free, though: `ParamName::name_bytes` defaults
 to a small, genuine runtime encode (unavoidable for an arbitrary

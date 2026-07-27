@@ -162,7 +162,7 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// # Examples
 ///
 /// ```
-/// use hooks_lib::api::otxn::otxn_param_typed;
+/// use hooks_lib::api::otxn::otxn_param_kv;
 /// use hooks_lib::convert::ParamName;
 /// use hooks_lib::error::{HookError, Result};
 ///
@@ -179,11 +179,11 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 ///     const NAME: [u8; 3] = *b"INS";
 /// }
 ///
-/// let value: Result<Instruction> = otxn_param_typed();
+/// let value: Result<Instruction> = otxn_param_kv();
 /// assert_eq!(value.err(), Some(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn otxn_param_typed<T: ParamName>() -> Result<T> {
+pub fn otxn_param_kv<T: ParamName>() -> Result<T> {
     let mut name_buf = [0u8; crate::convert::PARAM_NAME_MAX_LEN];
     let name = T::name_bytes(&mut name_buf);
     otxn_param_exact::<T>(name)
@@ -220,12 +220,9 @@ mod tests {
             otxn_param_exact::<[u8; 4]>(b"x"),
             Err(HookError::NotImplemented)
         );
+        assert_eq!(otxn_param_kv::<TestParam>(), Err(HookError::NotImplemented));
         assert_eq!(
-            otxn_param_typed::<TestParam>(),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            otxn_param_typed::<TestKeyParam>(),
+            otxn_param_kv::<TestKeyParam>(),
             Err(HookError::NotImplemented)
         );
     }

@@ -225,7 +225,7 @@ pub use hooks_macros::cbak;
 ///
 /// A struct used as a fixed-size `otxn_param`/`hook_param` payload, named
 /// via [`param_name!`](crate::param_name) and read with
-/// [`api::otxn::otxn_param_typed`] — again, unlike [`api::otxn::otxn_param_exact`]
+/// [`api::otxn::otxn_param_kv`] — again, unlike [`api::otxn::otxn_param_exact`]
 /// (which takes the parameter name as an independent argument — see
 /// [`convert::ParamName`]'s doc comment), there is no separate `name`
 /// argument that could name a *different* parameter than the one `Config`
@@ -244,7 +244,7 @@ pub use hooks_macros::cbak;
 ///
 /// param_name!(Config, b"CFG");
 ///
-/// let cfg: Result<Config> = otxn_param_typed();
+/// let cfg: Result<Config> = otxn_param_kv();
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
 /// ```
 ///

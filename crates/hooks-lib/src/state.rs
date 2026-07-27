@@ -113,6 +113,49 @@
 //! mismatched value type has no generic parameter left to hide in; it's a
 //! compile error instead of a latent bug. Prefer these whenever a key type
 //! only ever pairs with one value type (every `HookData` key in practice).
+//!
+//! # Relationship to the `hook_param`/`otxn_param` typed layer
+//!
+//! [`crate::convert::ParamName`] is this module's counterpart for Hook API
+//! parameters, deliberately shaped to *feel* the same even though the two
+//! mechanisms aren't identical:
+//!
+//! | | this module (hook state) | [`crate::convert::ParamName`] (params) |
+//! |---|---|---|
+//! | declare the pairing | [`state_key_value!`](crate::state_key_value)`(Key => Value)` | [`param_name!`](crate::param_name)`(Ty, name)` |
+//! | safe accessor(s) | `state_get_kv`/`state_set_kv`/`state_update_kv` | `hook_param_kv`/`otxn_param_kv` |
+//! | loose escape hatch | [`state_get`]/[`state_set_typed`]/[`state_update_typed`] (independent `T`) | `hook_param_exact`/`otxn_param_exact` (independent `T`) |
+//! | shared foundation | both built on [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`]/[`crate::HookData`] — the same composite struct works as a state key/value *or* a param name/value |
+//!
+//! Both follow the identical shape: declare a pairing once, then call an
+//! accessor that resolves the paired type from the key/name itself instead
+//! of a second, independently-spelled generic parameter or argument — no
+//! turbofish, no chance of a mismatch. Two real mechanism differences keep
+//! them from going further than that:
+//!
+//! - **One key type, many key values, vs. one name value per type.** A
+//!   state key type has many *runtime instances* (`DepositKey { tag: 1,
+//!   owner: alice }`, `DepositKey { tag: 1, owner: bob }`, ... — a genuine
+//!   key-value store), so [`TypedStateKey`] is a separate trait pairing a
+//!   *key type* with a *value type*. A Hook API parameter is normally one
+//!   compile-time-known name per type (`Config` always means `CFG`), so
+//!   `ParamName` fuses "the name" (`Self::NAME`, a `const`) and "the
+//!   value" (`Self`, read via [`crate::convert::FixedRead`]) into a
+//!   *single* type — there's no separate "param key type" to speak of.
+//! - **Read/write/update, vs. read-only.** Hook state is mutable and
+//!   persisted, so this module has `_get`/`_set`/`_update` (+ `_foreign`
+//!   twins) for both the loose and paired APIs. A `hook_param`/
+//!   `otxn_param` is read-only from the reading hook's own perspective
+//!   (`hook_param_set` writes a *different* hook's parameter, not this
+//!   one) — so `ParamName`'s accessors are `_kv`-suffixed like this
+//!   module's, but there is only ever a "get" shape, never a "set"/
+//!   "update" one.
+//!
+//! Also see [`crate::HookData`]'s doc comment for the composite-struct
+//! story both layers share, and [`crate::convert::ParamName`]'s doc
+//! comment for the reciprocal comparison and its own zero-cost story
+//! (parameter names have a cost dimension state keys don't: see that doc
+//! comment's "Zero-cost" section).
 
 use crate::convert::{FromBytes, ToBytes};
 use crate::error::{HookError, Result};

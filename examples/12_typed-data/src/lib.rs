@@ -105,7 +105,7 @@ struct Config {
 }
 
 // Ties `Config` to its own parameter name (see `hooks_lib::convert::ParamName`'s
-// doc comment): `hook_param_typed::<Config>()` below reads `CFG_PARAM` because
+// doc comment): `hook_param_kv::<Config>()` below reads `CFG_PARAM` because
 // `Config` says so, not because some call site happened to pass the right
 // byte string for the right type.
 param_name!(Config, CFG_PARAM);
@@ -157,13 +157,13 @@ hook_errors! {
 /// Reads this hook's [`Config`] from the [`CFG_PARAM`] Hook parameter,
 /// falling back to [`DEFAULT_MIN_AMOUNT`]/[`DEFAULT_LOCK_LEDGERS`] if it
 /// isn't set (or is the wrong size to be a valid `Config`) — the same
-/// `hook_param_typed` + `.unwrap_or(..)` pattern
+/// `hook_param_kv` + `.unwrap_or(..)` pattern
 /// `examples/03_hook-params`'s `min_drops` uses for a single `u64` (there,
 /// `hook_param_exact`), here reading a whole struct in one call with no
 /// `CFG_PARAM` argument at the call site at all (see the `param_name!`
 /// declaration above `Config`).
 fn config() -> Config {
-    hook_param_typed().unwrap_or(Config {
+    hook_param_kv().unwrap_or(Config {
         min_amount: DEFAULT_MIN_AMOUNT,
         lock_ledgers: DEFAULT_LOCK_LEDGERS,
     })
@@ -188,7 +188,7 @@ fn my_hook() -> i64 {
         ),
     };
 
-    let instruction: Instruction = match otxn_param_typed() {
+    let instruction: Instruction = match otxn_param_kv() {
         Ok(v) => v,
         Err(_) => rollback!(
             b"typed-data: INS parameter missing or malformed",

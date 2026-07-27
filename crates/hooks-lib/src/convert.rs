@@ -315,8 +315,8 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// never intended, as long as `WrongType: FixedRead` (true of nearly every
 /// fixed-size type this crate provides). Implementing `ParamName` for a
 /// type (via [`param_name!`](crate::param_name)) ties it to exactly one
-/// parameter name; [`crate::api::hook_ctx::hook_param_typed`]/
-/// [`crate::api::otxn::otxn_param_typed`] then read the name off the type
+/// parameter name; [`crate::api::hook_ctx::hook_param_kv`]/
+/// [`crate::api::otxn::otxn_param_kv`] then read the name off the type
 /// itself — there is no second, independently-spelled name argument left
 /// for a mismatch to hide in.
 ///
@@ -344,6 +344,23 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// directly: its plain `CFG`/`INS` names cost the identical worst-case
 /// instruction count as the loose `hook_param_exact`/`otxn_param_exact`
 /// this replaces.
+///
+/// # Relationship to the hook-state typed layer
+///
+/// `ParamName` deliberately mirrors [`crate::state::TypedStateKey`] (see
+/// its doc comment for the full comparison table): declare the pairing
+/// once ([`param_name!`](crate::param_name) here,
+/// [`crate::state_key_value!`] there), then call an accessor
+/// (`hook_param_kv`/`otxn_param_kv` here, `state_get_kv`/`state_set_kv`/
+/// `state_update_kv` there) that resolves the paired type from the
+/// key/name itself — no turbofish, no chance of a mismatch. The
+/// difference: a Hook API parameter is normally one compile-time-known
+/// name per type (not a key with many runtime instances like a state
+/// key), so `Self` here plays both the "key" (`Self::NAME`) and "value"
+/// (`Self`, via [`FixedRead`]) roles that state splits into two separate
+/// types (`K` and `K::Value`); and a parameter is read-only from the
+/// reading hook's own perspective, so there is no `hook_param`/
+/// `otxn_param` counterpart to `state_set_kv`/`state_update_kv`.
 pub trait ParamName: FixedRead {
     /// The type this parameter's name is encoded from — `[u8; N]` for a
     /// plain byte-string name (the common case — see
@@ -391,8 +408,8 @@ pub trait ParamName: FixedRead {
 }
 
 /// Implements [`ParamName`] for `$Ty`, naming it — the one-line way to opt
-/// a type into [`crate::api::hook_ctx::hook_param_typed`]/
-/// [`crate::api::otxn::otxn_param_typed`]. Two forms:
+/// a type into [`crate::api::hook_ctx::hook_param_kv`]/
+/// [`crate::api::otxn::otxn_param_kv`]. Two forms:
 ///
 /// - `param_name!($Ty, $name)` — `$name` a byte-string literal (or any
 ///   `&'static [u8; N]` expression); `Self::Name` is inferred as `[u8; N]`,
@@ -418,7 +435,7 @@ pub trait ParamName: FixedRead {
 ///
 /// param_name!(Config, b"CFG");
 ///
-/// let cfg: Result<Config> = hook_param_typed();
+/// let cfg: Result<Config> = hook_param_kv();
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
 /// ```
 ///
@@ -441,7 +458,7 @@ pub trait ParamName: FixedRead {
 ///
 /// param_name!(Vote, SeatParamName, SeatParamName { topic: b'S', seat: 0 });
 ///
-/// let vote: Result<Vote> = otxn_param_typed();
+/// let vote: Result<Vote> = otxn_param_kv();
 /// assert_eq!(vote.err(), Some(HookError::NotImplemented));
 /// ```
 #[macro_export]
