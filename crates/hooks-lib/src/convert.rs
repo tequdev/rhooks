@@ -414,15 +414,18 @@ pub trait ParamName: FixedRead {
 
 /// Implements [`ParamName`] for `$Ty`, naming it — the one-line way to opt
 /// a type into [`crate::api::hook_ctx::hook_param_kv`] (this hook's own
-/// installed parameters). Two forms, both spelled `$Ty => ..`, echoing
-/// [`crate::hook_state!`]'s `Key => Value`:
+/// installed parameters). Two forms, both spelled `.. => $Ty` — the name
+/// (the part that *locates* the parameter, playing the same role as the
+/// key in [`crate::hook_state!`]'s `Key => Value`) comes first, the type
+/// it names (what gets *retrieved*, playing the role of `Value`) comes
+/// last:
 ///
-/// - `hook_parameter!($Ty => $name)` — `$name` a byte-string literal (or
+/// - `hook_parameter!($name => $Ty)` — `$name` a byte-string literal (or
 ///   any `&'static [u8; N]` expression); `Self::Name` is inferred as
 ///   `[u8; N]`, and [`ParamName::name_bytes`] is overridden to cost
 ///   nothing (see [`ParamName`]'s "Zero-cost" section). Covers the common
 ///   case, a plain short tag like `b"CFG"`.
-/// - `hook_parameter!($Ty => $Name, $value)` — `$Name` any [`ToBytes`]
+/// - `hook_parameter!($Name, $value => $Ty)` — `$Name` any [`ToBytes`]
 ///   type (commonly another [`crate::HookData`] struct) and `$value` the
 ///   one instance of it naming this parameter — for a **composite**
 ///   parameter name, the same idea as [`crate::hook_state!`]'s composite
@@ -449,7 +452,7 @@ pub trait ParamName: FixedRead {
 ///     min_amount: u64,
 /// }
 ///
-/// hook_parameter!(Config => b"CFG");
+/// hook_parameter!(b"CFG" => Config);
 ///
 /// let cfg: Result<Config> = hook_param_kv();
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
@@ -472,14 +475,14 @@ pub trait ParamName: FixedRead {
 ///     value: u8,
 /// }
 ///
-/// hook_parameter!(Vote => SeatParamName, SeatParamName { topic: b'S', seat: 0 });
+/// hook_parameter!(SeatParamName, SeatParamName { topic: b'S', seat: 0 } => Vote);
 ///
 /// let vote: Result<Vote> = hook_param_kv();
 /// assert_eq!(vote.err(), Some(HookError::NotImplemented));
 /// ```
 #[macro_export]
 macro_rules! hook_parameter {
-    ($Ty:ty => $name:expr) => {
+    ($name:expr => $Ty:ty) => {
         impl $crate::convert::ParamName for $Ty {
             type Name = [u8; { $name.len() }];
             const NAME: Self::Name = *$name;
@@ -490,7 +493,7 @@ macro_rules! hook_parameter {
             }
         }
     };
-    ($Ty:ty => $Name:ty, $value:expr) => {
+    ($Name:ty, $value:expr => $Ty:ty) => {
         impl $crate::convert::ParamName for $Ty {
             type Name = $Name;
             const NAME: Self::Name = $value;
@@ -503,9 +506,10 @@ macro_rules! hook_parameter {
 /// to the *originating transaction*). Identical grammar and expansion to
 /// [`hook_parameter!`](crate::hook_parameter) — see that macro's doc
 /// comment for the full writeup (both forms, the "why two separate
-/// macros" rationale, and the `hook_state!` parallel); kept as a separate
-/// macro purely so the declaration site documents which of
-/// `hook_param`/`otxn_param` a type's name is meant for.
+/// macros" rationale, why the name comes first, and the `hook_state!`
+/// parallel); kept as a separate macro purely so the declaration site
+/// documents which of `hook_param`/`otxn_param` a type's name is meant
+/// for.
 ///
 /// ```
 /// use hooks_lib::prelude::*;
@@ -516,7 +520,7 @@ macro_rules! hook_parameter {
 ///     action: u8,
 /// }
 ///
-/// otxn_parameter!(Instruction => b"INS");
+/// otxn_parameter!(b"INS" => Instruction);
 ///
 /// let ins: Result<Instruction> = otxn_param_kv();
 /// assert_eq!(ins.err(), Some(HookError::NotImplemented));
@@ -539,14 +543,14 @@ macro_rules! hook_parameter {
 ///     value: u8,
 /// }
 ///
-/// otxn_parameter!(Vote => SeatParamName, SeatParamName { topic: b'S', seat: 0 });
+/// otxn_parameter!(SeatParamName, SeatParamName { topic: b'S', seat: 0 } => Vote);
 ///
 /// let vote: Result<Vote> = otxn_param_kv();
 /// assert_eq!(vote.err(), Some(HookError::NotImplemented));
 /// ```
 #[macro_export]
 macro_rules! otxn_parameter {
-    ($Ty:ty => $name:expr) => {
+    ($name:expr => $Ty:ty) => {
         impl $crate::convert::ParamName for $Ty {
             type Name = [u8; { $name.len() }];
             const NAME: Self::Name = *$name;
@@ -557,7 +561,7 @@ macro_rules! otxn_parameter {
             }
         }
     };
-    ($Ty:ty => $Name:ty, $value:expr) => {
+    ($Name:ty, $value:expr => $Ty:ty) => {
         impl $crate::convert::ParamName for $Ty {
             type Name = $Name;
             const NAME: Self::Name = $value;

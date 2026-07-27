@@ -244,7 +244,7 @@ pub use hooks_macros::cbak;
 ///     max_amount: u64,
 /// }
 ///
-/// otxn_parameter!(Config => b"CFG");
+/// otxn_parameter!(b"CFG" => Config);
 ///
 /// let cfg: Result<Config> = otxn_param_kv();
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));

@@ -122,7 +122,7 @@
 //!
 //! | | this module (hook state) | [`crate::convert::ParamName`] (params) |
 //! |---|---|---|
-//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(Ty => name)` |
+//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(name => Ty)` |
 //! | safe accessor(s) | `state_get_kv`/`state_set_kv`/`state_update_kv` | `hook_param_kv`/`otxn_param_kv` |
 //! | loose escape hatch | [`state_get`]/[`state_set_typed`]/[`state_update_typed`] (independent `T`) | `hook_param_exact`/`otxn_param_exact` (independent `T`) |
 //! | shared foundation | both built on [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`]/[`crate::HookData`] — the same composite struct works as a state key/value *or* a param name/value |

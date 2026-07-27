@@ -74,8 +74,11 @@ hook_state!(DepositKey => DepositValue);
 // Ties Config/Instruction to exactly one parameter name — hook_parameter!
 // for a hook's own installed parameter, otxn_parameter! for one attached
 // to the originating transaction (same grammar, same ParamName impl).
-hook_parameter!(Config => CFG_PARAM);
-otxn_parameter!(Instruction => INS_PARAM);
+// The name comes first, the type it names comes last — name => Ty,
+// mirroring hook_state!'s Key => Value (the name locates, like a key;
+// the type is what's retrieved, like a value).
+hook_parameter!(CFG_PARAM => Config);
+otxn_parameter!(INS_PARAM => Instruction);
 ```
 
 `state_get_kv`/`state_set_kv` (used above) then resolve
@@ -97,9 +100,9 @@ A Hook API parameter name isn't always a plain tag like `"CFG"`/`"INS"`,
 either — per the Hook API itself, it's a genuine variable-length key of up
 to 32 bytes, and (exactly like a hook state key) can be a whole composite,
 struct-shaped value instead of a literal byte string. `ParamName` covers
-both: `hook_parameter!(Ty => b"...")`/`otxn_parameter!(Ty => b"...")`
+both: `hook_parameter!(b"..." => Ty)`/`otxn_parameter!(b"..." => Ty)`
 (used above, for this crate's plain `CFG`/`INS` tags) and
-`hook_parameter!(Ty => NameType, value)`/`otxn_parameter!(Ty => NameType, value)`
+`hook_parameter!(NameType, value => Ty)`/`otxn_parameter!(NameType, value => Ty)`
 (for a **composite**, struct-shaped name) both implement the same trait,
 read by the same `hook_param_kv`/`otxn_param_kv` — there's no separate
 "typed" vs. "typed for a composite name" function to choose between.

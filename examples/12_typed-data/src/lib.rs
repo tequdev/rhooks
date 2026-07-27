@@ -113,7 +113,7 @@ struct Config {
 // byte string for the right type. `hook_parameter!` (not `otxn_parameter!`)
 // because `Config` is read via `hook_param_kv` (this hook's own installed
 // parameters) below.
-hook_parameter!(Config => CFG_PARAM);
+hook_parameter!(CFG_PARAM => Config);
 
 /// Per-invocation instruction, read from the *originating transaction's
 /// own* `HookParameters` (via `otxn_param`, not `hook_param`) — every
@@ -131,7 +131,7 @@ struct Instruction {
 // Same idea as `Config` above, for the per-transaction `INS` parameter —
 // `otxn_parameter!` (not `hook_parameter!`) because `Instruction` is read
 // via `otxn_param_kv` below.
-otxn_parameter!(Instruction => INS_PARAM);
+otxn_parameter!(INS_PARAM => Instruction);
 
 hook_errors! {
     /// `typed-data` rollback codes.
