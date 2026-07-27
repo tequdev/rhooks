@@ -18,14 +18,14 @@
 //!
 //! `XFLUnchecked`'s operators never validate their inputs on the guest
 //! side — but every one of them (`Add`→`float_sum`, `Mul`→`float_multiply`,
-//! `Div`→`float_divide`, and `Sub`'s host leg, which is also `float_sum`)
-//! is, from the guest's point of view, just a WASM import call into the
-//! **host**. The host does not trust the guest to have validated anything:
-//! every one of these Hook API functions is implemented in xahaud as a
-//! `DEFINE_HOOK_FUNCTION` that runs `RETURN_IF_INVALID_FLOAT` on **every**
-//! `int64_t float*` parameter **before** doing any arithmetic (verified
-//! directly against a local xahaud checkout,
-//! `src/xrpld/app/hook/detail/applyHook.cpp`):
+//! `Div`→`float_divide`, `Neg`→`float_negate`, and `Sub`'s two host legs,
+//! `float_negate` then `float_sum`) is, from the guest's point of view,
+//! just a WASM import call into the **host**. The host does not trust the
+//! guest to have validated anything: every one of these Hook API functions
+//! is implemented in xahaud as a `DEFINE_HOOK_FUNCTION` that runs
+//! `RETURN_IF_INVALID_FLOAT` on **every** `int64_t float*` parameter
+//! **before** doing any arithmetic (verified directly against a local
+//! xahaud checkout, `src/xrpld/app/hook/detail/applyHook.cpp`):
 //!
 //! ```c
 //! #define RETURN_IF_INVALID_FLOAT(float1)                 \
@@ -50,40 +50,34 @@
 //! `float1 < 0` is a signed comparison, i.e. it tests bit 63 — exactly the
 //! bit the module doc comment for `xfl.rs` says is reserved to distinguish
 //! a valid float (`0`) from an error code (`1`, i.e. negative as a full
-//! `i64`). So **every** host-routed operator call (`+`, `*`, `/`, and `-`'s
-//! host leg) rejects a poisoned/error-code operand immediately, before
-//! `HookAPI::float_sum`/`float_multiply`/`float_divide`'s own arithmetic
-//! runs at all, and independently of whichever internal fast paths those
-//! functions have (e.g. `HookAPI::float_sum`'s `if (float1 == 0) return
-//! float2;` short-circuit only ever executes *after* `RETURN_IF_INVALID_FLOAT`
-//! has already accepted both operands — see [`XFLUnchecked::validate`]'s
-//! doc comment for why that specific short-circuit matters for validation).
-//! **A poisoned (negative) or otherwise out-of-range operand can therefore
-//! never produce a spuriously "valid-looking" positive result from any of
-//! `XFLUnchecked`'s host-routed operators** — audited op-by-op against
-//! `HookAPI.cpp`/`applyHook.cpp`:
+//! `i64`). So **every** host-routed operator call (`+`, `*`, `/`, `-`, and
+//! unary `-`) rejects a poisoned/error-code operand immediately, before
+//! `HookAPI::float_sum`/`float_multiply`/`float_divide`/`float_negate`'s own
+//! arithmetic runs at all, and independently of whichever internal fast
+//! paths those functions have (e.g. `HookAPI::float_sum`'s `if (float1 ==
+//! 0) return float2;` short-circuit only ever executes *after*
+//! `RETURN_IF_INVALID_FLOAT` has already accepted both operands — see
+//! [`XFLUnchecked::validate`]'s doc comment for why that specific
+//! short-circuit matters for validation). **A poisoned (negative) or
+//! otherwise out-of-range operand can therefore never produce a
+//! spuriously "valid-looking" positive result from any of `XFLUnchecked`'s
+//! operators** — audited op-by-op against `HookAPI.cpp`/`applyHook.cpp`:
 //!
-//! | Operator | Host function | Guard | Result on poisoned/invalid operand |
+//! | Operator | Host function(s) | Guard | Result on poisoned/invalid operand |
 //! |---|---|---|---|
 //! | `Add` | `float_sum` | `RETURN_IF_INVALID_FLOAT` on both operands | `INVALID_FLOAT`, never a false-valid value |
 //! | `Mul` | `float_multiply` | `RETURN_IF_INVALID_FLOAT` on both operands | `INVALID_FLOAT`, never a false-valid value |
 //! | `Div` | `float_divide` | `RETURN_IF_INVALID_FLOAT` on both operands | `INVALID_FLOAT`, never a false-valid value |
-//! | `Sub` (`self + (-rhs)`) | `float_sum` (after a local `Neg`) | same as `Add` | same as `Add` |
-//! | `Neg` | *(none — pure local, see below)* | n/a | n/a |
+//! | `Neg` | `float_negate` | `RETURN_IF_INVALID_FLOAT` on the one operand | `INVALID_FLOAT`, never a false-valid value |
+//! | `Sub` (`self + (-rhs)`) | `float_negate` then `float_sum` | same as `Neg`, then same as `Add` | same as `Add` |
 //!
-//! **One caveat, `Neg`:** unlike the other four, `Neg` never calls the host
-//! at all (that's the whole point — it's a zero-cost sign-bit flip, same as
-//! [`crate::xfl::XFL`]'s `Neg`). A garbage `i64` with bit 63 clear (so it
-//! is not recognized as an error code by anything, including this type's
-//! own poison check below) but an out-of-range mantissa/exponent is
-//! therefore *not* caught by `Neg` — but it was never "poisoned" in the
-//! sense this type cares about (a propagated host error code) to begin
-//! with, and `Neg` cannot make it *more* invalid: it only ever touches bit
-//! 62, leaving the mantissa/exponent bits (0..=61, excluding 62) that
-//! determine validity completely untouched. Whatever validity such a value
-//! had before a `Neg` (or any number of them), it has after — the next
-//! host-routed operator or [`XFLUnchecked::validate`] catches it exactly
-//! as it would have without the intervening `Neg`(s).
+//! Every operator here is a host round trip — there is no local-only
+//! fast path (an earlier version of this module tried a local sign-bit
+//! flip for `Neg`; it did not correctly capture XFL's actual negation
+//! semantics and was reverted). `XFLUnchecked`'s performance win is
+//! entirely about *when* validation happens (once, in `validate()`, not
+//! once per step), never about skipping a host round trip that a correct
+//! implementation actually needs.
 //!
 //! **Poison-propagation caveat:** `RETURN_IF_INVALID_FLOAT` collapses
 //! *every* invalid operand — a genuine propagated error code, an
@@ -102,13 +96,17 @@
 //!
 //! # No `PartialEq`/`PartialOrd`
 //!
-//! Deliberately not implemented: comparing two values that might each be
+//! Deliberately not implemented, for the same two reasons as
+//! [`crate::xfl::XFL`] (see its module doc comment's "Comparison: methods,
+//! not `PartialEq`/`PartialOrd`" section): comparison here would have to be
+//! a fallible `float_compare` host round trip, which `PartialEq`/
+//! `PartialOrd`'s fixed `bool`/`Option<Ordering>` return types cannot
+//! express — and on top of that, comparing two values that might each be
 //! poisoned invites exactly the kind of silent-wrong-answer bug this type
-//! otherwise avoids by construction (every arithmetic op is either a
-//! validated host round trip or a validity-preserving local op — a raw
-//! bitwise/order comparison of two *unvalidated* values has no such
-//! guarantee). Call [`XFLUnchecked::validate`] first and compare the
-//! resulting `XFL`s.
+//! otherwise avoids by construction. Call [`XFLUnchecked::validate`] first
+//! and compare the resulting `XFL`s with [`crate::xfl::XFL::eq`]/
+//! [`crate::xfl::XFL::lt`]/[`crate::xfl::XFL::gt`]/
+//! [`crate::xfl::XFL::compare`].
 
 use crate::error::{Result, res};
 use crate::xfl::XFL;
@@ -170,34 +168,18 @@ impl XFLUnchecked {
     }
 }
 
-/// Flip the sign bit (bit 62), leaving canonical zero unchanged and any
-/// negative (poisoned) `i64` untouched. See `XFLUnchecked`'s `Neg` impl and
-/// the module doc comment's `Neg` caveat.
-#[inline(always)]
-fn poison_aware_flip_sign_bit(bits: i64) -> i64 {
-    if bits <= 0 {
-        // `bits == 0`: canonical zero, stays zero.
-        // `bits < 0`: poisoned (bit 63 set, the host's error-code channel)
-        // — propagate unchanged rather than flip bit 62, which would
-        // silently change *which* negative error code this represents
-        // without being able to change whether it is recognized as an
-        // error (bit 63 is untouched either way).
-        bits
-    } else {
-        bits ^ (1i64 << 62)
-    }
-}
-
 impl core::ops::Neg for XFLUnchecked {
     type Output = XFLUnchecked;
 
-    /// `-self`, pure local, no host call. A poisoned (negative) `self`
-    /// propagates unchanged instead of having its sign bit flipped — see
-    /// the module doc comment's `Neg` caveat and
-    /// [`poison_aware_flip_sign_bit`]'s doc comment for why.
+    /// `-self`, via the `float_negate` host call — not a local sign-bit
+    /// flip (see the module doc comment for why). No guest-side validation
+    /// of `self` either way: a poisoned/invalid `self` is rejected by the
+    /// host's `RETURN_IF_INVALID_FLOAT` and the result is `INVALID_FLOAT`'s
+    /// raw bits, itself a valid (still-negative) poison value to keep
+    /// propagating.
     #[inline(always)]
     fn neg(self) -> XFLUnchecked {
-        XFLUnchecked(poison_aware_flip_sign_bit(self.0))
+        XFLUnchecked(unsafe { hooks_core::float_negate(self.0) })
     }
 }
 
@@ -215,8 +197,11 @@ impl core::ops::Add for XFLUnchecked {
 impl core::ops::Sub for XFLUnchecked {
     type Output = XFLUnchecked;
 
-    /// `self - rhs`, implemented as `self + (-rhs)`: one poison-aware local
-    /// sign flip plus one `float_sum` host call, mirroring [`XFL`]'s `Sub`.
+    /// `self - rhs`, implemented as `self + (-rhs)`: one `float_negate`
+    /// host call plus one `float_sum` host call, mirroring [`XFL`]'s `Sub`
+    /// (minus the `?` — `XFLUnchecked`'s `Neg` can't fail its own `Output`
+    /// type the way `XFL`'s does, since a rejected negation just becomes
+    /// another poisoned `i64` to keep propagating, not a `Result::Err`).
     #[inline(always)]
     // See `XFL`'s `Sub` impl for why this `#[allow]` is needed: `self +
     // (-rhs)` dispatches to this module's own `Add`/`Neg` impls, not raw
@@ -310,21 +295,7 @@ mod tests {
         assert!(matches!((a - b).validate(), Err(HookError::NotImplemented)));
         assert!(matches!((a * b).validate(), Err(HookError::NotImplemented)));
         assert!(matches!((a / b).validate(), Err(HookError::NotImplemented)));
-    }
-
-    #[test]
-    fn neg_propagates_poison_unchanged() {
-        let poisoned = XFLUnchecked::from_raw_bits(-5); // HookError::DoesntExist's code
-        assert_eq!((-poisoned).raw_bits(), -5);
-        // Zero stays zero.
-        assert_eq!((-XFLUnchecked::from_raw_bits(0)).raw_bits(), 0);
-        // A non-poisoned value's sign bit (62) does get flipped.
-        let positive_one = (1i64 << 62) | (97i64 << 54) | 1_000_000_000_000_000i64;
-        let negative_one = (97i64 << 54) | 1_000_000_000_000_000i64;
-        assert_eq!(
-            (-XFLUnchecked::from_raw_bits(positive_one)).raw_bits(),
-            negative_one
-        );
+        assert!(matches!((-a).validate(), Err(HookError::NotImplemented)));
     }
 
     #[test]

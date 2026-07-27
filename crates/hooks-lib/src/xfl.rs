@@ -11,11 +11,6 @@
 //! - bit 63: unused/reserved — always `0` for a valid XFL, because the Hook
 //!   API multiplexes error codes onto the same `i64` return channel as
 //!   negative values, and a valid float must never look like an error code.
-//! - The all-zero bit pattern (`0i64`) is a special case: canonical zero,
-//!   treated as neither positive nor negative by the host — confirmed
-//!   against `HookAPI::float_sign` and `HookAPI::float_negate` in vendored
-//!   `xrpld/app/hook/detail/HookAPI.cpp`/`HookAPI.h`, both of which
-//!   special-case `float1 == 0` before consulting bit 62 at all.
 //!
 //! This crate does not expose a `float_exponent` host call — none exists in
 //! `extern.h` — so [`XFL::exponent`] decodes the bias-97 exponent field
@@ -23,31 +18,31 @@
 //! practically fail, but returns `Result<i64>` for signature uniformity with
 //! [`XFL::mantissa`] (both describe components of the same value).
 //!
-//! Wraps 12 of the 74 Hook API functions privately (never exposed as
+//! Wraps 14 of the 74 Hook API functions privately (never exposed as
 //! separate `api::*` wrappers, only as `XFL`/`XFLUnchecked` methods and
 //! operators, here and in [`crate::xfl_unchecked`]): `float_set`,
-//! `float_multiply`, `float_mulratio`, `float_sum`, `float_invert`,
-//! `float_divide`, `float_one`, `float_mantissa`, `float_sign`, `float_int`,
-//! `float_log`, `float_root`. Two more XFL-shaped Hook API functions exist —
-//! `float_negate` and `float_compare` — but this crate **deliberately never
-//! calls either of them**: negation is a pure local sign-bit flip (see the
-//! `Neg` impl below) and comparison is a pure local bit/order comparison
-//! (see the `PartialEq`/`PartialOrd` impls below); both are fully
-//! computable from the bit pattern alone, so routing them through a host
-//! call would just be a slower way to reach the same answer. The remaining
-//! 3 buffer-shaped float functions (`float_sto`, `float_sto_set`,
-//! `slot_float`) live in `api::float` and are forwarded to by [`XFL::sto`],
-//! [`XFL::sto_set`], and [`XFL::from_slot`].
+//! `float_multiply`, `float_mulratio`, `float_negate`, `float_compare`,
+//! `float_sum`, `float_invert`, `float_divide`, `float_one`,
+//! `float_mantissa`, `float_sign`, `float_int`, `float_log`, `float_root`.
+//! **`Neg` and comparisons are host round trips, not local bit
+//! manipulation** — see those impls' doc comments below for why a
+//! guest-side sign-bit flip or a guest-side bit/order comparison is *not*
+//! a sound substitute for `float_negate`/`float_compare` (this module
+//! originally tried the local-only route; it does not correctly capture
+//! XFL's actual comparison/negation semantics, so it was reverted in favor
+//! of the host round trip). The remaining 3 buffer-shaped float functions
+//! (`float_sto`, `float_sto_set`, `slot_float`) live in `api::float` and
+//! are forwarded to by [`XFL::sto`], [`XFL::sto_set`], and
+//! [`XFL::from_slot`].
 //!
-//! # Operators, not methods
+//! # Operators, not methods (for arithmetic)
 //!
-//! `XFL` implements `Add`/`Sub`/`Mul`/`Div` with `Output =
-//! Result<XFL, HookError>` (every XFL arithmetic op is a fallible host
-//! call) and `Neg` with `Output = XFL` (always succeeds — pure local
-//! sign-bit flip, no host call at all). `Sub` is built from the two:
-//! `self - rhs` is implemented as `self + (-rhs)`, i.e. one local negate
-//! plus one `float_sum` host call, not a dedicated `float_subtract` (no
-//! such host function exists).
+//! `XFL` implements `Add`/`Sub`/`Mul`/`Div`/`Neg`, all with `Output =
+//! Result<XFL, HookError>` (every one of these is a fallible host round
+//! trip — `float_sum`/`float_multiply`/`float_divide`/`float_negate`).
+//! `Sub` is built from `Add` and `Neg`: `self - rhs` is `self + (-rhs)?`,
+//! i.e. one `float_negate` host call plus one `float_sum` host call — there
+//! is no dedicated `float_subtract` host function.
 //!
 //! To keep `?`-free chains ergonomic despite the fallible `Output`, this
 //! module also implements `Add`/`Sub`/`Mul`/`Div` for `Result<XFL,
@@ -89,6 +84,21 @@
 //! `XFLUnchecked`, the deliberately-poisonable hot-path counterpart, for
 //! chains where per-step `Result` handling is itself the measured cost
 //! problem.
+//!
+//! # Comparison: methods, not `PartialEq`/`PartialOrd`
+//!
+//! [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/[`XFL::compare`] all return
+//! `Result<bool>` — comparison is a fallible `float_compare` host round
+//! trip (an invalid operand is a real, reachable failure mode, e.g.
+//! `INVALID_FLOAT`), and `core::cmp::PartialEq`/`PartialOrd` cannot express
+//! that: their methods return a bare `bool`/`Option<Ordering>`, with no room
+//! for an `Err` case. Implementing them anyway would force silently
+//! treating a comparison failure as `false`/`None` (or panicking) — both
+//! unacceptable for financial logic. `core::ops::Neg`, by contrast, is
+//! implemented for `XFL` despite also being a fallible host round trip,
+//! because unlike `PartialEq`/`PartialOrd` its `Output` type is not fixed
+//! by the trait — `Result<XFL, HookError>` is a perfectly valid `Neg::
+//! Output`, so there is no analogous obstacle to implementing it.
 
 use crate::api;
 use crate::error::{Result, res};
@@ -101,9 +111,6 @@ const EXPONENT_BIAS: i64 = 97;
 const EXPONENT_SHIFT: u32 = 54;
 /// Mask for the 8-bit exponent field once shifted into place.
 const EXPONENT_MASK: i64 = 0xFF;
-/// Bit offset of the sign field (`0` = negative, `1` = positive; see the
-/// module doc comment).
-const SIGN_SHIFT: u32 = 62;
 
 /// A Xahau XFL value: an opaque wrapper over the raw `i64` bit pattern the
 /// Hook API's `float_*` functions operate on.
@@ -114,19 +121,10 @@ const SIGN_SHIFT: u32 = 62;
 /// were a value. [`XFL::from_raw_bits`] / [`XFL::raw_bits`] are the explicit,
 /// documented escape hatches for unchecked representation access.
 ///
-/// # `PartialEq`/`PartialOrd` are host-value-only
-///
-/// This type's `PartialEq`/`PartialOrd` impls are pure local bit
-/// comparisons (see their doc comments below for exactly what they compute
-/// and why that is sound) — they are **only guaranteed correct for
-/// canonical values that came from a host `float_*` call** (`XFL::new`,
-/// arithmetic results, `XFL::from_slot`, `XFL::sto_set`, ...). A value
-/// assembled by hand via [`XFL::from_raw_bits`] with an out-of-range
-/// mantissa/exponent, or any other non-canonical bit pattern, has **no**
-/// correctness guarantee under these impls: comparisons involving it may
-/// give an answer that does not correspond to any real numeric ordering.
-/// Validate an untrusted raw bit pattern (e.g. via
-/// [`crate::xfl_unchecked::XFLUnchecked::validate`]) before comparing it.
+/// No `PartialEq`/`PartialOrd` impls: comparison is a fallible host call
+/// (see the module doc comment's "Comparison: methods, not `PartialEq`/
+/// `PartialOrd`" section) — use [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/
+/// [`XFL::compare`], all of which return `Result<bool>`.
 ///
 /// # Examples
 ///
@@ -143,14 +141,6 @@ impl XFL {
     /// Wrap a raw XFL bit pattern with no validation. Escape hatch for
     /// interop with values obtained outside the typed API (e.g. persisted
     /// state).
-    ///
-    /// The result is **not** guaranteed canonical: nothing checks that
-    /// `bits` decodes to an in-range mantissa/exponent, or that it isn't
-    /// actually a negative Hook API error code smuggled in as a "value".
-    /// Every arithmetic/comparison impl on `XFL` documents that it is only
-    /// correct for host-produced canonical values — a value constructed
-    /// here bypasses that guarantee entirely until it is validated (e.g.
-    /// via [`crate::xfl_unchecked::XFLUnchecked::validate`]).
     #[inline(always)]
     #[must_use]
     pub fn from_raw_bits(bits: i64) -> XFL {
@@ -239,6 +229,33 @@ impl XFL {
         res(unsafe { hooks_core::float_int(self.0, decimal_places, absolute as u32) })
     }
 
+    /// Compare `self` to `rhs` under the bitmask `mode` (see
+    /// `hooks_core::{COMPARE_EQUAL, COMPARE_LESS, COMPARE_GREATER}`, freely
+    /// combinable, e.g. `COMPARE_LESS | COMPARE_EQUAL` for `<=`), via the
+    /// `float_compare` host call.
+    #[inline(always)]
+    pub fn compare(self, rhs: XFL, mode: u32) -> Result<bool> {
+        res(unsafe { hooks_core::float_compare(self.0, rhs.0, mode) }).map(|v| v != 0)
+    }
+
+    /// `self == rhs`.
+    #[inline(always)]
+    pub fn eq(self, rhs: XFL) -> Result<bool> {
+        self.compare(rhs, hooks_core::COMPARE_EQUAL)
+    }
+
+    /// `self < rhs`.
+    #[inline(always)]
+    pub fn lt(self, rhs: XFL) -> Result<bool> {
+        self.compare(rhs, hooks_core::COMPARE_LESS)
+    }
+
+    /// `self > rhs`.
+    #[inline(always)]
+    pub fn gt(self, rhs: XFL) -> Result<bool> {
+        self.compare(rhs, hooks_core::COMPARE_GREATER)
+    }
+
     /// `log10(self)`.
     #[inline(always)]
     pub fn log(self) -> Result<XFL> {
@@ -280,70 +297,23 @@ impl XFL {
     }
 }
 
-/// Flip the sign bit (bit 62) of a raw XFL bit pattern, leaving canonical
-/// zero (`0i64`) unchanged — the pure-local equivalent of
-/// `HookAPI::float_negate` (verified against vendored
-/// `xrpld/app/hook/HookAPI.h`'s `invert_sign`/`is_negative`: `float_negate`
-/// special-cases `float1 == 0` to `0`, otherwise XORs bit 62). No host
-/// call, no validation: mantissa/exponent bits (0..=61, excluding bit 62)
-/// are left untouched, so this can neither create nor destroy validity —
-/// applying it to an out-of-range/non-canonical bit pattern yields another
-/// bit pattern with exactly the same mantissa/exponent bits and thus the
-/// same validity, just a flipped sign.
-#[inline(always)]
-fn flip_sign_bit(bits: i64) -> i64 {
-    if bits == 0 {
-        0
-    } else {
-        bits ^ (1i64 << SIGN_SHIFT)
-    }
-}
-
-/// Map a canonical XFL bit pattern to an `i64` "order key" such that
-/// ordinary `i64` comparison of the keys matches XFL's numeric (sign
-/// aware, not raw-bit) ordering. Only sound for canonical, host-produced
-/// bit patterns (see the `XFL` type doc comment's `PartialEq`/`PartialOrd`
-/// section).
-///
-/// Why raw bit comparison alone is *not* enough: bits 0..=61
-/// (exponent+mantissa) encode magnitude the same way regardless of sign,
-/// so among two negative values the raw bit pattern grows *with*
-/// magnitude — exactly backwards from numeric order, where a
-/// larger-magnitude negative number is numerically smaller. This function
-/// corrects that by negating the magnitude bits for negative inputs (sign
-/// bit clear), which also reverses their relative order to match. Zero is
-/// handled as its own case (bit 62 doesn't reliably indicate sign for the
-/// zero bit pattern — see the module doc comment). Positive values need no
-/// correction: their magnitude bits already sort the same way the raw `i64`
-/// does, and bit 62 being set on every positive value keeps them all
-/// numerically above zero and above every negative value's key (whose
-/// negated magnitude keys are always `<= 0`).
-#[inline(always)]
-fn order_key(bits: i64) -> i64 {
-    if bits == 0 {
-        0
-    } else if (bits >> SIGN_SHIFT) & 1 == 1 {
-        // Positive: bit 62 set, so `bits` (as a plain i64) already sorts
-        // the same way the represented value does.
-        bits
-    } else {
-        // Negative: bit 62 clear, so `bits` holds only the magnitude
-        // (exponent+mantissa) bits, which is always in `0..2^62` — small
-        // enough that negating it can never overflow i64.
-        bits.wrapping_neg()
-    }
-}
-
 impl core::ops::Neg for XFL {
-    /// Always succeeds — see the impl doc comment.
-    type Output = XFL;
+    type Output = Result<XFL>;
 
-    /// `-self`: a pure local sign-bit flip, no host call. See
-    /// [`flip_sign_bit`]'s doc comment for exactly what this computes and
-    /// why it is sound even for a non-canonical `self`.
+    /// `-self`, via the `float_negate` host call.
+    ///
+    /// This is **not** a local sign-bit flip. An earlier version of this
+    /// impl tried exactly that (flip bit 62, leave canonical zero alone) on
+    /// the theory that XFL's sign-magnitude layout makes negation "just"
+    /// flipping the sign bit — that theory does not hold up against XFL's
+    /// actual negation semantics, so `Neg` routes through the host
+    /// `float_negate` call instead, the same way every other arithmetic
+    /// operator here does. `Output` is `Result<XFL, HookError>` (not a bare
+    /// `XFL`) to make room for that call failing, e.g. on an already-invalid
+    /// `self`.
     #[inline(always)]
-    fn neg(self) -> XFL {
-        XFL(flip_sign_bit(self.0))
+    fn neg(self) -> Result<XFL> {
+        res(unsafe { hooks_core::float_negate(self.0) }).map(XFL::from_raw_bits)
     }
 }
 
@@ -360,19 +330,20 @@ impl core::ops::Add for XFL {
 impl core::ops::Sub for XFL {
     type Output = Result<XFL>;
 
-    /// `self - rhs`, implemented as `self + (-rhs)`: one local sign flip
-    /// (no host call) plus one `float_sum` host call. There is no
-    /// dedicated `float_subtract` host function.
+    /// `self - rhs`, implemented as `self + (-rhs)?`: one `float_negate`
+    /// host call plus one `float_sum` host call. There is no dedicated
+    /// `float_subtract` host function. The `?` on `-rhs` propagates a
+    /// negation failure (e.g. `rhs` already invalid) as this call's own
+    /// error, rather than feeding a poisoned value into `float_sum`.
     #[inline(always)]
-    // `self + (-rhs)` dispatches to this module's own `Add`/`Neg` impls
-    // above (a fallible host round trip and a pure local bit flip,
-    // respectively), not raw integer arithmetic — `clippy::
-    // arithmetic_side_effects` can't see past the operator syntax to tell
-    // the difference, so it flags this unconditionally; there is no
+    // `self + (-rhs)?` dispatches to this module's own `Add`/`Neg` impls
+    // above (both fallible host round trips), not raw integer arithmetic —
+    // `clippy::arithmetic_side_effects` can't see past the operator syntax
+    // to tell the difference, so it flags this unconditionally; there is no
     // overflow/panic risk here to warn about.
     #[allow(clippy::arithmetic_side_effects)]
     fn sub(self, rhs: XFL) -> Result<XFL> {
-        self + (-rhs)
+        self + (-rhs)?
     }
 }
 
@@ -393,29 +364,6 @@ impl core::ops::Div for XFL {
     #[inline(always)]
     fn div(self, rhs: XFL) -> Result<XFL> {
         res(unsafe { hooks_core::float_divide(self.0, rhs.0) }).map(XFL::from_raw_bits)
-    }
-}
-
-impl PartialEq for XFL {
-    /// Bitwise equality — sound because a canonical (host-produced) XFL
-    /// representation is unique per value (fixed-precision normalized
-    /// mantissa, no `-0`/`+0` distinction beyond the single all-zero
-    /// pattern). See the type doc comment for why this is **not**
-    /// guaranteed correct for non-canonical values.
-    #[inline(always)]
-    fn eq(&self, other: &XFL) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl PartialOrd for XFL {
-    /// Sign-magnitude-aware ordering via [`order_key`] — never returns
-    /// `None` for canonical values (XFL has no NaN-equivalent). See the
-    /// type doc comment for why this is **not** guaranteed correct for
-    /// non-canonical values.
-    #[inline(always)]
-    fn partial_cmp(&self, other: &XFL) -> Option<core::cmp::Ordering> {
-        Some(order_key(self.0).cmp(&order_key(other.0)))
     }
 }
 
@@ -475,19 +423,6 @@ mod tests {
     use super::*;
     use crate::error::HookError;
 
-    /// Hand-crafted canonical bit patterns for `1.0` and `-1.0`
-    /// (mantissa `1_000_000_000_000_000` = `1e15`, stored exponent field
-    /// `97` = unbiased `0`), used by the local (no-host-call) operator
-    /// tests below — same construction style as
-    /// `exponent_decodes_bias_97_field`.
-    const POSITIVE_ONE_BITS: i64 = (1i64 << 62) | (97i64 << 54) | 1_000_000_000_000_000i64;
-    const NEGATIVE_ONE_BITS: i64 = (97i64 << 54) | 1_000_000_000_000_000i64;
-    /// Same magnitude construction, stored exponent field `98` (unbiased
-    /// `1`), i.e. `10.0` / `-10.0` — one order of magnitude above the
-    /// `_ONE` constants, for ordering tests.
-    const POSITIVE_TEN_BITS: i64 = (1i64 << 62) | (98i64 << 54) | 1_000_000_000_000_000i64;
-    const NEGATIVE_TEN_BITS: i64 = (98i64 << 54) | 1_000_000_000_000_000i64;
-
     #[test]
     fn raw_bits_round_trip() {
         for bits in [0i64, 1, -1, i64::MAX, i64::MIN, 42, -42] {
@@ -497,17 +432,17 @@ mod tests {
 
     #[test]
     fn smoke_not_implemented_on_host() {
-        // `XFL::one()` on a host build is `hooks_core::float_one()`'s
-        // deterministic `NOT_IMPLEMENTED` stub — not a real `1.0` bit
-        // pattern. That's fine for the operators exercised here: `+`/`-`/
-        // `*`/`/` all route through a host call that the stub answers with
-        // `NOT_IMPLEMENTED` regardless of the operands' actual bits.
+        // `XFL` deliberately has no `PartialEq` (see the module doc
+        // comment), so `Result<XFL, HookError>` can't be compared with
+        // `assert_eq!`. `matches!` sidesteps that without needing
+        // `unwrap`/`expect`.
         let one = XFL::one();
         assert!(matches!(XFL::new(0, 1), Err(HookError::NotImplemented)));
         assert!(matches!(one + one, Err(HookError::NotImplemented)));
         assert!(matches!(one - one, Err(HookError::NotImplemented)));
         assert!(matches!(one * one, Err(HookError::NotImplemented)));
         assert!(matches!(one / one, Err(HookError::NotImplemented)));
+        assert!(matches!(-one, Err(HookError::NotImplemented)));
         assert!(matches!(one.invert(), Err(HookError::NotImplemented)));
         assert!(matches!(
             one.mulratio(false, 1, 2),
@@ -516,6 +451,10 @@ mod tests {
         assert_eq!(one.mantissa(), Err(HookError::NotImplemented));
         assert_eq!(one.sign(), Err(HookError::NotImplemented));
         assert_eq!(one.to_int(0, false), Err(HookError::NotImplemented));
+        assert_eq!(one.compare(one, 1), Err(HookError::NotImplemented));
+        assert_eq!(one.eq(one), Err(HookError::NotImplemented));
+        assert_eq!(one.lt(one), Err(HookError::NotImplemented));
+        assert_eq!(one.gt(one), Err(HookError::NotImplemented));
         assert!(matches!(one.log(), Err(HookError::NotImplemented)));
         assert!(matches!(one.root(2), Err(HookError::NotImplemented)));
         assert!(matches!(
@@ -531,16 +470,19 @@ mod tests {
         // and, given an `Err` input, never reach the host stub (host builds
         // have no way to observe that directly, but a mismatched-code
         // assertion here would fail if the wrong error propagated).
+        // `matches!`, not `assert_eq!`: `XFL` has no `PartialEq` (see the
+        // module doc comment), so `Result<XFL, HookError>` can't be
+        // compared with `==`.
         let one = XFL::one();
         let err: Result<XFL> = Err(HookError::DoesntExist);
-        assert_eq!(err + one, Err(HookError::DoesntExist));
-        assert_eq!(one + err, Err(HookError::DoesntExist));
-        assert_eq!(err - one, Err(HookError::DoesntExist));
-        assert_eq!(one - err, Err(HookError::DoesntExist));
-        assert_eq!(err * one, Err(HookError::DoesntExist));
-        assert_eq!(one * err, Err(HookError::DoesntExist));
-        assert_eq!(err / one, Err(HookError::DoesntExist));
-        assert_eq!(one / err, Err(HookError::DoesntExist));
+        assert!(matches!(err + one, Err(HookError::DoesntExist)));
+        assert!(matches!(one + err, Err(HookError::DoesntExist)));
+        assert!(matches!(err - one, Err(HookError::DoesntExist)));
+        assert!(matches!(one - err, Err(HookError::DoesntExist)));
+        assert!(matches!(err * one, Err(HookError::DoesntExist)));
+        assert!(matches!(one * err, Err(HookError::DoesntExist)));
+        assert!(matches!(err / one, Err(HookError::DoesntExist)));
+        assert!(matches!(one / err, Err(HookError::DoesntExist)));
     }
 
     #[test]
@@ -554,45 +496,5 @@ mod tests {
         // Stored field 177 (maximum) decodes to +80.
         let bits_max = 177i64 << EXPONENT_SHIFT;
         assert_eq!(XFL::from_raw_bits(bits_max).exponent(), Ok(80));
-    }
-
-    #[test]
-    fn neg_is_a_pure_local_sign_flip() {
-        let positive_one = XFL::from_raw_bits(POSITIVE_ONE_BITS);
-        let negative_one = XFL::from_raw_bits(NEGATIVE_ONE_BITS);
-        assert_eq!((-positive_one).raw_bits(), NEGATIVE_ONE_BITS);
-        assert_eq!((-negative_one).raw_bits(), POSITIVE_ONE_BITS);
-        // Canonical zero stays zero (not flipped to some nonzero pattern).
-        assert_eq!((-XFL::from_raw_bits(0)).raw_bits(), 0);
-    }
-
-    #[test]
-    fn eq_is_bitwise_and_local() {
-        let a = XFL::from_raw_bits(POSITIVE_ONE_BITS);
-        let b = XFL::from_raw_bits(POSITIVE_ONE_BITS);
-        let c = XFL::from_raw_bits(NEGATIVE_ONE_BITS);
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-    }
-
-    #[test]
-    fn ord_handles_sign_magnitude_correctly() {
-        let zero = XFL::from_raw_bits(0);
-        let positive_one = XFL::from_raw_bits(POSITIVE_ONE_BITS);
-        let positive_ten = XFL::from_raw_bits(POSITIVE_TEN_BITS);
-        let negative_one = XFL::from_raw_bits(NEGATIVE_ONE_BITS);
-        let negative_ten = XFL::from_raw_bits(NEGATIVE_TEN_BITS);
-
-        // Naive raw-bit comparison would get this backwards: -10's
-        // magnitude bits are numerically larger than -1's.
-        assert!(negative_ten < negative_one);
-        assert!(negative_one < zero);
-        assert!(zero < positive_one);
-        assert!(positive_one < positive_ten);
-        assert!(negative_ten < positive_one);
-        assert_eq!(
-            negative_one.partial_cmp(&negative_one),
-            Some(core::cmp::Ordering::Equal)
-        );
     }
 }
