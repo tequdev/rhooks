@@ -11,6 +11,12 @@ use crate::types::{AccountId, Hash};
 #[inline(always)]
 pub fn hook_account<B: AsMut<[u8]> + ?Sized>(out: &mut B) -> Result<usize> {
     let out = out.as_mut();
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.hook_account()) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe { hooks_core::hook_account(out.as_mut_ptr() as u32, out.len() as u32) })
         .map(|v| v as usize)
 }
@@ -29,6 +35,12 @@ pub fn hook_account_buf() -> Result<AccountId> {
 #[inline(always)]
 pub fn hook_hash<B: AsMut<[u8]> + ?Sized>(out: &mut B, hook_no: i32) -> Result<usize> {
     let out = out.as_mut();
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.hook_hash(hook_no)) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe { hooks_core::hook_hash(out.as_mut_ptr() as u32, out.len() as u32, hook_no) })
         .map(|v| v as usize)
 }
@@ -48,6 +60,12 @@ pub fn hook_hash_buf(hook_no: i32) -> Result<Hash> {
 #[inline(always)]
 pub fn hook_param<B: AsMut<[u8]> + ?Sized>(out: &mut B, name: &[u8]) -> Result<usize> {
     let out = out.as_mut();
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.hook_param(name)) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe {
         hooks_core::hook_param(
             out.as_mut_ptr() as u32,

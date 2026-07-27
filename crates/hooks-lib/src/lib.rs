@@ -48,6 +48,8 @@ mod errors;
 mod macros;
 pub mod state;
 pub mod static_cell;
+#[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+mod testenv_bridge;
 pub mod txn;
 pub mod types;
 pub mod xfl;

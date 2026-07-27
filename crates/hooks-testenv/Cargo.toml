@@ -1,0 +1,13 @@
+[package]
+name = "hooks-testenv"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hooks-core = { path = "../hooks-core", features = ["testenv"] }
+hooks-lib = { path = "../hooks-lib", features = ["testenv"] }
+
+[lints]
+workspace = true

@@ -129,6 +129,13 @@ pub fn state<B: AsMut<[u8]> + ?Sized, K: AsRef<[u8]> + ?Sized>(
 ) -> Result<usize> {
     let out = out.as_mut();
     let key = key.as_ref();
+    // Testenv (native host only): see `crate::testenv_bridge`'s module doc.
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.state(key)) {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
     res(unsafe {
         hooks_core::state(
             out.as_mut_ptr() as u32,
@@ -322,6 +329,14 @@ pub fn state_update_xfl<K: AsRef<[u8]> + ?Sized>(
 #[inline(always)]
 pub fn state_set<K: AsRef<[u8]> + ?Sized>(data: &[u8], key: &K) -> Result<usize> {
     let key = key.as_ref();
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) = hooks_core::backend::with_backend(|b| b.state_set(key, data)) {
+            return result
+                .map(|v| v as usize)
+                .map_err(crate::error::HookError::from);
+        }
+    }
     res(unsafe {
         hooks_core::state_set(
             data.as_ptr() as u32,
@@ -352,8 +367,18 @@ where
 {
     let out = out.as_mut();
     let key = key.as_ref();
-    let (nptr, nlen) = opt_in(namespace.foreign_ref());
-    let (aptr, alen) = opt_in(account.foreign_ref());
+    let namespace = namespace.foreign_ref();
+    let account = account.foreign_ref();
+    #[cfg(all(feature = "testenv", not(target_arch = "wasm32")))]
+    {
+        if let Some(result) =
+            hooks_core::backend::with_backend(|b| b.state_foreign(key, namespace, account))
+        {
+            return crate::testenv_bridge::write_bytes(out, result);
+        }
+    }
+    let (nptr, nlen) = opt_in(namespace);
+    let (aptr, alen) = opt_in(account);
     res(unsafe {
         hooks_core::state_foreign(
             out.as_mut_ptr() as u32,
