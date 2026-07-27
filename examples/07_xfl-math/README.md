@@ -7,11 +7,12 @@ floating-point type) regardless of whether it's a native (XRP/XAH) or IOU
 amount, do a ratio computation (`mulratio`) on it, and compare the result —
 handling every step's `Result` explicitly, since every XFL host call is
 fallible. Also: hooks-lib's XFL **operator** API end to end — the checked
-`Add`/`Sub`/`Mul`/`Div`/`Neg` operators (all fallible host round trips) and
-the `.eq()`/`.lt()`/`.gt()`/`.compare()` comparison methods on plain `XFL`
-(this hook uses the methods throughout, not the `PartialEq`/`PartialOrd`
-`==`/`<`/`>` operators `XFL` also provides — see below for why), and
-`XFLUnchecked`'s poison-propagating hot-path chain.
+`Add`/`Sub`/`Mul`/`Div`/`Neg` operators (all fallible host round trips), the
+`.eq()`/`.lt()`/`.gt()`/`.compare()` comparison methods, the `==`/`<`/`>`
+(`PartialEq`/`PartialOrd`) comparison *operators* on plain `XFL` (used
+deliberately for exactly one, carefully-reasoned comparison here — see
+below for why not more, and why that one is safe), and `XFLUnchecked`'s
+poison-propagating hot-path chain.
 
 ## Code walkthrough
 
@@ -130,6 +131,38 @@ optimizing away — included solely to show the pattern's shape; see
 argument (why a poisoned/invalid operand can never produce a
 spuriously-valid result from any of these operators) and its audit table.
 
+### The `==`/`<`/`>` comparison operators — where they're actually safe
+
+```rust
+if compounded > remaining {
+    rollback!(...);
+}
+```
+
+`compounded` and `remaining` are both already-validated `XFL` values at
+this point in the hook — `compounded` only exists because
+`compounded_raw.validate()` returned `Ok`, and `remaining` only exists
+because `amount - share` returned `Ok`. `PartialOrd::gt`'s `false`-on-
+`float_compare`-failure fallback (see the section above) is a real risk
+when either operand might still be unvalidated, exactly like `share`/
+`min_share` were at the `.lt()` call site earlier in this hook — but by
+the time execution reaches this `>`, there is no realistic path from two
+already-`Ok`, host-validated XFLs to a `float_compare` failure: neither
+value's bits have been touched since the host itself produced and
+certified them, and `float_compare`'s own validation gate
+(`RETURN_IF_INVALID_FLOAT`, per xahaud's `applyHook.cpp`) re-derives the
+same mantissa/exponent from the same bits every host call sees them, so it
+re-passes deterministically. That is the situation this crate's module
+doc comment calls out as reasonable
+for the operators: a comparison failure and a genuine
+"not-greater-than" both mean "don't roll back" here, and that's the
+correct behavior either way, so falling back to `false` costs nothing.
+`compounded` (~1.0303% of `amount`, i.e. `share` compounded three times at
+1%) is expected to be far smaller than `remaining` (~99% of `amount`) for
+any realistic `Amount` — `>` here is a pure sanity check that would only
+trip on a logic bug earlier in this hook, same spirit as the
+`CompoundNotIncreasing` check above it.
+
 ### Constructing a fixed XFL constant
 
 ```rust
@@ -164,20 +197,28 @@ the breaking change this example demonstrates end to end):
 `a.eq(b)`/`a.lt(b)`/`a.gt(b)`/`a.compare(b, mode)` are **unchanged** — still
 named methods returning `Result<bool>`, still backed by `float_compare`.
 `XFL` *also* now implements `PartialEq`/`PartialOrd` (`==`/`<`/`>`/...),
-forwarding to those same methods — but this example deliberately keeps
-using the `Result`-returning methods, matched three ways (`Ok(true)`/
-`Ok(false)`/`Err(_)`), for every comparison that gates a rollback decision:
-`PartialEq`/`PartialOrd`'s fixed `bool`/`Option<Ordering>` return types
-can't express a `float_compare` failure, so on failure they fall back to
-`false`/`None` (the same convention `f64` uses for `NaN`) — which for
-`share < min_share` would mean silently treating "the comparison failed"
-the same as "the share is not below the minimum," i.e. silently accepting
-a transaction this hook could not actually validate. `==`/`<`/`>` are a
-reasonable choice when a comparison failure and a genuine
+forwarding to those same methods. This example uses **both**, deliberately
+choosing per call site: the `Result`-returning methods, matched three ways
+(`Ok(true)`/`Ok(false)`/`Err(_)`), for every comparison that gates a
+rollback decision on a value that hasn't been separately validated yet
+(`share`/`min_share` at the `.lt()` call site, `remaining`/zero and
+`compounded`/`share` at the two `.compare()` call sites); the `>` operator
+for exactly one comparison, `compounded > remaining`, where both operands
+are already-validated `XFL`s with no realistic path to a `float_compare`
+failure (see the "`==`/`<`/`>` comparison operators" section above for the
+full reasoning). The difference matters because `PartialEq`/`PartialOrd`'s
+fixed `bool`/`Option<Ordering>` return types can't express a
+`float_compare` failure, so on failure they fall back to `false`/`None`
+(the same convention `f64` uses for `NaN`) — which for `share < min_share`
+would mean silently treating "the comparison failed" the same as "the
+share is not below the minimum," i.e. silently accepting a transaction
+this hook could not actually validate. `==`/`<`/`>` are a reasonable
+choice specifically when a comparison failure and a genuine
 inequality/incomparable both deserve the same handling (see
 `hooks_lib::xfl`'s module doc comment's "Comparison: both methods and
-operators, both via `float_compare`" section) — that is not the case for
-any comparison in this hook. (An earlier version of this crate also tried
+operators, both via `float_compare`" section) — true for
+`compounded > remaining` here, not true for any of the other three
+comparisons in this hook. (An earlier version of this crate also tried
 making comparison — and `Neg` — local, host-call-free operations; both
 turned out not to correctly capture XFL's actual semantics and were
 reverted to host round trips.)
@@ -211,6 +252,12 @@ kinds of `HookError` these can surface include:
 | `Sub` (`amount - share`) | `INVALID_FLOAT` — either operand isn't a valid XFL bit pattern (via `Neg` or `float_sum`) |
 | `XFLUnchecked::validate` | `INVALID_FLOAT` — the chain's final raw value (or any poisoned value it passed through) didn't validate |
 
+`compounded > remaining` is the one comparison in this hook *not* in that
+list: `PartialOrd::gt`'s `Result`-free signature has no `Err` case to
+surface in the first place, by design — see the "`==`/`<`/`>` comparison
+operators" section above for why that's fine specifically at this call
+site.
+
 ## Build
 
 ```sh
@@ -233,8 +280,9 @@ single host call each) and so are zero-cost by construction; `Sub`/`Neg`
 are the one place cost actually changed, because `Neg` is a real
 `float_negate` host round trip and not the local bit flip an earlier
 version of this crate tried. The full version in this crate — with the
-`Sub` and `XFLUnchecked` sections added on top purely for demonstration —
-measures **317** (up from 162; see below for where that comes from).
+`Sub`, `XFLUnchecked`, and `==`/`<`/`>` operator sections added on top
+purely for demonstration — measures **357** (up from 162; see below for
+where that comes from).
 
 Chained-operator benchmark against the actual shipped types
 (`hooks_lib::xfl`/`hooks_lib::xfl_unchecked`, N=1/4/8 chained ops,
@@ -259,8 +307,8 @@ implementation actually needs.
 ## Expected behavior
 
 - 1% of the transaction `Amount` is at least `0.000001` → accept (subject
-  to the `Sub`/`XFLUnchecked` sanity checks below, which should never
-  actually trip for a valid positive `Amount`).
+  to the `Sub`/`XFLUnchecked`/`==`/`<`/`>` sanity checks below, which
+  should never actually trip for a valid positive `Amount`).
 - 1% of the transaction `Amount` is below `0.000001` → rollback
   (`"xfl-math: computed share below minimum"`, code `7`).
 - Any of the intermediate steps fails (missing `Amount` field, overflow,
@@ -287,3 +335,4 @@ implementation actually needs.
 | `CompoundValidationFailed` | 12 | the `XFLUnchecked` compounding chain's final `validate()` call failed |
 | `CompoundComparisonFailed` | 13 | the `compounded <= share` comparison (`.compare()`) failed |
 | `CompoundNotIncreasing` | 14 | the compounded value did not come out strictly greater than `share` |
+| `CompoundExceedsRemaining` | 15 | `compounded > remaining` (the `>` operator) — the compounded projection exceeded the transaction amount minus its own share |

@@ -29,12 +29,13 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-xfl-math'
 // hooks-build's printed worst case for xfl_math.wasm (`mise run build-examples`).
-// Was 162 before examples/07_xfl-math added the checked `Sub` operator demo
-// and the `XFLUnchecked` hot-path chain demo on top of the original
-// mulratio-and-compare logic; the original logic itself is untouched (see
-// the example's README's "Zero-cost check" section for the isolated
-// before/after comparison, which reproduces exactly 162).
-const WORST_CASE_INSTRUCTIONS = 317
+// Was 162 before examples/07_xfl-math added the checked `Sub` operator demo,
+// the `XFLUnchecked` hot-path chain demo, and the `==`/`<`/`>` operator
+// comparison demo, on top of the original mulratio-and-compare logic; the
+// original logic itself is untouched (see the example's README's
+// "Zero-cost check" section for the isolated before/after comparison,
+// which reproduces exactly 162).
+const WORST_CASE_INSTRUCTIONS = 357
 
 describe('xfl-math', () => {
   let testContext: XrplIntegrationTestContext
