@@ -2,12 +2,11 @@
 //! IOU — XFL handles both uniformly) via a slot, computes a percentage of
 //! it with `mulratio`, and rolls back if that computed share is below a
 //! fixed minimum XFL value. Also demonstrates hooks-lib's XFL operator API
-//! end to end: the checked `Sub`/`PartialOrd` operators on plain `XFL` for
-//! a sanity check, and `XFLUnchecked`'s poison-propagating chain for a
-//! small illustrative compounding computation. Every fallible step's
-//! `Result` is still handled explicitly instead of assuming success — the
-//! operators change *how* each step is spelled, not whether failure is
-//! handled.
+//! end to end: the checked `Sub`/`Neg` operators and `.compare()`-family
+//! methods on plain `XFL`, and `XFLUnchecked`'s poison-propagating chain.
+//! Every fallible step's `Result` is still handled explicitly instead of
+//! assuming success — comparison and `Sub`/`Neg` are all fallible host
+//! round trips here, same as `Add`/`Mul`/`Div`/`mulratio`.
 //!
 //! Build: `hooks-build build --manifest-path examples/07_xfl-math/Cargo.toml`
 
@@ -39,36 +38,43 @@ hook_errors! {
         /// `XFL::new` failed to construct the fixed minimum-share
         /// constant.
         MinShareConstructFailed = 5,
+        /// The `.lt()` comparison between the computed share and the
+        /// minimum failed.
+        ComparisonFailed = 6,
         /// The computed share fell below the fixed minimum.
-        BelowMinimum = 6,
+        BelowMinimum = 7,
         /// `amount - share` (the checked `Sub` operator) failed.
-        RemainingComputeFailed = 7,
+        RemainingComputeFailed = 8,
+        /// The `remaining <= 0` comparison (`.compare()`) failed.
+        RemainingComparisonFailed = 9,
         /// `amount - share` computed but was not strictly positive — would
         /// mean `share >= amount`, which `mulratio(1, 100)` should never
         /// produce for a positive `amount`.
-        NotEnoughRemaining = 8,
+        NotEnoughRemaining = 10,
         /// `XFL::new` failed to construct the fixed growth-factor constant
         /// used by the `XFLUnchecked` compounding demonstration below.
-        GrowthConstructFailed = 9,
+        GrowthConstructFailed = 11,
         /// The `XFLUnchecked` compounding chain's final `validate()` call
         /// failed.
-        CompoundValidationFailed = 10,
+        CompoundValidationFailed = 12,
+        /// The `compounded <= share` comparison (`.compare()`) failed.
+        CompoundComparisonFailed = 13,
         /// The compounded value (computed at a `>1` growth factor) did not
         /// come out strictly greater than the starting `share` — would
         /// mean something is wrong with the compounding chain above.
-        CompoundNotIncreasing = 11,
+        CompoundNotIncreasing = 14,
     }
 }
 
 /// Hook entry point.
 #[hook]
 // Every `+`/`-`/`*` below dispatches to `hooks_lib::xfl`'s/
-// `hooks_lib::xfl_unchecked`'s `XFL`/`XFLUnchecked` operator impls (a
-// fallible host round trip, or a documented-safe local bit operation) —
-// never raw integer arithmetic that could silently wrap. `clippy::
-// arithmetic_side_effects` can't see past the operator syntax to tell the
-// difference, so it flags every use of `+`/`-`/`*` in this function
-// unconditionally; there is nothing here for it to actually warn about.
+// `hooks_lib::xfl_unchecked`'s `XFL`/`XFLUnchecked` operator impls (all
+// fallible or infallible host round trips), never raw integer arithmetic
+// that could silently wrap. `clippy::arithmetic_side_effects` can't see
+// past the operator syntax to tell the difference, so it flags every use
+// of `+`/`-`/`*` in this function unconditionally; there is nothing here
+// for it to actually warn about.
 #[allow(clippy::arithmetic_side_effects)]
 fn my_hook() -> i64 {
     // Load the originating transaction into a slot, then navigate to its
@@ -137,27 +143,30 @@ fn my_hook() -> i64 {
         ),
     };
 
-    // `share < min_share` — hooks_lib's local `PartialOrd` impl on `XFL`
-    // (see `hooks_lib::xfl`'s module doc comment): a pure bit/order
-    // comparison, no host call, and infallible for canonical
-    // (host-produced) operands like these, so there is no `Err` arm to
-    // handle here at all — a strict improvement over the old
-    // `float_compare`-backed `.lt()` method this replaces (see the
-    // example's README migration note).
-    if share < min_share {
-        rollback!(
+    // `XFL` has no `PartialOrd` (comparison is a fallible `float_compare`
+    // host round trip that `PartialOrd`'s fixed `Option<Ordering>` return
+    // can't express — see `hooks_lib::xfl`'s module doc comment) — `.lt()`
+    // returns `Result<bool>` and is handled explicitly, same as every
+    // other XFL operation here.
+    match share.lt(min_share) {
+        Ok(true) => rollback!(
             b"xfl-math: computed share below minimum",
             XflMathError::BelowMinimum
-        );
+        ),
+        Ok(false) => {}
+        Err(_) => rollback!(
+            b"xfl-math: comparison failed",
+            XflMathError::ComparisonFailed
+        ),
     }
 
-    // --- Checked operators: `Sub` + local `PartialOrd` -------------------
+    // --- Checked operators: `Sub` ----------------------------------------
     // `amount - share`: what would remain of the transaction amount after
     // setting the computed share aside. `Sub`'s `Output` is
-    // `Result<XFL, HookError>` (implemented as `amount + (-share)`: one
-    // local sign flip plus one `float_sum` host call — see
+    // `Result<XFL, HookError>` (implemented as `amount + (-share)?`: one
+    // `float_negate` host call plus one `float_sum` host call — see
     // `hooks_lib::xfl`'s module doc comment), matched explicitly like
-    // every other fallible step above.
+    // every other fallible step here.
     let remaining = match amount - share {
         Ok(x) => x,
         Err(_) => rollback!(
@@ -167,13 +176,19 @@ fn my_hook() -> i64 {
     };
     // Canonical zero needs no host call to construct — the all-zero bit
     // pattern is always valid (see `hooks_lib::xfl`'s module doc comment).
-    // `<=` comes from the same local `PartialOrd` impl as the minimum-share
-    // check above.
-    if remaining <= XFL::from_raw_bits(0) {
-        rollback!(
+    // `COMPARE_LESS | COMPARE_EQUAL` is `.compare()`'s bitmask spelling of
+    // `<=` (no dedicated `le`/`ge` convenience methods — `eq`/`lt`/`gt`
+    // cover the common cases, `.compare()` covers the rest).
+    match remaining.compare(XFL::from_raw_bits(0), COMPARE_LESS | COMPARE_EQUAL) {
+        Ok(true) => rollback!(
             b"xfl-math: amount - share was not positive",
             XflMathError::NotEnoughRemaining
-        );
+        ),
+        Ok(false) => {}
+        Err(_) => rollback!(
+            b"xfl-math: remaining comparison failed",
+            XflMathError::RemainingComparisonFailed
+        ),
     }
 
     // --- XFLUnchecked: a hot-path compounding chain -----------------------
@@ -199,13 +214,18 @@ fn my_hook() -> i64 {
             XflMathError::CompoundValidationFailed
         ),
     };
-    // Another local, infallible `PartialOrd` sanity check: compounding at
-    // a `>1` growth factor must strictly increase the value.
-    if compounded <= share {
-        rollback!(
+    // Another `.compare()` sanity check: compounding at a `>1` growth
+    // factor must strictly increase the value.
+    match compounded.compare(share, COMPARE_LESS | COMPARE_EQUAL) {
+        Ok(true) => rollback!(
             b"xfl-math: compounded share did not increase",
             XflMathError::CompoundNotIncreasing
-        );
+        ),
+        Ok(false) => {}
+        Err(_) => rollback!(
+            b"xfl-math: compound comparison failed",
+            XflMathError::CompoundComparisonFailed
+        ),
     }
 
     // Slots are a limited resource (see `docs/DESIGN.md` and the Slot API
