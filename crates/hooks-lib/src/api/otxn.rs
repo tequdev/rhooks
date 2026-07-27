@@ -150,7 +150,11 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// this is the safer alternative to [`otxn_param_exact`] when a parameter
 /// is always meant to decode as one specific type: there is no separate
 /// `name` argument that could name a *different* parameter than the one
-/// `T` was declared for.
+/// `T` was declared for. `#[inline(always)]` straight through to
+/// [`otxn_param_exact`] — exactly as cheap.
+///
+/// For a **composite, struct-shaped** parameter name (rather than a plain
+/// byte string), see [`otxn_param_typed_kv`].
 ///
 /// # Examples
 ///
@@ -177,6 +181,44 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 #[inline(always)]
 pub fn otxn_param_typed<T: ParamName>() -> Result<T> {
     otxn_param_exact::<T>(T::NAME)
+}
+
+/// Read a Hook parameter attached to the originating transaction, named by
+/// `T::NAME` — a **composite, struct-shaped** name (see
+/// [`crate::convert::ParamKey`]'s doc comment) rather than
+/// [`otxn_param_typed`]'s plain byte string. Encoding `T::NAME` costs a
+/// small, genuine runtime computation (see `ParamKey`'s doc comment for
+/// why) — use [`otxn_param_typed`] instead for the (much more common)
+/// plain-byte-string-name case, which pays none of it.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::otxn::otxn_param_typed_kv;
+/// use hooks_lib::convert::ParamKey;
+/// use hooks_lib::error::{HookError, Result};
+///
+/// struct Instruction([u8; 9]);
+///
+/// impl hooks_lib::convert::FixedRead for Instruction {
+///     fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+///         <[u8; 9]>::read_exact(read).map(Instruction)
+///     }
+/// }
+///
+/// impl ParamKey for Instruction {
+///     type Name = [u8; 3];
+///     const NAME: [u8; 3] = *b"INS";
+/// }
+///
+/// let value: Result<Instruction> = otxn_param_typed_kv();
+/// assert_eq!(value.err(), Some(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn otxn_param_typed_kv<T: crate::convert::ParamKey>() -> Result<T> {
+    let mut name_buf = [0u8; crate::convert::PARAM_NAME_MAX_LEN];
+    let name = crate::convert::encode_param_key::<T>(&mut name_buf);
+    otxn_param_exact::<T>(name)
 }
 
 #[cfg(test)]
@@ -214,6 +256,10 @@ mod tests {
             otxn_param_typed::<TestParam>(),
             Err(HookError::NotImplemented)
         );
+        assert_eq!(
+            otxn_param_typed_kv::<TestKeyParam>(),
+            Err(HookError::NotImplemented)
+        );
     }
 
     #[derive(Debug, PartialEq)]
@@ -227,5 +273,19 @@ mod tests {
 
     impl crate::convert::ParamName for TestParam {
         const NAME: &'static [u8] = b"x";
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TestKeyParam([u8; 4]);
+
+    impl FixedRead for TestKeyParam {
+        fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+            <[u8; 4]>::read_exact(read).map(TestKeyParam)
+        }
+    }
+
+    impl crate::convert::ParamKey for TestKeyParam {
+        type Name = [u8; 1];
+        const NAME: [u8; 1] = *b"x";
     }
 }

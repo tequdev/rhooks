@@ -91,6 +91,21 @@ wrappers are `#[inline(always)]` pass-throughs to the loose functions, so
 this costs nothing: this crate's worst-case instruction count is identical
 whether written with the loose or the paired API (413, either way).
 
+A Hook API parameter name isn't always a plain tag like `"CFG"`/`"INS"`,
+either — per the Hook API itself, it's a genuine variable-length key of up
+to 32 bytes, and (exactly like a hook state key) can be a whole composite,
+struct-shaped value instead of a literal byte string. `ParamName` (used
+above) only covers the plain-byte-string case; a **composite** parameter
+name uses the separate `ParamKey` trait/`param_key!` macro and
+`hook_param_typed_kv`/`otxn_param_typed_kv` instead — kept as a distinct,
+opt-in path specifically so this crate's `Config`/`Instruction` (both
+plain byte-tag names) never pay for it: encoding an arbitrary struct into
+bytes at runtime is a small but real cost (Rust has no stable way to run a
+trait method like `ToBytes::write` at compile time), whereas a plain
+byte-string name is already-encoded static data with none. See
+`hooks_lib::convert::ParamKey`'s doc comment for a composite-name worked
+example.
+
 ## Before/after: what `#[derive(HookData)]` replaces
 
 Without it, `DepositKey`/`DepositValue` would have to be hand-packed into

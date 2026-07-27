@@ -89,7 +89,11 @@ pub fn hook_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// alternative to [`hook_param_exact`] when a hook parameter is always
 /// meant to decode as one specific type: there is no separate `name`
 /// argument that could name a *different* parameter than the one `T` was
-/// declared for.
+/// declared for. `#[inline(always)]` straight through to
+/// [`hook_param_exact`] — exactly as cheap.
+///
+/// For a **composite, struct-shaped** parameter name (rather than a plain
+/// byte string), see [`hook_param_typed_kv`].
 ///
 /// # Examples
 ///
@@ -116,6 +120,43 @@ pub fn hook_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 #[inline(always)]
 pub fn hook_param_typed<T: ParamName>() -> Result<T> {
     hook_param_exact::<T>(T::NAME)
+}
+
+/// Read this hook's own parameter, named by `T::NAME` — a **composite,
+/// struct-shaped** name (see [`crate::convert::ParamKey`]'s doc comment)
+/// rather than [`hook_param_typed`]'s plain byte string. Encoding `T::NAME`
+/// costs a small, genuine runtime computation (see `ParamKey`'s doc
+/// comment for why) — use [`hook_param_typed`] instead for the (much more
+/// common) plain-byte-string-name case, which pays none of it.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::hook_ctx::hook_param_typed_kv;
+/// use hooks_lib::convert::ParamKey;
+/// use hooks_lib::error::{HookError, Result};
+///
+/// struct Threshold([u8; 8]);
+///
+/// impl hooks_lib::convert::FixedRead for Threshold {
+///     fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+///         <[u8; 8]>::read_exact(read).map(Threshold)
+///     }
+/// }
+///
+/// impl ParamKey for Threshold {
+///     type Name = [u8; 3];
+///     const NAME: [u8; 3] = *b"MIN";
+/// }
+///
+/// let value: Result<Threshold> = hook_param_typed_kv();
+/// assert_eq!(value.err(), Some(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn hook_param_typed_kv<T: crate::convert::ParamKey>() -> Result<T> {
+    let mut name_buf = [0u8; crate::convert::PARAM_NAME_MAX_LEN];
+    let name = crate::convert::encode_param_key::<T>(&mut name_buf);
+    hook_param_exact::<T>(name)
 }
 
 /// Set a parameter named `name` to `value` on the hook identified by
@@ -160,6 +201,10 @@ mod tests {
             hook_param_typed::<TestParam>(),
             Err(HookError::NotImplemented)
         );
+        assert_eq!(
+            hook_param_typed_kv::<TestKeyParam>(),
+            Err(HookError::NotImplemented)
+        );
     }
 
     #[derive(Debug, PartialEq)]
@@ -173,5 +218,19 @@ mod tests {
 
     impl crate::convert::ParamName for TestParam {
         const NAME: &'static [u8] = b"x";
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TestKeyParam([u8; 4]);
+
+    impl FixedRead for TestKeyParam {
+        fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+            <[u8; 4]>::read_exact(read).map(TestKeyParam)
+        }
+    }
+
+    impl crate::convert::ParamKey for TestKeyParam {
+        type Name = [u8; 1];
+        const NAME: [u8; 1] = *b"x";
     }
 }

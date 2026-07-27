@@ -291,8 +291,22 @@ impl<const N: usize> FixedRead for [u8; N] {
     }
 }
 
+/// Maximum length, in bytes, of a `hook_param`/`otxn_param` parameter
+/// *name* — the Hook API's own bound on the `read_len` argument naming the
+/// parameter (`hook_api.h`: `TOO_BIG` above 32 bytes, `TOO_SMALL` below 1).
+///
+/// A parameter name is **not** a fixed-32-byte, zero-padded key the way a
+/// [`crate::types::StateKey`] is (see [`crate::state::StateKeyEncode`]) —
+/// it is matched at its own *natural* length: `"MIN"` (3 bytes) and a
+/// hypothetical zero-padded 32-byte version of the same three bytes name
+/// two different parameters, not one. [`ParamKey`]'s encoding reflects
+/// that: a name's wire bytes are exactly its [`ToBytes::MAX_LEN`], never
+/// padded up to this constant — this constant is only an upper (and, at
+/// `1`, a lower) bound the encoded length must satisfy.
+pub const PARAM_NAME_MAX_LEN: usize = 32;
+
 /// A [`FixedRead`] type that names its own `hook_param`/`otxn_param`
-/// parameter name.
+/// parameter with a plain, already-encoded byte string.
 ///
 /// [`crate::api::hook_ctx::hook_param_exact`]/
 /// [`crate::api::otxn::otxn_param_exact`] take the parameter's name and the
@@ -305,6 +319,19 @@ impl<const N: usize> FixedRead for [u8; N] {
 /// [`crate::api::otxn::otxn_param_typed`] then read `T::NAME` from the
 /// type itself — there is no second, independently-spelled name argument
 /// left for a mismatch to hide in.
+///
+/// `NAME` is already-encoded, `'static` bytes — a plain literal name (the
+/// overwhelming common case, e.g. `b"CFG"`) costs nothing beyond handing
+/// over a static pointer/length, exactly as cheap as the loose
+/// `hook_param_exact`/`otxn_param_exact` this replaces. A parameter name
+/// can, per the Hook API, also be a **composite, struct-shaped key** up to
+/// [`PARAM_NAME_MAX_LEN`] bytes — the same shape as a hook state key (see
+/// [`crate::state::StateKeyEncode`]) — but encoding an arbitrary
+/// [`crate::HookData`] struct's fields into bytes is unavoidably a small
+/// runtime computation (Rust has no stable way to run a trait method like
+/// [`ToBytes::write`] at compile time yet); see [`ParamKey`] for that case,
+/// kept as a **separate**, opt-in trait precisely so this common,
+/// genuinely-free case never pays for it.
 pub trait ParamName: FixedRead {
     /// This parameter's name, as raw bytes (e.g. `b"CFG"`).
     const NAME: &'static [u8];
@@ -312,7 +339,9 @@ pub trait ParamName: FixedRead {
 
 /// Implements [`ParamName`] for `$Ty`, naming it `$name` — the one-line way
 /// to opt a type into [`crate::api::hook_ctx::hook_param_typed`]/
-/// [`crate::api::otxn::otxn_param_typed`].
+/// [`crate::api::otxn::otxn_param_typed`] with a plain, already-encoded
+/// byte-string name. For a composite, struct-shaped name, see
+/// [`param_key!`](crate::param_key)/[`ParamKey`] instead.
 ///
 /// ```
 /// use hooks_lib::prelude::*;
@@ -333,6 +362,107 @@ macro_rules! param_name {
     ($Ty:ty, $name:expr) => {
         impl $crate::convert::ParamName for $Ty {
             const NAME: &'static [u8] = $name;
+        }
+    };
+}
+
+/// A [`FixedRead`] type that names its own `hook_param`/`otxn_param`
+/// parameter with a **composite, struct-shaped key** — the parameter-name
+/// counterpart to [`crate::state::TypedStateKey`]'s composite state key.
+///
+/// A Hook API parameter name is a genuine **variable-length key of up to
+/// [`PARAM_NAME_MAX_LEN`] (32) bytes** — the same shape as a hook state key
+/// (see [`crate::state::StateKeyEncode`]) — so [`Name`](Self::Name) may be
+/// any [`ToBytes`] type, not just a raw byte string: a whole composite
+/// [`crate::HookData`] struct works exactly like a composite state key,
+/// with the one difference that a parameter name is encoded at its own
+/// **natural** length, never zero-padded to a fixed size (see
+/// [`PARAM_NAME_MAX_LEN`]'s doc comment).
+///
+/// Kept **separate** from the plain-byte-string [`ParamName`] (rather than
+/// one trait covering both): encoding an arbitrary `ToBytes` value into
+/// bytes is a real, if small, runtime computation (`Self::NAME.write(..)`,
+/// once per [`crate::api::hook_ctx::hook_param_typed_kv`]/
+/// [`crate::api::otxn::otxn_param_typed_kv`] call — Rust has no stable way
+/// to run a trait method at compile time yet), whereas a plain byte-string
+/// name is already-encoded, static data with no such cost. Splitting the
+/// traits means a hook that only ever uses plain literal names (the
+/// overwhelming common case) never pays for this — confirmed by
+/// `examples/12_typed-data`'s README, which measures the identical
+/// worst-case instruction count whether its plain `CFG`/`INS` names go
+/// through `ParamName` or the old loose `hook_param_exact`/
+/// `otxn_param_exact`.
+pub trait ParamKey: FixedRead {
+    /// The type this parameter's name is encoded from — commonly another
+    /// [`crate::HookData`] struct.
+    type Name: ToBytes;
+
+    /// The one name value identifying this parameter.
+    const NAME: Self::Name;
+}
+
+/// Encodes `T::NAME` into `buf` at its own natural length (never
+/// zero-padded — see [`ParamKey`]'s doc comment), returning the slice to
+/// pass as `hook_param`/`otxn_param`'s parameter-name argument. Shared by
+/// [`crate::api::hook_ctx::hook_param_typed_kv`]/
+/// [`crate::api::otxn::otxn_param_typed_kv`], the only two callers.
+///
+/// A compile-time check (monomorphized per `T`) rejects a `T::Name` whose
+/// [`ToBytes::MAX_LEN`] falls outside `1..=`[`PARAM_NAME_MAX_LEN`] — the
+/// Hook API's own bound on a parameter name's length (see
+/// [`PARAM_NAME_MAX_LEN`]'s doc comment) — the same monomorphized
+/// `const`-assert pattern [`crate::state`]'s blanket `StateKeyEncode` impl
+/// uses for its own (different) 32-byte bound.
+#[inline(always)]
+pub fn encode_param_key<T: ParamKey>(buf: &mut [u8; PARAM_NAME_MAX_LEN]) -> &[u8] {
+    const {
+        assert!(
+            <T::Name as ToBytes>::MAX_LEN >= 1,
+            "hooks_lib: ParamKey::Name::MAX_LEN must be at least 1 byte \
+             (the Hook API's parameter-name lower bound)"
+        );
+        assert!(
+            <T::Name as ToBytes>::MAX_LEN <= PARAM_NAME_MAX_LEN,
+            "hooks_lib: ParamKey::Name::MAX_LEN exceeds the Hook API's \
+             32-byte parameter-name upper bound"
+        );
+    }
+    let _ = T::NAME.write(buf);
+    buf.get(..<T::Name as ToBytes>::MAX_LEN).unwrap_or(&[])
+}
+
+/// Implements [`ParamKey`] for `$Ty`, naming it with `$Name`'s `$value` — a
+/// composite, struct-shaped parameter name (see [`ParamKey`]'s doc
+/// comment). For a plain byte-string name, see
+/// [`param_name!`](crate::param_name)/[`ParamName`] instead — cheaper, and
+/// sufficient for the overwhelming common case.
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{param_key, HookData};
+///
+/// #[derive(HookData, Clone, Copy)]
+/// struct SeatParamName {
+///     topic: u8,
+///     seat: u8,
+/// }
+///
+/// #[derive(HookData)]
+/// struct Vote {
+///     value: u8,
+/// }
+///
+/// param_key!(Vote, SeatParamName, SeatParamName { topic: b'S', seat: 0 });
+///
+/// let vote: Result<Vote> = otxn_param_typed_kv();
+/// assert_eq!(vote.err(), Some(HookError::NotImplemented));
+/// ```
+#[macro_export]
+macro_rules! param_key {
+    ($Ty:ty, $Name:ty, $value:expr) => {
+        impl $crate::convert::ParamKey for $Ty {
+            type Name = $Name;
+            const NAME: Self::Name = $value;
         }
     };
 }

@@ -363,7 +363,7 @@ pub use hooks_macros::paste as __paste;
 pub mod prelude {
     pub use crate::api::*;
     pub use crate::buf_eq::*;
-    pub use crate::convert::{FixedRead, FromBytes, ParamName, ToBytes};
+    pub use crate::convert::{FixedRead, FromBytes, ParamKey, ParamName, ToBytes};
     pub use crate::error::{HookError, Result};
     pub use crate::state::{
         StateKeyEncode, TypedStateKey, state_foreign_get, state_foreign_get_typed,
