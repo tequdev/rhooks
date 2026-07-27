@@ -121,10 +121,10 @@ fn my_hook() -> i64 {
         RewardError::EmitFailed.rollback(b"reward: etxn_reserve failed");
     }
 
-    // Only ttCLAIM_REWARD is of interest; everything else (including this
-    // hook's own emitted GenesisMint settling, and any other incoming
+    // Only TxType::ClaimReward is of interest; everything else (including
+    // this hook's own emitted GenesisMint settling, and any other incoming
     // transaction type on an account HookOn'd broadly) passes through.
-    if u32::from(otxn_type()) != ttCLAIM_REWARD {
+    if otxn_type() != TxType::ClaimReward {
         accept!(b"Reward: Passing non-claim txn", 0);
     }
 

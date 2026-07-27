@@ -150,7 +150,7 @@ fn my_hook() -> i64 {
         GovernError::EmitFailed.nope(b"govern: etxn_reserve failed");
     }
 
-    if u32::from(otxn_type()) != ttINVOKE {
+    if otxn_type() != TxType::Invoke {
         done(b"Governance: Passing non-Invoke txn. HookOn should be changed to avoid this.");
     }
 

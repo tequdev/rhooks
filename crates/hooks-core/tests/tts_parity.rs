@@ -27,7 +27,7 @@ fn tts_h_matches_tts_rs() {
         rust_consts.len()
     );
     for (name, ty, _) in &rust_consts {
-        assert_eq!(ty, "u32", "{name}: expected type u32, found {ty}");
+        assert_eq!(ty, "u16", "{name}: expected type u16, found {ty}");
     }
     let rust_defs: Vec<(String, String)> =
         rust_consts.into_iter().map(|(n, _, e)| (n, e)).collect();

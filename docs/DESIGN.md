@@ -119,7 +119,7 @@ src/
 ├── api.rs        # extern "C" declarations (the 60+ Hook API fns + _g)
 ├── error.rs      # error.h     → pub const SUCCESS: i64 = 0; OUT_OF_BOUNDS = -1; ...
 ├── sfcodes.rs    # sfcodes.h   → pub const sfAccount: u32 = ...; (325 consts)
-├── tts.rs        # tts.h       → pub const ttPAYMENT: u32 = 0; ...
+├── tts.rs        # tts.h       → pub const ttPAYMENT: u16 = 0; ...
 ├── ls_flags.rs   # ls_flags.h  → pub const lsfGlobalFreeze: u32 = ...;
 ├── tx_flags.rs   # tx_flags.h  → pub const tfFullyCanonicalSig: u32 = ...;
 └── consts.rs     # hookapi.h + macro.h constant-like defines
@@ -138,7 +138,10 @@ Rules:
   grepped against C hooks and the official docs. No renaming, no typing
   cleverness at this layer.
 - Types: error codes `i64` (they are compared against Hook API `i64`
-  returns); `sfcodes` `u32`; `tts` `u32`; flags `u32`.
+  returns); `sfcodes` `u32`; `tts` `u16` (matching `otxn_type`'s and
+  hooks-lib's `TxType::code()`'s width — the only one of these four
+  constant families whose width was picked to match a specific consumer
+  rather than "the field is conventionally `u32`"); flags `u32`.
 - The extern block mirrors `extern.h` exactly — `read_ptr`/`read_len` style
   `u32` parameters, `i64` returns:
 
@@ -176,12 +179,18 @@ unsafe extern "C" {
   (crates/xtask) parses the vendored headers and emits all of hooks-core's
   translated sources (`error.rs`, `tts.rs`, `sfcodes.rs`, `ls_flags.rs`,
   `tx_flags.rs`, `consts.rs`, `api.rs` — everything except the hand-written
-  `lib.rs`), each carrying an `@generated` marker. `gen-core --check`
-  verifies the checked-in sources match regeneration (wired into CI), so
-  the full sync flow is: `scripts/sync-vendor.sh` → `cargo xtask gen-core`
-  → tests → commit. The xtask parser is deliberately independent from the
-  parity tests' parser — the parity tests are the generator's correctness
-  oracle, so they must not share code.
+  `lib.rs`), each carrying an `@generated` marker. The same run also emits
+  one file outside hooks-core: hooks-lib's `tx_type.rs` (§5's `TxType`
+  enum), from the identical parsed `tts.h` data `tts.rs` renders as raw
+  constants — a typed mirror one layer up, not a header translation, but
+  still fully mechanical (every variant name is a pure function of its
+  `tt*` name), so it is generated rather than hand-maintained the same way.
+  `gen-core --check` verifies every checked-in generated file (hooks-core's
+  and hooks-lib's `tx_type.rs` alike) matches regeneration (wired into CI),
+  so the full sync flow is: `scripts/sync-vendor.sh` → `cargo xtask
+  gen-core` → tests → commit. The xtask parser is deliberately independent
+  from the parity tests' parser — the parity tests are the generator's
+  correctness oracle, so they must not share code.
 
 ## 5. hooks-lib
 
@@ -198,13 +207,14 @@ src/
 ├── errors.rs      # hook_errors! user error enum -> rollback code mapping
 ├── xfl.rs         # XFL newtype over i64, checked Add/Sub/Mul/Div/Neg operators, compare/eq/lt/gt methods + PartialEq/PartialOrd
 ├── xfl_unchecked.rs # XFLUnchecked: poison-propagating hot-path counterpart to XFL
+├── tx_type.rs     # @generated (§4): TxType enum mirroring hooks-core's tts.rs, From<u16> + .code()
 ├── txn.rs         # txn_template! macro + generic field-encoding primitives
 ├── static_cell.rs # HookStatic: take-once cell for static hook buffers
 ├── macros.rs      # guard!, trace!, rollback!, accept!, pad!
 └── api/
     ├── mod.rs
     ├── control.rs # accept, rollback (-> !), hook_again, hook_skip, hook_pos
-    ├── otxn.rs    # otxn_field, otxn_type, otxn_param, otxn_id, otxn_slot, ...
+    ├── otxn.rs    # otxn_field, otxn_type (-> TxType), otxn_param, otxn_id, otxn_slot, ...
     ├── state.rs   # state, state_set, state_foreign(_set)
     ├── etxn.rs    # etxn_reserve, emit, etxn_details, etxn_fee_base, prepare
     ├── ledger.rs  # ledger_seq, ledger_last_time, fee_base, ledger_keylet, ...
@@ -258,6 +268,18 @@ budget for at most one such site per crate before nesting depth becomes a
 build-time concern. See `examples/80_reward` and `examples/81_govern`'s
 READMEs for concrete before/after nesting-depth numbers from real crates,
 each of which needs exactly one specific-variant match site.
+
+The same mechanism applies to any large generated decode-into-enum
+function, not just `HookError::from`: `TxType::from(u16)` (§5, `tx_type.rs`)
+is a ~74-arm match with the identical shape, so comparing `otxn_type()`
+against one specific named `TxType` variant (`otxn_type() == TxType::
+ClaimReward`, as `examples/80_reward`/`examples/81_govern` both do) is the
+`TxType` analogue of a specific-`HookError`-variant match site, subject to
+the same one-per-crate budgeting logic — both examples still build within
+the nesting limit with one of each (one `TxType`-specific comparison, plus
+whatever `HookError`-specific handling each already had), but a crate
+piling up several specific-variant comparisons against *either* enum adds
+up against the same 32-level ceiling.
 
 ### 5.2 API wrapper conventions
 

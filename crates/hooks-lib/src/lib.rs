@@ -19,6 +19,9 @@
 //! - [`xfl_unchecked::XFLUnchecked`] — a poison-propagating hot-path
 //!   counterpart to `XFL`: unchecked operators, one `validate()` call at
 //!   the end of a chain.
+//! - [`tx_type::TxType`] — a typed mirror of the raw `tt*` transaction-type
+//!   codes (`hooks_core::tts`), decoded from [`api::otxn::otxn_type`]'s
+//!   raw `u16`.
 //! - [`api`] — a `Result`-based wrapper for every Hook API function.
 //! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
 //!   terse macros for common patterns (see `macros.rs`).
@@ -53,6 +56,7 @@ mod errors;
 mod macros;
 pub mod state;
 pub mod static_cell;
+pub mod tx_type;
 pub mod txn;
 pub mod types;
 pub mod xfl;
@@ -89,7 +93,7 @@ pub use hooks_macros::paste as __paste;
 
 /// Common imports for hook developers: `use hooks_lib::prelude::*;` pulls in
 /// every `api::*` wrapper function, the fixed-size buffer type aliases, the
-/// [`xfl::XFL`]/[`xfl_unchecked::XFLUnchecked`] types,
+/// [`xfl::XFL`]/[`xfl_unchecked::XFLUnchecked`]/[`tx_type::TxType`] types,
 /// [`error::HookError`]/[`error::Result`], and the C-verbatim constant
 /// families (`sfXxx`, `ttXxx`, `lsfXxx`, `tfXxx`, and `hookapi.h`'s
 /// `KEYLET_*`/`COMPARE_*`/... constants). Deliberately does NOT re-export
@@ -107,6 +111,7 @@ pub mod prelude {
         state_get, state_set_typed, state_update_typed,
     };
     pub use crate::static_cell::HookStatic;
+    pub use crate::tx_type::TxType;
     pub use crate::types::*;
     pub use crate::xfl::XFL;
     pub use crate::xfl_unchecked::XFLUnchecked;
