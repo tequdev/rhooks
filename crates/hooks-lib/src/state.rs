@@ -135,10 +135,9 @@
 //!
 //! Both follow the identical shape: declare a pairing once, then call an
 //! accessor that takes **a reference to a key/name value** and resolves the
-//! paired type from it — no turbofish, no chance of a mismatch, and (unlike
-//! an earlier design of this crate's param layer) no return-type-driven
-//! inference either: the argument, not the call site's inferred return
-//! type, is what picks `Value`. The one real mechanism difference: a
+//! paired type from it — no turbofish, and no return-type-driven inference
+//! either: the argument, not the call site's inferred return type, is what
+//! picks `Value`. The one real mechanism difference: a
 //! `hook_param`/`otxn_param` is read-only from the reading hook's own
 //! perspective (`hook_param_set` writes a *different* hook's parameter, not
 //! this one) — so `TypedParamName`'s accessors are `_typed`-suffixed like

@@ -2,12 +2,13 @@
 //!
 //! Turns a plain, fixed-size, named-field struct into a fixed-offset,
 //! zero-cost `hooks_lib::convert::ToBytes` impl for use as a **composite
-//! Hook API parameter name** — the `Name` in
-//! `hooks_lib::convert::TypedParam`'s `type Name: ToBytes` (see
-//! `hooks_lib::hook_parameter!`/`hooks_lib::otxn_parameter!`'s composite
-//! form). See `hooks_lib::ParamName`'s doc comment (the public-facing
-//! re-export site) for the full user-facing writeup, grammar, and
-//! worked/compile-fail examples — this module only implements the codegen.
+//! Hook API parameter name** — satisfying
+//! `hooks_lib::convert::TypedParamName`'s `Self: ToBytes` supertrait bound,
+//! so `hooks_lib::hook_parameter!`/`hooks_lib::otxn_parameter!`'s composite
+//! form (`Name => Ty`) can implement `TypedParamName` for it directly. See
+//! `hooks_lib::ParamName`'s doc comment (the public-facing re-export site)
+//! for the full user-facing writeup, grammar, and worked/compile-fail
+//! examples — this module only implements the codegen.
 //!
 //! # Why a separate derive, not `#[derive(HookData)]`?
 //!
