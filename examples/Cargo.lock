@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "account-id-macro"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
 name = "emit-txn"
 version = "0.1.0"
 dependencies = [

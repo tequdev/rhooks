@@ -27,6 +27,10 @@ directory is prefixed) and matches what its own README, `Cargo.toml`, and
 | 08 | [`slot-ledger`](08_slot-ledger) | `otxn_slot`/`slot_subfield`/`slot`/`slot_size`: transaction field access via slots |
 | 09 | [`state-foreign`](09_state-foreign) | `state_foreign`: reading another (hook-parameter-configured) account's hook state |
 | 10 | [`emit-txn`](10_emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
+| 14 | [`account-id-macro`](14_account-id-macro) | `hooks_lib::account_id!`: compile-time r-address -> `AccountId` decode, cross-checked against `hook_account`/`util_accid`/`util_raddr` |
+
+(11 and 13 are reserved for other in-flight work — see git history/other
+branches — hence the jump from `10` to `14`.)
 
 ## 80+: Production hooks in Rust
 
@@ -180,7 +184,7 @@ node. Two source-level idioms avoid the compiler-generated loop (and the
   compiler-generated `memset`/`memcpy` loops the same way, for the
   initialization/copy case `buf_eq` doesn't cover.
 
-None of the ten examples need `--auto-guard` any more: `accept-all` and
+None of these examples need `--auto-guard`: `accept-all` and
 `state-counter` never had a compiler-generated loop to begin with (no
 buffer copy/compare in them is large enough, at this optimization level,
 for LLVM to prefer an out-of-line loop over inline stores); `emit-txn`
@@ -188,10 +192,13 @@ avoids one via the static-buffer idiom below; `firewall` avoids one via
 `buf_eq_20` above; `hook-params`, `errors`, `xfl-math`, and `state-foreign`
 have no buffer copy/compare large enough either; `slot-ledger` avoids one
 by checking `slot_size` before sizing its read buffer instead of always
-allocating room for the larger of the two `Amount` encodings; and
-`guard-patterns`' only loops are hand-written and already guarded in the
-source (see its own README for why, including an empirical check of what
-`guard_m!`'s `$n` does and doesn't protect against). `--auto-guard` remains
+allocating room for the larger of the two `Amount` encodings; `guard-patterns`'
+only loops are hand-written and already guarded in the source (see its own
+README for why, including an empirical check of what `guard_m!`'s `$n`
+does and doesn't protect against); and `account-id-macro`'s buffers (a
+20-byte `AccountId`, a 34-byte r-address) are compared with `buf_eq_20`/
+`buf_eq_34` and are far too small for LLVM to prefer an out-of-line loop
+regardless. `--auto-guard` remains
 available in `hooks-build` for cases none of these idioms cover — size
 `--default-maxiter` from the loop's true worst-case iteration count (found
 via disassembly), never trust the default.

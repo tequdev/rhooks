@@ -149,6 +149,14 @@ jobs:
           cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
           cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 
+      # account-id-macro (11 and 13 are reserved for other in-flight work,
+      # hence the jump to 14 — see examples/README.md): its util_raddr
+      # scratch buffer is a `static`, same idiom as emit-txn above.
+      - name: account-id-macro
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
+          cargo run -p hooks-build -- check examples/14_account-id-macro/out/account_id_macro.wasm
+
       # 80+: production hooks (examples/README.md's "80+" section). See
       # both crates' READMEs' "Toolchain limitation" sections for why
       # these two specifically need no extra build flags here despite
