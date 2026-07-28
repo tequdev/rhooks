@@ -14,7 +14,6 @@ use hooks_lib::{accept, hook, hook_errors, rollback};
 /// Reject a transaction whose `SourceTag` is this value — a stand-in for
 /// "known-bad" tag used by some other system integrating with this hook.
 const BLOCKED_SOURCE_TAG: u32 = 13;
-INTENTIONAL_CI_TEST_BREAKAGE
 
 /// Reject a native-amount transaction moving more than this many drops (100
 /// XAH) — a stand-in for a simple spend-limit policy.
