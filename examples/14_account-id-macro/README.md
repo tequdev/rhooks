@@ -14,7 +14,7 @@ const OWNER: AccountId = account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh");
 ```
 
 `account_id!` runs entirely inside the proc-macro (host side, at `cargo
-build` time): it base58-decodes the string (Ripple alphabet), verifies the
+build` time): it base58-decodes the string (XRPL alphabet), verifies the
 version byte and double-SHA256 checksum, and expands to a plain
 `AccountId([0xB5, 0xF7, ...])` literal — see `hooks_lib::account_id`'s doc
 comment for the full algorithm and `compile_fail` examples of what a

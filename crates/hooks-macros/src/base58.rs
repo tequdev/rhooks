@@ -1,4 +1,4 @@
-//! Host-side base58check decoding of a classic Ripple/Xahau r-address into
+//! Host-side base58check decoding of a classic XRPL/Xahau r-address into
 //! a validated 20-byte AccountID, entirely at proc-macro compile time (used
 //! by [`crate::account_id`]).
 //!
@@ -8,9 +8,9 @@
 
 use crate::sha256::sha256;
 
-/// Ripple's base58 alphabet — NOT Bitcoin's. Same 58 symbols, different
+/// XRPL's base58 alphabet — NOT Bitcoin's. Same 58 symbols, different
 /// character order; index 0 (`'r'`) is this alphabet's "zero" symbol
-/// (Ripple's analogue of Bitcoin base58's leading `'1'`).
+/// (XRPL's analogue of Bitcoin base58's leading `'1'`).
 const ALPHABET: &[u8; 58] = b"rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz";
 
 /// Length of a base58check-decoded r-address: 1 version byte + 20-byte
@@ -22,7 +22,7 @@ const DECODED_LEN: usize = 25;
 /// at the `account_id!` call site, so each one names exactly what was wrong.
 #[cfg_attr(test, derive(Debug))]
 pub(crate) enum DecodeError {
-    /// A character outside the Ripple base58 alphabet.
+    /// A character outside the XRPL base58 alphabet.
     InvalidChar(char),
     /// The decoded byte length wasn't exactly 25 (version + payload +
     /// checksum).
@@ -38,7 +38,7 @@ impl DecodeError {
     pub(crate) fn message(&self) -> String {
         match self {
             DecodeError::InvalidChar(c) => {
-                format!("account_id!: '{c}' is not a valid Ripple base58 character")
+                format!("account_id!: '{c}' is not a valid XRPL base58 character")
             }
             DecodeError::WrongLength(len) => format!(
                 "account_id!: decoded address is {len} bytes, expected 25 \
@@ -57,10 +57,10 @@ impl DecodeError {
     }
 }
 
-/// Decodes a classic Ripple/Xahau r-address string into its 20-byte
+/// Decodes a classic XRPL/Xahau r-address string into its 20-byte
 /// AccountID, verifying length, version byte, and checksum along the way.
 ///
-/// Algorithm: Ripple-alphabet base58 decode (big-integer-via-byte-array
+/// Algorithm: XRPL-alphabet base58 decode (big-integer-via-byte-array
 /// accumulation, exactly like Bitcoin base58check except for the alphabet
 /// and the leading-zero-symbol), then the standard base58check length /
 /// version / double-SHA256-checksum checks.
@@ -89,7 +89,7 @@ pub(crate) fn decode(address: &str) -> Result<[u8; 20], DecodeError> {
     Ok(account_id)
 }
 
-/// Plain base58 decode (Ripple alphabet), with leading zero-symbol (`'r'`)
+/// Plain base58 decode (XRPL alphabet), with leading zero-symbol (`'r'`)
 /// characters becoming leading zero bytes in the output — no length or
 /// checksum validation, that's [`decode`]'s job.
 // `ALPHABET[0]` is a constant index into a fixed 58-element array — always
@@ -137,7 +137,7 @@ mod tests {
 
     use super::*;
 
-    /// Test-only base58 (Ripple alphabet) encode, used to cross-check
+    /// Test-only base58 (XRPL alphabet) encode, used to cross-check
     /// [`base58_decode`] via a round trip — independent of the fixed
     /// expected-hex assertions below.
     fn base58_encode(bytes: &[u8]) -> String {
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn invalid_char() {
-        // '0' is not in the Ripple base58 alphabet.
+        // '0' is not in the XRPL base58 alphabet.
         assert!(matches!(
             decode("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyT0"),
             Err(DecodeError::InvalidChar('0'))

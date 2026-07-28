@@ -17,7 +17,7 @@
 //!   `txn_template!` used before this crate existed. `#[doc(hidden)]` and
 //!   re-exported from `hooks-lib` as `hooks_lib::__paste` — internal use
 //!   only, not part of the public API.
-//! - [`account_id`] — decodes a classic Ripple/Xahau r-address (base58check
+//! - [`account_id`] — decodes a classic XRPL/Xahau r-address (base58check
 //!   string) into an `AccountId` literal **entirely at compile time**, host
 //!   side, inside this macro. The expansion is a plain `AccountId([u8;
 //!   20])` literal, so it costs the compiled Hook wasm binary nothing extra
@@ -121,7 +121,7 @@ pub fn cbak(attr: TokenStream, item: TokenStream) -> TokenStream {
     entry_point("cbak", attr, item)
 }
 
-/// Decodes a classic Ripple/Xahau r-address (base58check string literal,
+/// Decodes a classic XRPL/Xahau r-address (base58check string literal,
 /// e.g. `account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh")`) into an
 /// `::hooks_lib::types::AccountId` literal, entirely at compile time (host
 /// side, inside this macro — see [`base58::decode`]/[`sha256::sha256`]).

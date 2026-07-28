@@ -28,7 +28,7 @@
 //! - [`hook`] / [`cbak`] — attribute macros that turn a plain, argument-less
 //!   `fn name() -> i64` into the wasm export shape the Hook host requires
 //!   (see `hooks-macros`'s crate doc comment).
-//! - [`account_id!`](account_id) — decodes a classic Ripple/Xahau r-address
+//! - [`account_id!`](account_id) — decodes a classic XRPL/Xahau r-address
 //!   into an [`types::AccountId`] literal entirely at compile time (zero
 //!   runtime/wasm-size cost).
 //! - [`hook_errors!`] / [`exit_on_err!`] — define a `#[repr(i64)]` user error
@@ -146,7 +146,7 @@ pub use hooks_macros::cbak;
 /// hooks_lib::account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdty");
 /// ```
 ///
-/// An invalid character (`'0'` is not in the Ripple base58 alphabet) fails
+/// An invalid character (`'0'` is not in the XRPL base58 alphabet) fails
 /// to compile:
 /// ```compile_fail
 /// hooks_lib::account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyT0");
