@@ -85,6 +85,11 @@ jobs:
           cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
           cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 
+      - name: account-id-macro
+        run: |
+          cargo run -p hooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
+          cargo run -p hooks-build -- check examples/14_account-id-macro/out/account_id_macro.wasm
+
       # 80+: production hooks (examples/README.md's "80+" section, needed
       # by e2e/test/reward.test.ts and govern.test.ts).
       - name: reward
