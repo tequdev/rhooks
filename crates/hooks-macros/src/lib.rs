@@ -17,6 +17,16 @@
 //!   `txn_template!` used before this crate existed. `#[doc(hidden)]` and
 //!   re-exported from `hooks-lib` as `hooks_lib::__paste` — internal use
 //!   only, not part of the public API.
+//! - [`account_id`] — decodes a classic Ripple/Xahau r-address (base58check
+//!   string) into an `AccountId` literal **entirely at compile time**, host
+//!   side, inside this macro. The expansion is a plain `AccountId([u8;
+//!   20])` literal, so it costs the compiled Hook wasm binary nothing extra
+//!   — no decode logic ships in the wasm at all. Implemented with
+//!   hand-written base58 decode ([`base58`]) + SHA-256 ([`sha256`]) rather
+//!   than adding `bs58`/`sha2` dependencies, for the same "don't add
+//!   mandatory build-time weight to every Hook crate" reasoning below.
+//!   Re-exported from `hooks-lib` as `hooks_lib::account_id`, which is
+//!   where the full usage docs live.
 //!
 //! # Why hand-rolled `proc_macro`, not `syn`/`quote`
 //!
@@ -32,6 +42,34 @@
 //! job simple enough for direct `proc_macro::TokenStream` walking. A
 //! std-only `proc_macro` crate with zero dependencies is the cheaper
 //! choice given how small and stable those shapes are.
+//!
+//! The same reasoning applies to [`account_id`]'s own dependencies: rather
+//! than adding `bs58` (base58 decode) and `sha2` (checksum verification) —
+//! each individually small, but each still a mandatory build-time cost paid
+//! by every hook crate, for algorithms that are, respectively, ~50 and
+//! ~100 lines of straightforward, well-specified code — both are
+//! hand-written here (see [`base58`] and [`sha256`]).
+//!
+//! This crate relaxes `clippy::arithmetic_side_effects` relative to the
+//! workspace default, for the same reason `hooks-build` does (see its own
+//! crate doc comment): unlike `hooks-core`/`hooks-lib`, which run *inside*
+//! the wasm guest, `hooks-macros` is ordinary host-side proc-macro tooling.
+//! Its arithmetic (SHA-256's fixed 64-round message schedule/compression
+//! loop, base58's per-digit big-integer carry propagation) is structurally
+//! bounded by small, fixed constants — nowhere near overflow — so a panic
+//! here would mean a genuine bug in this crate, not a reachable
+//! user-input-driven failure mode (malformed r-address *input* is instead
+//! turned into a `compile_error!` via [`base58::DecodeError`], never a
+//! panic — see [`account_id`]). `clippy::unwrap_used`, `clippy::expect_used`,
+//! `clippy::panic`, and `clippy::indexing_slicing` remain denied, as
+//! inherited from the workspace; indexing that genuinely cannot go out of
+//! bounds is instead allowed function-by-function, with a justification
+//! comment, matching `hooks-lib`'s own convention (see e.g. `macros.rs`'s
+//! `padded_bytes`).
+#![allow(clippy::arithmetic_side_effects)]
+
+mod base58;
+mod sha256;
 
 use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
 
@@ -81,6 +119,88 @@ pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn cbak(attr: TokenStream, item: TokenStream) -> TokenStream {
     entry_point("cbak", attr, item)
+}
+
+/// Decodes a classic Ripple/Xahau r-address (base58check string literal,
+/// e.g. `account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh")`) into an
+/// `::hooks_lib::types::AccountId` literal, entirely at compile time (host
+/// side, inside this macro — see [`base58::decode`]/[`sha256::sha256`]).
+///
+/// The full usage docs — worked examples, known-address pairs, and the
+/// `compile_fail` cases — live at `hooks_lib::account_id`'s doc comment
+/// (this crate's re-export point), since that's what Hook authors actually
+/// depend on and read docs for.
+///
+/// Expects exactly one token: a string literal. Anything else (missing,
+/// extra tokens, a non-string literal) or a string that fails to decode is
+/// reported as a `compile_error!` at the offending token, never a panic.
+#[proc_macro]
+pub fn account_id(input: TokenStream) -> TokenStream {
+    let mut iter = input.into_iter();
+
+    let literal = match iter.next() {
+        Some(TokenTree::Literal(lit)) => lit,
+        Some(other) => {
+            return err(
+                other.span(),
+                "account_id! expects a single string literal, e.g. account_id!(\"r...\")",
+            );
+        }
+        None => {
+            return err(
+                Span::call_site(),
+                "account_id! expects a single string literal, e.g. account_id!(\"r...\")",
+            );
+        }
+    };
+
+    if let Some(extra) = iter.next() {
+        return err(
+            extra.span(),
+            "account_id! expects a single string literal, e.g. account_id!(\"r...\") \
+             (unexpected extra tokens)",
+        );
+    }
+
+    let span = literal.span();
+    let address = match unquote_str(&literal.to_string()) {
+        Some(s) => s,
+        None => {
+            return err(
+                span,
+                "account_id! expects a single string literal, e.g. account_id!(\"r...\")",
+            );
+        }
+    };
+
+    let bytes = match base58::decode(&address) {
+        Ok(bytes) => bytes,
+        Err(e) => return err(span, &e.message()),
+    };
+
+    let src = format!(
+        "::hooks_lib::types::AccountId([{}])",
+        bytes
+            .iter()
+            .map(|b| format!("0x{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    src.parse::<TokenStream>()
+        .unwrap_or_else(|_| err(span, "hooks-macros: internal account_id! expansion failed"))
+}
+
+/// Strips a `proc_macro::Literal`'s `to_string()` output down to a plain
+/// Rust `String`, if it is a plain (unprefixed, unsuffixed) string literal —
+/// i.e. exactly `"..."`, escape sequences included verbatim as written
+/// (r-addresses never contain characters needing escaping, so no unescaping
+/// is attempted; a `"..."` string with backslashes would round-trip through
+/// [`base58::decode`] as literal backslash characters, which simply fail to
+/// decode as base58 like any other invalid character). Returns `None` for
+/// anything else (raw strings, byte strings, non-string literals, ...).
+fn unquote_str(text: &str) -> Option<String> {
+    let inner = text.strip_prefix('"')?.strip_suffix('"')?;
+    Some(inner.to_string())
 }
 
 /// Shared implementation for [`hook`] and [`cbak`]: validates the annotated
