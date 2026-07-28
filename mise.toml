@@ -81,11 +81,19 @@ cargo run -p hooks-build -- check examples/09_state-foreign/out/state_foreign.wa
 cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
 cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 
-# account-id-macro (11 and 13 are reserved for other in-flight work, hence
-# the jump to 14 — see examples/README.md): its util_raddr scratch buffer
-# is a `static` (hooks_lib::static_cell::HookStatic), same "avoid a
-# compiler-generated zero-init loop" idiom as emit-txn above — a bare
-# `[0u8; 34]` stack local was the one thing that needed it here.
+# keylets (11 and 12 are reserved for other in-flight work — see
+# examples/README.md): 26 typed keylet_xxx helpers, one per KEYLET_*
+# constant. Needs --auto-guard --default-maxiter 34 (Keylet is 34 bytes,
+# over this toolchain's ~32-byte inlined-zero-init threshold) plus the
+# opt-level = 3 package override in examples/Cargo.toml (26 calls in
+# sequence) — see its own README's "Toolchain limitation" section.
+cargo run -p hooks-build -- build --manifest-path examples/13_keylets/Cargo.toml --auto-guard --default-maxiter 34
+cargo run -p hooks-build -- check examples/13_keylets/out/keylets.wasm
+
+# account-id-macro: its util_raddr scratch buffer is a `static`
+# (hooks_lib::static_cell::HookStatic), same "avoid a compiler-generated
+# zero-init loop" idiom as emit-txn above — a bare `[0u8; 34]` stack local
+# was the one thing that needed it here.
 cargo run -p hooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
 cargo run -p hooks-build -- check examples/14_account-id-macro/out/account_id_macro.wasm
 

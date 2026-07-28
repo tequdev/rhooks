@@ -121,7 +121,22 @@ pub fn util_keylet<B: AsMut<[u8]> + ?Sized>(
 
 /// Compute a Keylet of `keylet_type` from up to six `u32` components
 /// (`a`..`f`; unused components are `0` per the Hook API convention for the
-/// given keylet type — see `hooks_core::KEYLET_*`).
+/// given keylet type — see `hooks_core::KEYLET_*`, or, for a precisely
+/// typed per-`KEYLET_*`-type signature instead of six same-typed `u32`
+/// slots, [`crate::api::keylet`]).
+///
+/// # Toolchain note: `Keylet` is 34 bytes
+///
+/// This function's own `Keylet::default()` scratch buffer is 34 bytes —
+/// over the ~32-byte threshold (see [`crate::state`]'s
+/// `MAX_TYPED_STATE_LEN` doc comment) past which this toolchain's
+/// `wasm32v1-none` codegen stops inlining a zero-init as plain stores and
+/// instead emits a call to the shared `memset` builtin, an unguarded wasm
+/// `loop` the Hook API's guard checker rejects. A hook that calls this
+/// function (directly, or via any [`crate::api::keylet`] helper) needs
+/// `hooks-build build --auto-guard --default-maxiter 34` (sized to this
+/// exact buffer) to pass the guard checker — see `examples/13_keylets`'s
+/// README for a worked build command and measured cost.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 pub fn util_keylet_buf(

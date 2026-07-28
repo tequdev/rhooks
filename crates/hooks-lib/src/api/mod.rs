@@ -9,11 +9,22 @@
 //! `float_one`, `float_mantissa`, `float_sign`, `float_int`, `float_log`,
 //! `float_root`) are wrapped privately as [`crate::xfl::XFL`] methods
 //! instead — see `xfl.rs`.
+//!
+//! [`keylet`] is the one exception to "one module per Hook API function":
+//! it wraps a *single* underlying function, [`util::util_keylet`] (one host
+//! call handling all 26 `KEYLET_*` types via six untyped `u32` components),
+//! as 26 separate, precisely-typed functions — one per
+//! [`hooks_core::consts`] `KEYLET_*` constant — so each keylet type's own
+//! argument shape (which components are pointers, which are plain
+//! integers, how many are actually used) is encoded in its function
+//! signature instead of six same-typed, per-type-meaning slots. See
+//! [`keylet`]'s own module doc comment for the full rationale.
 
 pub mod control;
 pub mod etxn;
 pub mod float;
 pub mod hook_ctx;
+pub mod keylet;
 pub mod ledger;
 pub mod otxn;
 pub mod slot;
@@ -26,6 +37,7 @@ pub use control::*;
 pub use etxn::*;
 pub use float::*;
 pub use hook_ctx::*;
+pub use keylet::*;
 pub use ledger::*;
 pub use otxn::*;
 pub use slot::*;

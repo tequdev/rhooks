@@ -11,6 +11,7 @@ members = [
     "08_slot-ledger",
     "09_state-foreign",
     "10_emit-txn",
+    "13_keylets",
     "14_account-id-macro",
     "80_reward",
     "81_govern",
@@ -58,4 +59,11 @@ strip = "symbols"
 [profile.release.package.reward]
 opt-level = 3
 [profile.release.package.govern]
+opt-level = 3
+# `keylets` computes 25 of the 26 `KEYLET_*` types in one straight-line
+# sequence (`compute`/`store`, one pair per type — see its own README's
+# "Toolchain limitation" section) — the same "too many inlined
+# error-handling paths at `opt-level = z`" nesting-depth problem
+# `reward`/`govern` hit above.
+[profile.release.package.keylets]
 opt-level = 3

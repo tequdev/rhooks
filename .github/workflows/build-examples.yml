@@ -54,7 +54,7 @@ jobs:
           # pick it up automatically, with no further workflow edits.
           declare -A EXTRA_ARGS=(
             # [11_gas-counter]="--api-version 1"
-            # [13_keylets]="--auto-guard --default-maxiter 34"
+            [13_keylets]="--auto-guard --default-maxiter 34"
           )
 
           matrix='[]'

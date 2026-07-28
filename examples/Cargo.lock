@@ -75,6 +75,13 @@ name = "hooks-macros"
 version = "0.0.0"
 
 [[package]]
+name = "keylets"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
 name = "reward"
 version = "0.1.0"
 dependencies = [
