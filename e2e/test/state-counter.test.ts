@@ -1,12 +1,17 @@
 // e2e: examples/02_state-counter against a standalone Xahau node.
 //
-// `hook()` reads an 8-byte LE u64 counter from the short, literal state
-// key `b"counter"` (7 bytes, sent to the host as-is - no local padding;
-// see `hooks_lib::state`'s module doc comment, "Key length and padding").
-// The host itself left-pads a key shorter than 32 bytes to its fixed
-// storage width, so the real on-ledger HookState key is "counter"'s 7
-// ASCII bytes right-aligned in 32 bytes, zero-padded on the *left*.
-// Defaults to 0, increments it, writes it back, and calls
+// `hook()` reads a `u64` counter through hooks-lib's typed storage layer
+// (`state_get_typed`/`state_set_typed`), keyed by `CounterKey { name: [u8;
+// 7] }` (a `#[derive(HookKey)]` struct wrapping the literal `*b"counter"`)
+// paired with `u64` via `hook_state!`. `HookKey` sends a struct at its own
+// real encoded length - 7 bytes here, no local padding - so this lands on
+// the exact same on-ledger slot a bare `*b"counter"` array key would (see
+// `hooks_lib::state`'s module doc comment, "Key length and padding", and
+// `examples/02_state-counter/README.md`'s "Same slot as before" section).
+// The host itself left-pads that 7-byte key to its fixed 32-byte storage
+// width, so the real on-ledger HookState key is "counter"'s 7 ASCII bytes
+// right-aligned in 32 bytes, zero-padded on the *left*. Defaults to 0,
+// increments it, writes it back, and calls
 // `accept!(b"state-counter: incremented", next as i64)` - the new count
 // becomes the HookReturnCode. HookOn is Invoke.
 import {
@@ -32,13 +37,19 @@ import { calculateHookOn, type TransactionMetadata } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-state-counter'
-// hooks-build's printed worst case for state_counter.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 58
+// hooks-build's printed worst case for state_counter.wasm (`mise run
+// build-examples`) - 254, up from 58 for the previous, hand-rolled-buffer
+// version of this hook (see the README's "Cost of the typed layer, here"
+// section): `state_get_typed`/`state_set_typed` go through `crate::state`'s
+// generic 32-byte-scratch-buffer machinery instead of a plain 8-byte
+// buffer over the raw `state`/`state_set` calls.
+const WORST_CASE_INSTRUCTIONS = 254
 
-// STATE_KEY = b"counter" (7 bytes), sent to the host as-is; the host
-// left-pads a short key to its fixed 32-byte storage width - so the real
-// on-ledger key is "counter" right-aligned in 32 bytes, zero-padded on
-// the left.
+// CounterKey { name: *b"counter" } (7 bytes), sent to the host at its own
+// real length (HookKey's derive; see the README's "Same slot as before"
+// section); the host left-pads a short key to its fixed 32-byte storage
+// width - so the real on-ledger key is "counter" right-aligned in 32
+// bytes, zero-padded on the left.
 const COUNTER_KEY = Buffer.from('counter', 'ascii')
   .toString('hex')
   .toUpperCase()

@@ -829,6 +829,31 @@ macro_rules! __state_keys_step {
 ///     Err(HookError::NotImplemented)
 /// );
 /// ```
+///
+/// # `$Key` must be a *local* type — a bare `[u8; N]` does not work here
+///
+/// `hook_state!` expands to `impl TypedStateKey for $Key { .. }`, and Rust's
+/// orphan rule requires either the trait or the type being implemented to
+/// be local to the current crate. From a hook crate (which is never
+/// `hooks_lib` itself), [`TypedStateKey`] is a foreign trait, so `$Key`
+/// must be a type the hook crate itself defines — in practice, a
+/// `#[derive(HookKey)]` struct (see [`crate::HookKey`]), even a
+/// single-field one wrapping a plain `[u8; N]`. A bare `[u8; N]` (a `core`
+/// type, not local to the hook crate either) fails to compile with rustc's
+/// own orphan-rule diagnostic (`E0117`) — [`crate::state::state_get`]/
+/// [`crate::state::state_set_loose`] (the *loose*, independently-typed
+/// accessors) remain the right choice for a bare array key that has no
+/// business being paired with exactly one value type:
+///
+/// ```compile_fail
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::hook_state;
+///
+/// // ERROR (E0117): neither `TypedStateKey` nor `[u8; 7]` is local to
+/// // this crate — wrap the key in a local `#[derive(HookKey)]` struct
+/// // instead (see the example above).
+/// hook_state!([u8; 7] => u64);
+/// ```
 #[macro_export]
 macro_rules! hook_state {
     ($Key:ty => $Value:ty) => {

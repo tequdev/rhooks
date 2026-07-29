@@ -1,16 +1,54 @@
 # state-counter
 
-Maintains a persistent counter in Hook state: reads the current 8-byte
-little-endian count under a short, literal state key (defaulting to zero
-if absent), increments it, writes it back with `state_set`, and accepts
-with the new count as the return-code payload.
+Maintains a persistent counter in Hook state: reads the current `u64`
+count (defaulting to zero if absent or of unexpected size), increments it,
+writes it back, and accepts with the new count as the return-code
+payload.
 
-The state key is just `b"counter"` (7 bytes), sent to the host exactly
-as-is — the same idiom as the C hook `state(&v, 8, "counter", 7)`. The Hook
-API itself accepts any key from 1 to 32 bytes and left-pads a shorter one
-internally, so there is no need to build a full, locally zero-padded
-32-byte key by hand (see `hooks_lib::state`'s module doc comment, "Key
-length and padding," for the full rule).
+This is the minimal tutorial for `hooks_lib`'s **typed storage layer**
+(`crate::state`'s `state_get_typed`/`state_set_typed`, built on
+`#[derive(HookKey)]` and `hook_state!`) — no hand-rolled `[0u8; 8]` buffer,
+no manual `from_le_bytes`/`to_le_bytes`, no length check:
+
+```rust
+#[derive(HookKey, Clone, Copy)]
+struct CounterKey {
+    name: [u8; 7],
+}
+
+hook_state!(CounterKey => u64);
+
+const STATE_KEY: CounterKey = CounterKey { name: *b"counter" };
+
+let count = state_get_typed(&STATE_KEY).unwrap_or(None).unwrap_or(0);
+let next = count.wrapping_add(1);
+state_set_typed(&STATE_KEY, &next);
+```
+
+## Why a one-field struct, not a bare `[u8; 7]` key
+
+`CounterKey { name: *b"counter" }` encodes (via `HookKey`'s derive) to
+exactly the same 7 bytes a bare `*b"counter"` array key would — see
+"Same slot as before" below — so this isn't about the bytes on the wire.
+It's required by Rust's **orphan rule**: `hook_state!(CounterKey => u64)`
+expands to `impl TypedStateKey for CounterKey`, and implementing a
+`hooks_lib` trait for a bare `[u8; 7]` (a `core` type, foreign to this
+hook crate) from outside `hooks_lib` itself is not allowed — only
+implementing it for a type *this crate defines* is. See
+`hooks_lib::hook_state!`'s doc comment for the full explanation and a
+`compile_fail` example of the bare-array case.
+
+## Same slot as before: real-length encoding, host left-pads
+
+`CounterKey`'s only field is a plain `[u8; 7]`, and `#[derive(HookKey)]`
+sends a struct at its own real encoded length (7 bytes here — see
+`hooks_lib::state`'s module doc comment, "Key length and padding," and
+`docs/DESIGN.md` §5.7) — never locally zero-padded up to the fixed 32-byte
+key space. That is exactly the same 7 bytes a bare `*b"counter"` array key
+sends (this example's previous form, before switching to the typed
+layer), so `CounterKey { name: *b"counter" }` lands on the identical,
+host-left-padded on-ledger slot — the same idiom as the C hook
+`state(&v, 8, "counter", 7)`.
 
 ## Build
 
@@ -28,3 +66,20 @@ No extra flags needed — this example is guard-clean without `--auto-guard`.
 | variant | code | meaning |
 |---|---|---|
 | `StateSetFailed` | 1 | `state_set` failed to persist the incremented counter |
+
+## Cost of the typed layer, here
+
+The typed layer's convenience (no hand-written buffer/length-check/
+byte-order code) isn't free: `state_get_typed`/`state_set_typed` go
+through `crate::state`'s generic, 32-byte-scratch-buffer machinery
+(`MAX_TYPED_STATE_LEN`), rather than this hook reading/writing a plain
+8-byte buffer via the raw `state`/`state_set` calls directly. Measured
+(`hooks-build build`/`check`): 254 worst-case instructions / 740 bytes,
+versus 58 / 349 for the previous, hand-rolled-buffer version of this same
+hook. Still guard-clean at the source level — no `--auto-guard`/
+`--default-maxiter` needed. For a hook this simple (one `u64` counter,
+one key), the raw layer is the cheaper choice; this example uses the
+typed layer anyway because its purpose is to be the smallest possible
+tutorial for it — see `examples/12_typed-data` for the typed layer's
+actual selling point (a *composite*, multi-field key/value pair, where
+hand-packing would be far more error-prone than the cost shown here).
