@@ -1,5 +1,22 @@
 //! Information about the originating transaction (the transaction that
 //! triggered this hook invocation).
+//!
+//! # Decoding a raw protocol field: use `from_be_bytes`, not `FromBytes`
+//!
+//! [`otxn_field_exact`]'s raw bytes are Xahau Binary — the protocol's own
+//! **big-endian** wire format (see DESIGN.md §5.6, "Endianness
+//! conventions") — never this crate's little-endian [`crate::convert::FromBytes`]
+//! trait, which is the convention for *hook-private* data (state/param
+//! values this crate's own typed layer wrote), a completely different
+//! domain. A numeric protocol field read this way — an `Amount`/native
+//! currency field, say — must be decoded with an explicit
+//! `u64::from_be_bytes(...)` call at the use site. This is not a new
+//! pattern: `examples/03_hook-params/src/lib.rs` and
+//! `examples/04_errors/src/lib.rs` already do exactly this
+//! (`u64::from_be_bytes(raw) & !NATIVE_AMOUNT_FLAG_BITS` on an
+//! `otxn_field_exact::<[u8; 8]>(sfXxx)`/`hook_param_exact` result) — this
+//! doc comment just makes that existing precedent the documented norm
+//! rather than something each call site has to rediscover.
 
 use crate::convert::{FixedRead, TypedParamName};
 use crate::error::{Result, res};

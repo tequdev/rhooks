@@ -150,6 +150,15 @@
 //! [`crate::convert::TypedParamName`]'s doc comment for the reciprocal
 //! comparison and its own zero-cost story (parameter names have a cost
 //! dimension state keys don't: see that doc comment's "Zero-cost" section).
+//!
+//! # Endianness
+//!
+//! Every value encoded/decoded through this module's [`crate::convert::ToBytes`]/
+//! [`crate::convert::FromBytes`] traits is little-endian — see
+//! [`crate::convert`]'s module doc comment and DESIGN.md §5.6 ("Endianness
+//! conventions") for the full two-world rule this is one half of, and
+//! [`crate::api::state::state_u64`] for the big-endian counterpart this
+//! module's typed layer deliberately does not use.
 
 use crate::convert::{FromBytes, ToBytes};
 use crate::error::{HookError, Result};

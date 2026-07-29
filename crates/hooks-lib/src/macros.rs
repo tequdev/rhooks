@@ -146,6 +146,13 @@ pub const fn padded_bytes<const N: usize>(src: &[u8]) -> [u8; N] {
 /// The canonical use is building fixed-size state keys and namespaces from
 /// short names.
 ///
+/// This right-pads (`src` at the front, zero bytes at the end) — this
+/// crate's own convention for building a `StateKey`/`NameSpace`-shaped
+/// constant. For the host's own convention when a short key is passed
+/// directly (as a C hook does) — the host **left**-pads it instead — see
+/// [`pad_left!`](crate::pad_left) and DESIGN.md §5.6 ("Endianness
+/// conventions").
+///
 /// # Examples
 /// ```
 /// use hooks_lib::pad;
@@ -169,5 +176,76 @@ pub const fn padded_bytes<const N: usize>(src: &[u8]) -> [u8; N] {
 macro_rules! pad {
     ($value:expr) => {
         const { $crate::padded_bytes($value) }
+    };
+}
+
+/// Compile-time zero-padding helper backing [`pad_left!`](crate::pad_left).
+///
+/// Copies `src` into the *end* of a zeroed `[u8; N]` — the mirror image of
+/// [`padded_bytes`], which copies `src` into the start. The `pad_left!`
+/// macro wraps every call in an inline `const` block, so the `assert!` and
+/// the indexing below are compile-time checks — they can never become
+/// runtime panics.
+#[doc(hidden)]
+#[allow(clippy::indexing_slicing)] // in-bounds by the assert, const-evaluated only
+pub const fn padded_bytes_left<const N: usize>(src: &[u8]) -> [u8; N] {
+    assert!(
+        src.len() <= N,
+        "pad_left!: source is larger than the destination"
+    );
+
+    let mut output = [0u8; N];
+    let offset = N.wrapping_sub(src.len());
+    let mut i = 0;
+
+    while i < src.len() {
+        output[offset.wrapping_add(i)] = src[i];
+        i = i.wrapping_add(1);
+    }
+
+    output
+}
+
+/// Zero-pad a constant byte string to a fixed-size array, at compile time —
+/// on the **left** (zero bytes first, `src` at the end), the mirror image
+/// of [`pad!`](crate::pad).
+///
+/// The host itself left-pads a state/param key shorter than the fixed key
+/// width (32 bytes for hook state, 1–32 bytes for hook/otxn parameters) —
+/// see DESIGN.md §5.6 ("Endianness conventions"). Reach for `pad_left!`,
+/// not [`pad!`](crate::pad), when a Rust hook needs to address the exact
+/// same state slot a C hook reaches by passing a short raw key: `pad!`
+/// building the same short name instead would produce a *different*
+/// 32-byte key (value at the front, not the end), pointing at a different
+/// state entry.
+///
+/// Same compile-time-only shape as [`pad!`](crate::pad): the array length
+/// is inferred from context, the argument must be a constant expression, a
+/// source longer than the destination is a compile error, and the padded
+/// array is baked into the binary at compile time (no runtime copy/zeroing
+/// loop, so no loop guard is needed for it).
+///
+/// # Examples
+/// ```
+/// use hooks_lib::pad_left;
+/// use hooks_lib::types::StateKey;
+///
+/// let padded: [u8; 10] = pad_left!(b"hello");
+/// assert_eq!(padded, [0, 0, 0, 0, 0, b'h', b'e', b'l', b'l', b'o']);
+///
+/// // The same short C-hook-style key, reproduced so a Rust hook lands on
+/// // the exact same state slot.
+/// const KEY: StateKey = StateKey(pad_left!(b"counter"));
+/// assert!(KEY.ends_with(b"counter"));
+/// ```
+///
+/// A source longer than the destination fails to compile:
+/// ```compile_fail
+/// let too_small: [u8; 4] = hooks_lib::pad_left!(b"hello");
+/// ```
+#[macro_export]
+macro_rules! pad_left {
+    ($value:expr) => {
+        const { $crate::padded_bytes_left($value) }
     };
 }
