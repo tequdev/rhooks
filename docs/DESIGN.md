@@ -655,6 +655,32 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
 - Panic handler behind default feature `panic-handler`:
   `rollback(b"panic", ...)` then `unreachable` — examples just work; users
   embedding differently can disable it.
+- `hook_state!`/`hook_parameter!`/`otxn_parameter!` — a declaration-macro
+  **grammar staircase** of five forms (from a fully-fixed zero-sized
+  key/name down to a fully composite, runtime-constructed one, plus a
+  backward-compatible "pair two already-declared types" form; parameters
+  keep one more backward-compatible comma-form besides), each declaring in
+  one line what previously took a separate `#[derive(HookKey)]`/
+  `#[derive(HookData)]`/`#[derive(ParamName)]`/`#[derive(ParamValue)]`
+  struct plus a `Key => Value` pairing. See `hooks_lib::hook_state!`'s doc
+  comment for the full grammar and worked examples.
+  **Function-like `#[proc_macro]`s in `hooks-macros`, not `macro_rules!`**
+  (a change from the crate's original design): the grammar needs real
+  lookahead disambiguation between forms (a `{`/bare `=`/`,`/second bare
+  identifier immediately after the declared name) that `macro_rules!`
+  transcribers can't express directly, and reuses the same struct-shape
+  parsing/codegen `#[derive(HookKey)]`/`#[derive(HookData)]`/
+  `#[derive(ParamName)]`/`#[derive(ParamValue)]` already provide (see
+  `hooks-macros`'s `decl_pair` module) rather than duplicating it in a
+  macro-by-example. Still hand-rolled `proc_macro::TokenStream` parsing, no
+  `syn`/`quote` (same reasoning as `#[hook]`/`#[cbak]` above): a flat,
+  randomly-indexable token buffer with 2–3-token bounded lookahead is
+  enough to disambiguate every form. Every declared type name (a key/name
+  struct, or an inline value definition) must be `UpperCamelCase`, checked
+  at the macro invocation with a `compile_error!` naming the offending
+  identifier — the one piece of validation `macro_rules!` categorically
+  cannot do (there is no way to inspect an identifier's own spelling from
+  inside a `macro_rules!` matcher).
 
 ### 5.5 Emitted-transaction templates: `txn_template!` (user-defined layouts)
 
