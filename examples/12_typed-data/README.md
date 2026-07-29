@@ -236,7 +236,7 @@ hand-packed functions above (everything else byte-for-byte identical):
 
 > **Note:** this table predates `DepositKey`'s `HookKey`-derived
 > `StateKeyEncode::encode()` sending its own real length (21 bytes) instead
-> of a locally zero-padded 32 (see `docs/DESIGN.md` §5.6) — both rows would
+> of a locally zero-padded 32 (see `docs/DESIGN.md` §5.7) — both rows would
 > shift down slightly if re-measured today; the relative comparison
 > (derived cheaper than hand-packed) is unaffected. The full committed
 > hook's current, directly measured numbers (including `AdminName`) are
@@ -430,7 +430,7 @@ composite-name-keyed `hook_param` lookup (the struct encode itself, plus
 the extra branch/rollback path checking it). Still guard-clean at the
 source level: no `--auto-guard`/`--default-maxiter` needed either way.
 `DepositKey`'s `HookKey` derive now sends `StateKeyEncode::encode()`'s real
-21-byte length instead of a locally zero-padded 32 (`docs/DESIGN.md` §5.6),
+21-byte length instead of a locally zero-padded 32 (`docs/DESIGN.md` §5.7),
 shaving 6 instructions/10 bytes off the "as committed" row (the
 no-`AdminName` baseline above predates that change too and wasn't
 re-measured, but would shift by roughly the same amount).

@@ -32,6 +32,9 @@
 //!   write nothing and return `0` instead (mirrors this crate's other
 //!   caller-buffer wrappers, which rely on the host's own bounds checking
 //!   rather than panicking locally).
+//!
+//! See DESIGN.md §5.6 ("Endianness conventions") for the full two-world
+//! rule this module's little-endian convention is one half of.
 
 use crate::error::{HookError, Result};
 
