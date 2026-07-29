@@ -30,6 +30,7 @@ const examples = {
   '08_slot-ledger': 'slot_ledger',
   '09_state-foreign': 'state_foreign',
   '10_emit-txn': 'emit_txn',
+  '13_keylets': 'keylets',
   '14_account-id-macro': 'account_id_macro',
   '80_reward': 'reward',
   '81_govern': 'govern',

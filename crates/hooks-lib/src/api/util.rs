@@ -121,7 +121,28 @@ pub fn util_keylet<B: AsMut<[u8]> + ?Sized>(
 
 /// Compute a Keylet of `keylet_type` from up to six `u32` components
 /// (`a`..`f`; unused components are `0` per the Hook API convention for the
-/// given keylet type — see `hooks_core::KEYLET_*`).
+/// given keylet type — see `hooks_core::KEYLET_*`, or, for a precisely
+/// typed per-`KEYLET_*`-type signature instead of six same-typed `u32`
+/// slots, [`crate::api::keylet`]).
+///
+/// # Toolchain note: `Keylet` is 34 bytes
+///
+/// This function's own `Keylet::default()` scratch buffer is 34 bytes.
+/// `wasm32v1-none` codegen only inlines a local zero-init as plain stores
+/// up to a fixed byte threshold — **32 bytes** at `opt-level = "z"`/`"s"`,
+/// **64 bytes** at `opt-level = 1`/`2`/`3` — past which it instead emits a
+/// call to the shared `memset` builtin, an unguarded wasm `loop` the Hook
+/// API's guard checker rejects (see `docs/DESIGN.md`'s §2 C6 for the full
+/// measurement). At 34 bytes, `Keylet` sits *above* the `"z"`/`"s"`
+/// threshold but *below* the `opt-level = 1`/`2`/`3` one: a hook crate
+/// built at `opt-level = "z"`/`"s"` (this crate's own recommended default
+/// for a Hook binary — see [`crate::state`]'s `MAX_TYPED_STATE_LEN` doc
+/// comment) needs `hooks-build build --auto-guard --default-maxiter 34`
+/// (sized to this exact buffer) for any hook that calls this function
+/// (directly, or via any [`crate::api::keylet`] helper) to pass the guard
+/// checker; a hook crate built at `opt-level = 1`/`2`/`3` needs neither —
+/// `examples/13_keylets` (this repo's own examples workspace defaults to
+/// `opt-level = 3`) needs no extra build flags at all.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 pub fn util_keylet_buf(
