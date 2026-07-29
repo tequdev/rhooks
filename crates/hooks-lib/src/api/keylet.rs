@@ -32,7 +32,9 @@
 //! [`util_keylet_buf`]'s own doc comment for a toolchain note every caller
 //! of *any* function in this module needs (a 34-byte `Keylet` scratch
 //! buffer needs `--auto-guard --default-maxiter 34` to build past the
-//! guard checker).
+//! guard checker at `opt-level = "z"`/`"s"` — not at `opt-level =
+//! 1`/`2`/`3`, where 34 bytes already builds clean; see `docs/DESIGN.md`'s
+//! §2 C6).
 //!
 //! # Source of truth
 //!

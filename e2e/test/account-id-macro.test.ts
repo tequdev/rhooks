@@ -36,7 +36,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 const namespace = 'rhooks-e2e-account-id-macro'
 // hooks-build's printed worst case for account_id_macro.wasm (`mise run
 // build-examples`).
-const WORST_CASE_HOOK_INSTRUCTIONS = 365
+const WORST_CASE_HOOK_INSTRUCTIONS = 294
 
 describe('account-id-macro', () => {
   let testContext: XrplIntegrationTestContext

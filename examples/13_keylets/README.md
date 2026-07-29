@@ -68,41 +68,42 @@ None.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/13_keylets/Cargo.toml --auto-guard --default-maxiter 34
+cargo run -p hooks-build -- build --manifest-path examples/13_keylets/Cargo.toml
 ```
 
-Both `--auto-guard --default-maxiter 34` **and** the `opt-level = 3`
-package override in `examples/Cargo.toml` are required — see "Toolchain
-limitation" below for why.
+No extra flags — see "Toolchain note" below for why this needs neither
+`--auto-guard` nor a per-package `opt-level` override, unlike an earlier
+version of this example.
 
-## Toolchain limitation: `Keylet`'s 34 bytes, and 26 calls in sequence
+## Toolchain note: `Keylet`'s 34 bytes, at this workspace's `opt-level = 3`
 
-Two independent constraints stack here:
+`util_keylet_buf` (which every `keylet_xxx` helper is built on)
+zero-initializes a local `Keylet::default()` scratch buffer — 34 bytes —
+before the host call fills it. `wasm32v1-none` codegen only keeps a local
+zero-init as plain inlined stores up to a fixed byte threshold that
+depends on `opt-level`: **32 bytes** at `"z"`/`"s"`, but **64 bytes** at
+`1`/`2`/`3` (see `docs/DESIGN.md`'s §2 C6 for the full measurement and
+rationale). `examples/Cargo.toml`'s workspace-wide `opt-level = 3`
+default puts `Keylet`'s 34 bytes comfortably under that 64-byte ceiling,
+so the zero-init lowers to plain stores — never the unguarded `memset`
+call a `"z"`/`"s"` build of the same source would need
+`--auto-guard --default-maxiter 34` to guard (see
+`hooks_lib::api::util::util_keylet_buf`'s own doc comment for that case).
 
-1. **`Keylet` is 34 bytes.** `util_keylet_buf` (which every `keylet_xxx`
-   helper is built on) zero-initializes a local `Keylet::default()`
-   scratch buffer before the host call fills it. This toolchain's
-   `wasm32v1-none` codegen keeps a zero-init as plain inlined stores only
-   up to ~32 bytes (see `hooks_lib::state`'s `MAX_TYPED_STATE_LEN` doc
-   comment); at 34 bytes it lowers to a call to the shared `memset`
-   builtin instead — an unguarded wasm `loop` the Hook API's guard checker
-   rejects outright. `--auto-guard --default-maxiter 34` (sized to that
-   exact buffer) inserts the missing guard.
-2. **26 calls in one straight-line sequence.** Guarding that loop adds
-   nesting, and — the same "too many inlined error-handling paths" problem
-   `examples/80_reward`/`81_govern`'s own READMEs document in detail —
-   `hooks-build`'s Guard-type pipeline inlines every function in this
-   crate into `hook()`, so 26 near-identical `compute`/`store` call sites'
-   error-handling paths compound past the 32-level block/loop/if nesting
-   limit at `opt-level = "z"`. `opt-level = 3` (this crate's
-   `[profile.release.package.keylets]` override in `examples/Cargo.toml`)
-   resolves it the same way it does for `reward`/`govern`.
-
-Measured (`hooks-build build --auto-guard --default-maxiter 34`, with the
-`opt-level = 3` override in place, 25 of the 26 `keylet_xxx` calls actually
-exercised — see "e2e verification scope" below for why not all 26):
-**3637** worst-case instructions, 1 nesting level after `hooks-build`'s own
-ladder-flattening pass, 8436 bytes.
+Measured (25 of the 26 `keylet_xxx` calls actually exercised — see "e2e
+verification scope" below for why not all 26): **4150** worst-case
+instructions, 1 nesting level after `hooks-build`'s own ladder-flattening
+pass, 9638 bytes — up from an earlier, `opt-level = "z"`-plus-per-package-
+override measurement of 3637/8436 taken before this workspace's default
+switched to `opt-level = 3` everywhere (`docs/DESIGN.md`'s §2 C6): a
+per-package override that raised only *this* crate's own optimization
+level produced measurably different inlining than the same level applied
+workspace-wide (`hooks-lib`/`hooks-core` now also build at `opt-level =
+3`), and this hook's 25 near-identical `compute`/`store` call sites
+compound that difference more than most examples do. Still comfortably
+under the 65,535-byte `SetHook` limit, and still guard-clean (no
+`--auto-guard` needed) — see the workspace root's `docs/DESIGN.md` §2 C6
+for the full before/after table across all examples.
 
 ## Expected behavior
 

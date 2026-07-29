@@ -55,6 +55,88 @@ These come from xahaud's SetHook validation (`SetHook.cpp`,
   acyclic call graph.
 - **C6. Size**: ≤ 65,535 bytes; SetHook fee ≈ 5000 drops/byte, so every
   byte matters. No allocator, no `core::fmt`, no panic machinery.
+  `examples/Cargo.toml`'s workspace `[profile.release]` uses
+  `opt-level = 3`, not `"z"` — this looks like it trades off against the
+  "every byte matters" principle above, so the reasoning is recorded here:
+  - **(a) Primary motivation — DX, not speed.** `wasm32v1-none`'s LLVM
+    backend only lowers a local `[0u8; N]` zero-init to plain inlined
+    stores up to a fixed byte threshold; above it, LLVM instead emits a
+    call to a `compiler_builtins`-style `memset` — an unguarded `loop`
+    that `hooks-build`'s guard pass hard-rejects by default (§6.3). That
+    threshold is **32 bytes** at `opt-level = "z"`/`"s"` but **64 bytes**
+    at `opt-level = 1`/`2`/`3` (measured directly against this repo's
+    pinned toolchain by bisecting the exact byte boundary in both
+    directions). Any local zero-init scratch buffer in the 33..=64 byte
+    range — e.g. a 34-byte `Keylet` — becomes safe by construction at
+    `opt-level = 3` with no `--auto-guard`, no hand-sized `maxiter`, and
+    no `static`-buffer workaround needed. This — not raw execution speed,
+    which the Hook API's static WCE metering does not reward — is why
+    `opt-level = 3` is the workspace default: it removes an entire class
+    of "clean Rust source, unguarded-loop build failure" surprises for
+    hook authors before they ever have to reach for a toolchain flag.
+  - **(b) Measured net effect, across all 13 examples** (rebuilt on the
+    exact toolchain this repo pins): worst-case instruction count (WCE)
+    improved in 6, stayed byte-for-byte unchanged in 3 (`02_state-counter`,
+    `07_xfl-math`, `81_govern` — their compiled output didn't move at all),
+    and increased only slightly (at most +12 instructions / +7%) in the
+    remaining 4 (`01_accept-all`, `05_firewall`, `08_slot-ledger`,
+    `10_emit-txn`) — no example regressed by more than a low double-digit
+    instruction count. One example stands out as a large outlier
+    (`06_guard-patterns`, whose whole point is demonstrating small
+    `guard!`-bounded loops: `opt-level = 3` unrolls them, so WCE dropped
+    ~54% while size grew ~109% — see that example's own README for the
+    exact before/after table). Every example stayed comfortably under the
+    65,535-byte limit and `hooks-build check` (no unguarded loops, no
+    nesting-limit violations) passed for all of them. The one-time
+    `SetHook` fee delta (`bytes × 5000` drops) this causes per example is
+    small in absolute terms even where size grew. `mise run build-examples`
+    prints the authoritative current numbers for any given toolchain
+    version; do not treat the specific figures here as pinned.
+  - **(c) The threshold moves, it does not disappear.** `opt-level = 3`
+    only raises the memset-inlining ceiling from 32 to 64 bytes — it does
+    not remove it. A local zero-init scratch buffer larger than 64 bytes
+    (e.g. `EMIT_DETAILS_MAX_LEN = 138`) still lowers to the same
+    unguarded-loop `memset` call regardless of this setting, and still
+    needs the `static`/`HookStatic` idiom (§6.3's "static-buffer idiom",
+    `examples/README.md`'s "Statics for templates and large buffers")
+    rather than relying on `opt-level` alone. `hooks-build`'s
+    `--auto-guard` escape hatch (§6.3) remains available, and remains the
+    wrong default for the reasons given there, independent of this
+    setting.
+  - Raising `-C llvm-args`-level memset/memcpy/memmove store thresholds
+    directly (rather than the whole crate's `opt-level`) was investigated
+    and found to have **no effect at all** on `wasm32v1-none`:
+    `--max-store-memset[-Os]`/`--max-store-memcpy[-Os]`/
+    `--max-store-memmove[-Os]` are accepted by rustc but produced
+    byte-identical output in both directions (raised to force everything
+    inline, lowered to force everything into a libcall) — WebAssembly's
+    `TargetLowering` hardcodes these thresholds and ignores the global
+    LLVM `cl::opt`. `opt-level` is the only lever this toolchain actually
+    exposes for this threshold.
+  - **Full before/after table** (`opt-level = "z"` → `3`, all 13 examples,
+    worst-case instructions / size in bytes, this repo's pinned toolchain):
+
+    | example | WCE before → after | size before → after |
+    |---|---:|---:|
+    | `01_accept-all` | 14 → 15 | 173 → 174 |
+    | `02_state-counter` | 58 → 58 | 374 → 374 |
+    | `03_hook-params` | 178 → 177 | 616 → 613 |
+    | `04_errors` | 276 → 200 | 910 → 734 |
+    | `05_firewall` | 134 → 135 | 504 → 505 |
+    | `06_guard-patterns` | 1341 → 615 | 775 → 1621 |
+    | `07_xfl-math` | 357 → 357 | 1635 → 1635 |
+    | `08_slot-ledger` | 197 → 209 | 952 → 965 |
+    | `09_state-foreign` | 152 → 145 | 707 → 689 |
+    | `10_emit-txn` | 322 → 331 | 1253 → 1272 |
+    | `14_account-id-macro` | 365 → 294 | 1512 → 1391 |
+    | `80_reward` | 13698 → 13680 | 7205 → 7175 |
+    | `81_govern` | 44560 → 44560 | 14373 → 14373 |
+
+    Every row's "after" build also passed `hooks-build check` (no
+    unguarded loops, nesting depth within the 32-level limit) and the full
+    live e2e suite (`mise run e2e:node-up`, `pnpm --dir e2e test`) against
+    a standalone Xahau node, asserting each example's live
+    `HookInstructionCount` against its (now-updated) documented bound.
 - **C7. Panic machinery is poison**: slice bounds checks pull in panic paths
   that add functions/calls and have historically broken validation.
   hooks-lib must be panic-free by construction (no indexing that can
@@ -874,10 +956,12 @@ trade-off):
   the one `&'static mut`, second call returns `None`; the only `unsafe`
   lives inside hooks-lib, and hook code needs no `unsafe` and no clippy
   allows). This removed emit-txn's memset entirely: no `--auto-guard`,
-  WCE 6798 → ~350 and ~1.5 KB total (current-toolchain measurements —
-  exact figures drift with compiler versions; `hooks-build build` prints
-  the authoritative numbers. The take-once flag costs a few dozen bytes
-  over a raw `static mut`, which in turn required
+  WCE 6798 → 331 and 1272 bytes total (current-toolchain measurement, at
+  this workspace's `opt-level = 3` default — see C6 above; exact figures
+  drift with compiler versions and profile settings, `hooks-build build`
+  prints the authoritative numbers for any given build). The take-once
+  flag costs a few dozen bytes over a raw `static mut`, which in turn
+  required
   `unsafe { &mut *&raw mut }` plus a `clippy::deref_addrof` allow at
   every site). Source-level avoidance of
   *initialization* libcalls is thus reliable via statics; comparison

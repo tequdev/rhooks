@@ -83,11 +83,11 @@ cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 
 # keylets (11 and 12 are reserved for other in-flight work — see
 # examples/README.md): 26 typed keylet_xxx helpers, one per KEYLET_*
-# constant. Needs --auto-guard --default-maxiter 34 (Keylet is 34 bytes,
-# over this toolchain's ~32-byte inlined-zero-init threshold) plus the
-# opt-level = 3 package override in examples/Cargo.toml (26 calls in
-# sequence) — see its own README's "Toolchain limitation" section.
-cargo run -p hooks-build -- build --manifest-path examples/13_keylets/Cargo.toml --auto-guard --default-maxiter 34
+# constant. No extra flags — this workspace's opt-level = 3 default
+# (docs/DESIGN.md's §2 C6) already keeps Keylet's 34-byte scratch buffer
+# under the zero-init-inlining threshold; see its own README's
+# "Toolchain note" section.
+cargo run -p hooks-build -- build --manifest-path examples/13_keylets/Cargo.toml
 cargo run -p hooks-build -- check examples/13_keylets/out/keylets.wasm
 
 # account-id-macro: its util_raddr scratch buffer is a `static`

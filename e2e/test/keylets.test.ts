@@ -69,10 +69,10 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 import { hashCron } from 'xahau/dist/npm/utils/hashes'
 
 const namespace = 'rhooks-e2e-keylets'
-// hooks-build's printed worst case for keylets.wasm, built with
-// `--auto-guard --default-maxiter 34` (see the example's own README's
-// "Toolchain limitation" section for why that flag is required at all).
-const WORST_CASE_INSTRUCTIONS = 3637
+// hooks-build's printed worst case for keylets.wasm, built with no extra
+// flags at this workspace's opt-level = 3 default (see the example's own
+// README's "Toolchain note" section, and docs/DESIGN.md's §2 C6).
+const WORST_CASE_INSTRUCTIONS = 4150
 
 // `xahau` npm's own ledger-space character table
 // (utils/hashes/ledgerSpaces.ts) - reused verbatim rather than

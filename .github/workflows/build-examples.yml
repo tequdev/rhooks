@@ -54,7 +54,10 @@ jobs:
           # pick it up automatically, with no further workflow edits.
           declare -A EXTRA_ARGS=(
             # [11_gas-counter]="--api-version 1"
-            [13_keylets]="--auto-guard --default-maxiter 34"
+            # 13_keylets needed --auto-guard --default-maxiter 34 before
+            # this workspace's opt-level = 3 default (examples/Cargo.toml,
+            # docs/DESIGN.md's §2 C6) raised the zero-init-inlining
+            # threshold past Keylet's 34 bytes - no longer needed.
           )
 
           matrix='[]'

@@ -29,7 +29,13 @@
 //! mapping (discriminant = `KEYLET_*` value − 1) to read each entry back by
 //! its own hand-built `state_keys!`-equivalent tag byte.
 //!
-//! Build: `hooks-build build --manifest-path examples/13_keylets/Cargo.toml --auto-guard --default-maxiter 34`
+//! Build: `hooks-build build --manifest-path examples/13_keylets/Cargo.toml`
+//! — no extra flags: this workspace's `opt-level = 3` default (see
+//! `examples/Cargo.toml` and `docs/DESIGN.md`'s §2 C6) already raises the
+//! zero-init-inlining threshold past `Keylet`'s 34 bytes, so the
+//! `--auto-guard --default-maxiter 34` an `opt-level = "z"`/`"s"` hook
+//! crate would need here (see `hooks_lib::api::util::util_keylet_buf`'s
+//! doc comment) isn't necessary in this workspace.
 
 #![no_std]
 
