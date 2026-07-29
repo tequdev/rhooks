@@ -1,10 +1,12 @@
 // e2e: examples/02_state-counter against a standalone Xahau node.
 //
-// `hook()` reads an 8-byte LE u64 counter from state key
-// `pad!(b"counter")` (crates/hooks-lib STATE_KEY_LEN = 32: the 7 ASCII
-// bytes of "counter" left-aligned, zero-padded to 32 bytes - see
-// `padded_bytes` in crates/hooks-lib/src/macros.rs), defaulting to 0,
-// increments it, writes it back, and calls
+// `hook()` reads an 8-byte LE u64 counter from the short, literal state
+// key `b"counter"` (7 bytes, sent to the host as-is - no local padding;
+// see `hooks_lib::state`'s module doc comment, "Key length and padding").
+// The host itself left-pads a key shorter than 32 bytes to its fixed
+// storage width, so the real on-ledger HookState key is "counter"'s 7
+// ASCII bytes right-aligned in 32 bytes, zero-padded on the *left*.
+// Defaults to 0, increments it, writes it back, and calls
 // `accept!(b"state-counter: incremented", next as i64)` - the new count
 // becomes the HookReturnCode. HookOn is Invoke.
 import {
@@ -33,10 +35,14 @@ const namespace = 'rhooks-e2e-state-counter'
 // hooks-build's printed worst case for state_counter.wasm (`mise run build-examples`).
 const WORST_CASE_INSTRUCTIONS = 58
 
-// STATE_KEY = pad!(b"counter"): "counter" (7 bytes) left-aligned in a
-// 32-byte array, zero-padded on the right.
-const COUNTER_KEY =
-  Buffer.from('counter', 'ascii').toString('hex').toUpperCase().padEnd(64, '0')
+// STATE_KEY = b"counter" (7 bytes), sent to the host as-is; the host
+// left-pads a short key to its fixed 32-byte storage width - so the real
+// on-ledger key is "counter" right-aligned in 32 bytes, zero-padded on
+// the left.
+const COUNTER_KEY = Buffer.from('counter', 'ascii')
+  .toString('hex')
+  .toUpperCase()
+  .padStart(64, '0')
 
 describe('state-counter', () => {
   let testContext: XrplIntegrationTestContext

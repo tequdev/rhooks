@@ -6,14 +6,16 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, pad, rollback};
+use hooks_lib::{accept, hook, hook_errors, rollback};
 
-/// The 32-byte state key: the entry name, zero-padded at compile time.
-/// `pad!` expands in an inline `const` block, so no copy loop (and hence no
-/// loop guard) exists at runtime. `StateKey` is a `#[repr(transparent)]`
-/// newtype over `[u8; 32]` (see `hooks_lib::types`), so its public tuple
-/// field wraps `pad!`'s plain-array output at zero cost.
-const STATE_KEY: StateKey = StateKey(pad!(b"counter"));
+/// The state key: a short, literal byte string, sent to the host exactly
+/// as-is (7 bytes) — no local padding up to the fixed 32-byte key space.
+/// This is the same idiom as the C hook `state(&v, 8, "counter", 7)`: the
+/// Hook API itself accepts any key from 1 to 32 bytes and left-pads a
+/// shorter one internally (see `hooks_lib::state`'s module doc comment,
+/// "Key length and padding"), so there is no need to build a full 32-byte
+/// `StateKey` by hand here.
+const STATE_KEY: [u8; 7] = *b"counter";
 
 hook_errors! {
     /// `state-counter` rollback codes.

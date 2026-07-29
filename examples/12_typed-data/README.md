@@ -159,9 +159,12 @@ raw byte buffers — the way every hook (including this crate's `Config`/
 `Instruction`, if this feature didn't exist) had to before this feature:
 
 ```rust
-// Key: tag (1 byte) || owner (20 bytes) || zero pad, 32 bytes total.
-fn make_key(owner: &AccountId) -> [u8; 32] {
-    let mut out = [0u8; 32];
+// Key: tag (1 byte) || owner (20 bytes) - 21 bytes total, sent to the
+// host exactly as-is: the host itself left-pads a key shorter than its
+// fixed 32-byte storage width (see `hooks_lib::state`'s module doc
+// comment, "Key length and padding") - no local zero-padding here.
+fn make_key(owner: &AccountId) -> [u8; 21] {
+    let mut out = [0u8; 21];
     if let Some(b) = out.get_mut(0) {
         *b = DEPOSIT_TAG;
     }
@@ -230,6 +233,14 @@ hand-packed functions above (everything else byte-for-byte identical):
 |---|---|---|
 | derived (this crate, as committed) | 441 | 1504 bytes |
 | hand-packed (`.get()`/`.get_mut()` per field, as most hooks write it today) | 525 | 1674 bytes |
+
+> **Note:** this table predates `DepositKey`'s `HookKey`-derived
+> `StateKeyEncode::encode()` sending its own real length (21 bytes) instead
+> of a locally zero-padded 32 (see `docs/DESIGN.md` §5.6) — both rows would
+> shift down slightly if re-measured today; the relative comparison
+> (derived cheaper than hand-packed) is unaffected. The full committed
+> hook's current, directly measured numbers (including `AdminName`) are
+> 483 instructions / 1642 bytes — see the note after the next table.
 
 The derive isn't just *as cheap as* hand-packing here — it measures
 **cheaper**: the generated `write`/`read` check the struct's total length
@@ -410,12 +421,19 @@ feature removed (everything else byte-for-byte identical):
 | version | worst-case instructions | wasm size |
 |---|---|---|
 | without the `AdminName` pause switch | 441 | 1504 bytes |
-| with the `AdminName` pause switch (as committed) | 489 | 1652 bytes |
+| with the `AdminName` pause switch (as committed, pre-`HookKey`-real-length change) | 489 | 1652 bytes |
+| with the `AdminName` pause switch (as committed, current) | 483 | 1642 bytes |
 
-+48 instructions, +148 bytes — the honest, unavoidable cost of one
++48 instructions, +148 bytes over the no-`AdminName` baseline at the time
+this table was measured — the honest, unavoidable cost of one
 composite-name-keyed `hook_param` lookup (the struct encode itself, plus
 the extra branch/rollback path checking it). Still guard-clean at the
 source level: no `--auto-guard`/`--default-maxiter` needed either way.
+`DepositKey`'s `HookKey` derive now sends `StateKeyEncode::encode()`'s real
+21-byte length instead of a locally zero-padded 32 (`docs/DESIGN.md` §5.6),
+shaving 6 instructions/10 bytes off the "as committed" row (the
+no-`AdminName` baseline above predates that change too and wasn't
+re-measured, but would shift by roughly the same amount).
 
 ## Build
 

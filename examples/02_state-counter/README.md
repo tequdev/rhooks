@@ -1,14 +1,16 @@
 # state-counter
 
 Maintains a persistent counter in Hook state: reads the current 8-byte
-little-endian count under a fixed, zero-padded 32-byte state key
-(defaulting to zero if absent), increments it, writes it back with
-`state_set`, and accepts with the new count as the return-code payload.
+little-endian count under a short, literal state key (defaulting to zero
+if absent), increments it, writes it back with `state_set`, and accepts
+with the new count as the return-code payload.
 
-The state key is built from a short name (`b"counter"`) with hooks-lib's
-`pad!` macro, which zero-pads it to 32 bytes **at compile time** (an inline
-`const` block): the padded key is baked into the binary, so no copy loop —
-and therefore no loop guard — exists at runtime.
+The state key is just `b"counter"` (7 bytes), sent to the host exactly
+as-is — the same idiom as the C hook `state(&v, 8, "counter", 7)`. The Hook
+API itself accepts any key from 1 to 32 bytes and left-pads a shorter one
+internally, so there is no need to build a full, locally zero-padded
+32-byte key by hand (see `hooks_lib::state`'s module doc comment, "Key
+length and padding," for the full rule).
 
 ## Build
 
