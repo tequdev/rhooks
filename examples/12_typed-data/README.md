@@ -2,28 +2,33 @@
 
 ## What you'll learn
 
-How to use four narrow, purpose-built derives — `#[derive(HookKey)]`,
-`#[derive(HookData)]`, `#[derive(ParamName)]`, `#[derive(ParamValue)]` — to
-treat **composite, multi-field structs** as a hook-state key, a hook-state
-value, a Hook API parameter name, and a Hook API parameter value,
-respectively — instead of hand-packing each into a raw byte buffer
-yourself — and how to confirm every derive costs nothing extra at the wasm
-level (a real worst-case-instruction-count measurement, not just an
-assertion).
+How to declare a composite hook-state key/value pair and a composite Hook
+API parameter name/value pair in **one line each**, via `hook_state!`'s/
+`hook_parameter!`'s/`otxn_parameter!`'s declaration-macro grammar — instead
+of hand-packing each into a raw byte buffer yourself — and how to confirm
+the generated code costs nothing extra at the wasm level (a real
+worst-case-instruction-count measurement, not just an assertion).
 
-| derive | role | generates | example struct |
-|---|---|---|---|
-| `HookKey` | hook-state **key** | `ToBytes` + `StateKeyEncode` (≤32-byte check) | `DepositKey` |
-| `HookData` | hook-state **value** | `ToBytes` + `FromBytes` + `FixedRead` + `LEN` | `DepositValue` |
-| `ParamName` | Hook API parameter **name** | `ToBytes` (1–32-byte check) | `AdminName` |
-| `ParamValue` | Hook API parameter **value** | `FromBytes` + `FixedRead` | `Config`, `Instruction`, `PauseSwitch` |
+Under the hood, each declaration still expands to the same four narrow,
+purpose-built impls this example used to spell out by hand with separate
+derives — `#[derive(HookKey)]`, `#[derive(HookData)]`,
+`#[derive(ParamName)]`, `#[derive(ParamValue)]` — plus the pairing trait:
+
+| role | generates | example (declared inline below) |
+|---|---|---|
+| hook-state **key** | `ToBytes` + `StateKeyEncode` (≤32-byte check) | `DepositKey` |
+| hook-state **value** | `ToBytes` + `FromBytes` + `FixedRead` + `LEN` | `DepositValue` |
+| Hook API parameter **name** | `ToBytes` (1–32-byte check) | `AdminName` |
+| Hook API parameter **value** | `FromBytes` + `FixedRead` | `Config`, `Instruction`, `PauseSwitch` |
 
 A key/name is only ever *encoded outward* (to locate something); a
 value/payload is only ever *decoded* (read back) — that read/write split is
-exactly why these are four separate derives rather than one covering
-everything. See each derive's own rustdoc (`hooks_lib::{HookKey, HookData,
-ParamName, ParamValue}`) for the full rationale, grammar, and
-`compile_fail` examples pinning misuse.
+exactly why these are four separate roles rather than one covering
+everything. See `hooks_lib::hook_state!`'s doc comment for the full
+declaration-macro grammar (five forms, from a fully-fixed key/name down to
+a fully composite, runtime-constructed one), and each underlying derive's
+own rustdoc (`hooks_lib::{HookKey, HookData, ParamName, ParamValue}`) for
+the codegen rationale and `compile_fail` examples pinning misuse.
 
 ## The hook
 
@@ -43,25 +48,21 @@ to a whole struct):
 
 Each sender's record is looked up by a **composite key** — a tag byte plus
 their `AccountId` — and stored as a **composite value** — an amount, a
-deadline ledger sequence, and a flags byte. Both are declared as ordinary
-Rust structs:
+deadline ledger sequence, and a flags byte. One `hook_state!` declaration
+(**Form 3**: a struct-shaped key, constructed at each call site, with an
+**inline** value definition) covers both:
 
 ```rust
-#[derive(HookKey, Clone, Copy)]
-struct DepositKey {
-    tag: u8,
-    owner: AccountId,
-}
-
-#[derive(HookData, Clone, Copy)]
-struct DepositValue {
-    amount: u64,
-    deadline: u32,
-    flags: u8,
-}
+hook_state!(DepositKey {tag: u8, owner: AccountId} => DepositValue {amount: u64, deadline: u32, flags: u8});
 ```
 
-and used directly — no manual byte packing anywhere in `src/lib.rs`:
+— equivalent to separately declaring `#[derive(HookKey)] struct
+DepositKey { tag: u8, owner: AccountId }`, `#[derive(HookData)] struct
+DepositValue { amount: u64, deadline: u32, flags: u8 }`, and
+`hook_state!(DepositKey => DepositValue)` to pair them (see
+`hooks_lib::hook_state!`'s doc comment for that longhand backward-compatible
+form) — and used directly — no manual byte packing anywhere in
+`src/lib.rs`:
 
 ```rust
 let key = DepositKey { tag: DEPOSIT_TAG, owner };
@@ -87,22 +88,18 @@ resolves the paired type from it, never a turbofish or an independently
 inferred return type:
 
 ```rust
-// Ties DepositKey to exactly one value type.
-hook_state!(DepositKey => DepositValue);
+// Ties DepositKey to exactly one value type (Form 3, shown above already
+// declares this pairing — repeated here only to name it explicitly).
+hook_state!(DepositKey {tag: u8, owner: AccountId} => DepositValue {amount: u64, deadline: u32, flags: u8});
 
 // Ties CfgName/InsName to exactly one parameter value type each —
 // hook_parameter! for a hook's own installed parameter, otxn_parameter!
 // for one attached to the originating transaction (same grammar, same
-// TypedParamName impl). The name TYPE comes first, the value type it
-// names comes last — Name => Ty, exactly mirroring hook_state!'s
-// Key => Value (the name locates, like a key; the type is what's
-// retrieved, like a value). A plain byte-string name still needs a
-// small marker type to hang the pairing on (`CfgName`/`InsName` below,
-// zero-sized — see "Hook parameter hex encoding" for why).
-struct CfgName;
-struct InsName;
-hook_parameter!(CfgName, CFG_PARAM => Config);
-otxn_parameter!(InsName, INS_PARAM => Instruction);
+// TypedParamName impl). Form 1: `Name = bytes => Ty` declares `Name` as a
+// new zero-sized type *and* ties it to the fixed byte-string name and the
+// value type, all in one line — no separate `struct CfgName;` needed.
+hook_parameter!(CfgName = b"CFG" => Config {min_amount: u64, lock_ledgers: u32});
+otxn_parameter!(InsName = b"INS" => Instruction {action: u8, amount: u64});
 ```
 
 `state_get_typed(&key)`/`state_set_typed(&key, &value)` (used above) resolve
@@ -129,26 +126,27 @@ A Hook API parameter name isn't always a plain tag like `"CFG"`/`"INS"`,
 either — per the Hook API itself, it's a genuine variable-length key of up
 to 32 bytes, and (exactly like a hook state key) can be a whole composite,
 struct-shaped value instead of a literal byte string. `hook_parameter!`/
-`otxn_parameter!` cover both, with the *same* two-argument `Name => Ty`
-grammar either way (used above for `CfgName`/`InsName`, and below for the
-composite `AdminName`) — there's no separate "typed" vs. "typed for a
-composite name" function to choose between, and both forms are read by the
-exact same `hook_param_typed`/`otxn_param_typed`. (`hook_parameter!`/
-`otxn_parameter!` are two separate macros with identical grammar and
-expansion — purely so the declaration site documents which of
-`hook_param`/`otxn_param` a name is meant for; see
+`otxn_parameter!` cover both, via the same declaration-macro grammar
+`hook_state!` uses (see `hooks_lib::hook_state!`'s doc comment for the full
+staircase) — Form 1 for a fully fixed name (`CfgName`/`InsName` above),
+Form 3 for a struct-shaped one constructed per call site (`AdminName`
+below) — and both are read by the exact same `hook_param_typed`/
+`otxn_param_typed`. (`hook_parameter!`/`otxn_parameter!` are two separate
+macros with identical grammar and expansion — purely so the declaration
+site documents which of `hook_param`/`otxn_param` a name is meant for; see
 `hooks_lib::convert::TypedParamName`'s doc comment.) Only a *plain,
-already-known-at-compile-time* name is free, though — that's why
-`hook_parameter!`/`otxn_parameter!` actually have **two** grammar forms
-under the hood: `hook_parameter!(Name, bytes => Ty)` (used above — `Name` a
-declared marker type, `bytes` the literal, `TypedParamName::name_bytes`
-overridden to hand over the already-`'static` bytes directly, at zero
-runtime cost) and `hook_parameter!(Name => Ty)` (used below, for
-`AdminName` — relies on `TypedParamName::name_bytes`'s default body, a
+already-known-at-compile-time* name is free, though — Form 1 (used above)
+overrides `TypedParamName::name_bytes` to hand over the already-`'static`
+literal bytes directly, at zero runtime cost, while Form 3 (used below,
+for `AdminName`) relies on `TypedParamName::name_bytes`'s default body, a
 small, genuine runtime encode via `Name`'s own `ToBytes` impl, unavoidable
 for an arbitrary composite type — Rust has no stable way to run a trait
-method at compile time). See `hooks_lib::convert::TypedParamName`'s doc
-comment for the full zero-cost rationale, and the "Composite parameter
+method at compile time. `hook_parameter!`/`otxn_parameter!` also keep the
+*original*, comma-separated 3-argument legacy form
+(`hook_parameter!(Name, bytes => Ty)`, `Name` declared separately by the
+caller) for backward compatibility — see `hooks_lib::hook_parameter!`'s doc
+comment for a worked example. See `hooks_lib::convert::TypedParamName`'s
+doc comment for the full zero-cost rationale, and the "Composite parameter
 names" section below for this hook's own worked composite-name example and
 its measured cost.
 
@@ -329,41 +327,33 @@ composite, struct-shaped value instead of a literal string. This hook's
 operator-controlled pause switch is named that way:
 
 ```rust
-#[derive(ParamName, Clone, Copy)]
-struct AdminName {
-    section: u8,
-    field: u8,
-}
+hook_parameter!(AdminName {section: u8, field: u8} => PauseSwitch {paused: u8});
 
 const ADMIN_PAUSE: AdminName = AdminName { section: 0, field: 0 };
-
-#[derive(ParamValue, Clone, Copy)]
-struct PauseSwitch {
-    paused: u8,
-}
-
-hook_parameter!(AdminName => PauseSwitch);
 ```
 
-`AdminName` uses **`#[derive(ParamName)]`, not `#[derive(HookData)]`** — a
-Hook parameter *name* is a genuinely different concept from a hook-state
+This is `hook_parameter!`'s **Form 3** — a struct-shaped name, constructed
+per call site — with an inline `PauseSwitch` value, the same shape
+`DepositKey`/`DepositValue` used above. Under the hood, `AdminName` still
+gets `ParamName`-equivalent codegen (`ToBytes` only — no `FromBytes`, no
+`FixedRead`, no inherent `LEN` const), never `HookData`-equivalent codegen:
+a Hook parameter *name* is a genuinely different concept from a hook-state
 key/value or a parameter *payload* (`PauseSwitch`, which — being something
-this hook actually reads back and decodes — is `ParamValue`, same as
-`Config`/`Instruction`): a name is only ever **written**, to locate a
-value, never read back and decoded as itself. `ParamName` reflects that by
-generating only `ToBytes` (no `FromBytes`, no `FixedRead`, no inherent
-`LEN` const) — see `hooks_lib::ParamName`'s doc comment for the full
-rationale, and its `compile_fail` examples pinning that a `ParamName` type
-can't be read back as a value. Note the macro call here has **no third
-argument** (unlike `CfgName`/`InsName` above): `AdminName` already carries
-its own runtime field data and its own `ToBytes` impl, so
-`hook_parameter!(AdminName => PauseSwitch)` relies on
-`TypedParamName::name_bytes`'s default (genuine-encode) body instead of an
-override — see the "Measured cost of a composite name" section below for
-what that costs. The pairing declared, `hook_param_typed` takes **a reference
-to an `AdminName` value** (`&ADMIN_PAUSE` in [`deposits_paused`],
-`hooks_lib::PauseSwitch`'s type inferred from that argument, no
-annotation).
+this hook actually reads back and decodes — gets `ParamValue`-equivalent
+codegen instead, same as `Config`/`Instruction`): a name is only ever
+**written**, to locate a value, never read back and decoded as itself —
+see `hooks_lib::ParamName`'s doc comment for the full rationale, and its
+`compile_fail` examples pinning that a `ParamName`-shaped type can't be
+read back as a value. Because `AdminName` is Form 3 (not Form 1, the fully
+fixed form `CfgName`/`InsName` above use), the generated `TypedParamName`
+impl relies on `name_bytes`'s default (genuine-encode) body instead of the
+zero-copy override — see the "Measured cost of a composite name" section
+below for what that costs. The `const ADMIN_PAUSE` declared separately
+above (not part of `hook_state!`'s Form 2 fixed-instance mechanism, since
+this name scheme is meant to accommodate *multiple* future
+administrative parameters, not just one canonical instance) is what
+`hook_param_typed` takes **a reference to** in [`deposits_paused`],
+`PauseSwitch`'s type inferred from that argument, no annotation.
 
 ### The 1–32-byte constraint
 

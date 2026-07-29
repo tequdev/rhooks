@@ -6,46 +6,49 @@ writes it back, and accepts with the new count as the return-code
 payload.
 
 This is the minimal tutorial for `hooks_lib`'s **typed storage layer**
-(`crate::state`'s `state_get_typed`/`state_set_typed`, built on
-`#[derive(HookKey)]` and `hook_state!`) — no hand-rolled `[0u8; 8]` buffer,
-no manual `from_le_bytes`/`to_le_bytes`, no length check:
+(`crate::state`'s `state_get_typed`/`state_set_typed`, paired via
+`hook_state!`'s **Form 2** — a struct key with a fixed instance) — no
+hand-rolled `[0u8; 8]` buffer, no manual `from_le_bytes`/`to_le_bytes`, no
+length check, and (unlike the equivalent hand-written
+`#[derive(HookKey)]` + `hook_state!(Key => Value)` + a separate `const`)
+no repetition of the key's name three times over:
 
 ```rust
-#[derive(HookKey, Clone, Copy)]
-struct CounterKey {
-    name: [u8; 7],
-}
+hook_state!(CounterKey {name: [u8; 7]} = {name: *b"counter"} => u64);
 
-hook_state!(CounterKey => u64);
-
-const STATE_KEY: CounterKey = CounterKey { name: *b"counter" };
-
-let count = state_get_typed(&STATE_KEY).unwrap_or(None).unwrap_or(0);
+let count = state_get_typed(&CounterKey).unwrap_or(None).unwrap_or(0);
 let next = count.wrapping_add(1);
-state_set_typed(&STATE_KEY, &next);
+state_set_typed(&CounterKey, &next);
 ```
 
-## Why a one-field struct, not a bare `[u8; 7]` key
+`hook_state!`'s Form 2 declares, from that single line: the `CounterKey`
+struct, its `HookKey`-equivalent `ToBytes`/`StateKeyEncode` codegen, a
+`const CounterKey: CounterKey = CounterKey { .. };` holding the one fixed
+instance (legal because a type name and a value name live in separate
+namespaces — `&CounterKey` at the call site refers to the `const`), and
+the `TypedStateKey` pairing with `u64`. See `hooks_lib::hook_state!`'s doc
+comment for the full grammar staircase this is one step of.
 
-`CounterKey { name: *b"counter" }` encodes (via `HookKey`'s derive) to
-exactly the same 7 bytes a bare `*b"counter"` array key would — see
-"Same slot as before" below — so this isn't about the bytes on the wire.
-It's required by Rust's **orphan rule**: `hook_state!(CounterKey => u64)`
-expands to `impl TypedStateKey for CounterKey`, and implementing a
-`hooks_lib` trait for a bare `[u8; 7]` (a `core` type, foreign to this
-hook crate) from outside `hooks_lib` itself is not allowed — only
-implementing it for a type *this crate defines* is. See
+## Why a struct key, not a bare `[u8; 7]` key
+
+`CounterKey { name: *b"counter" }` encodes to exactly the same 7 bytes a
+bare `*b"counter"` array key would — see "Same slot as before" below — so
+this isn't about the bytes on the wire. It's required by Rust's **orphan
+rule**: `hook_state!`'s expansion includes `impl TypedStateKey for
+CounterKey`, and implementing a `hooks_lib` trait for a bare `[u8; 7]` (a
+`core` type, foreign to this hook crate) from outside `hooks_lib` itself is
+not allowed — only implementing it for a type *this crate defines* is. See
 `hooks_lib::hook_state!`'s doc comment for the full explanation and a
 `compile_fail` example of the bare-array case.
 
 ## Same slot as before: real-length encoding, host left-pads
 
-`CounterKey`'s only field is a plain `[u8; 7]`, and `#[derive(HookKey)]`
+`CounterKey`'s only field is a plain `[u8; 7]`, and `hook_state!`'s Form 2
 sends a struct at its own real encoded length (7 bytes here — see
 `hooks_lib::state`'s module doc comment, "Key length and padding," and
 `docs/DESIGN.md` §5.7) — never locally zero-padded up to the fixed 32-byte
 key space. That is exactly the same 7 bytes a bare `*b"counter"` array key
-sends (this example's previous form, before switching to the typed
+sends (this example's original form, before switching to the typed
 layer), so `CounterKey { name: *b"counter" }` lands on the identical,
 host-left-padded on-ledger slot — the same idiom as the C hook
 `state(&v, 8, "counter", 7)`.
