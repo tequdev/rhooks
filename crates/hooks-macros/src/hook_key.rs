@@ -2,12 +2,14 @@
 //!
 //! Turns a plain, fixed-size, named-field struct into a fixed-offset,
 //! zero-cost `hooks_lib::convert::ToBytes` impl **plus** an explicit
-//! `hooks_lib::state::StateKeyEncode` impl (zero-padded up to
-//! `hooks_lib::types::STATE_KEY_LEN`, 32 bytes) — for use as a **composite
-//! hook-state key**. See `hooks_lib::HookKey`'s doc comment (the
-//! public-facing re-export site) for the full user-facing writeup,
-//! grammar, and worked/compile-fail examples — this module only
-//! implements the codegen.
+//! `hooks_lib::state::StateKeyEncode` impl — for use as a **composite
+//! hook-state key**. The generated `encode()` sends the struct's own real
+//! encoded length (`<= hooks_lib::types::STATE_KEY_LEN`, 32 bytes), never
+//! locally zero-padded up to 32: the Hook API host left-pads a shorter key
+//! itself (see `hooks_lib::state`'s module doc comment, "Key length and
+//! padding"). See `hooks_lib::HookKey`'s doc comment (the public-facing
+//! re-export site) for the full user-facing writeup, grammar, and
+//! worked/compile-fail examples — this module only implements the codegen.
 //!
 //! # Why a separate derive, not `#[derive(HookData)]`?
 //!
@@ -15,25 +17,25 @@
 //! struct" shape, but play different roles, and `HookKey` is deliberately
 //! narrower than `HookData`:
 //!
-//! - A state key is only ever **written** (into the fixed 32-byte key
-//!   space, to locate a value) — never read back and decoded as itself.
-//!   So `HookKey` generates only `hooks_lib::convert::ToBytes` (the
-//!   encoding half, needed for [`crate::shape`]'s per-field codegen and
-//!   for nesting) plus `StateKeyEncode` — no `FromBytes`, no `FixedRead`,
-//!   no inherent `LEN` const. The value-side counterpart is
-//!   `#[derive(HookData)]` (see [`crate::hook_data`]), which *does*
-//!   generate the full read/write triple, since a state value genuinely
-//!   is read back.
+//! - A state key is only ever **written** (handed to the host to locate a
+//!   value) — never read back and decoded as itself. So `HookKey`
+//!   generates only `hooks_lib::convert::ToBytes` (the encoding half,
+//!   needed for [`crate::shape`]'s per-field codegen and for nesting) plus
+//!   `StateKeyEncode` — no `FromBytes`, no `FixedRead`, no inherent `LEN`
+//!   const. The value-side counterpart is `#[derive(HookData)]` (see
+//!   [`crate::hook_data`]), which *does* generate the full read/write
+//!   triple, since a state value genuinely is read back.
 //! - A hook state key has its own length bound distinct from a Hook API
-//!   *parameter* name's (1 to 32 bytes, see [`crate::param_name`]): a
-//!   state key is always exactly `hooks_lib::types::STATE_KEY_LEN` (32)
-//!   bytes, **zero-padded** if its natural encoding is shorter — there is
-//!   no lower bound to enforce (unlike a parameter name, which the Hook
-//!   API itself rejects below 1 byte). `HookKey` bakes the upper bound in
-//!   as an unconditional compile-time assert generated alongside the
-//!   impls — a `#[derive(HookKey)]` struct that encodes to more than 32
-//!   bytes fails to compile *at its own definition*, not only later at
-//!   whatever call site first tries to use it as a key.
+//!   *parameter* name's (1 to 32 bytes, see [`crate::param_name`]): a state
+//!   key's real encoded length must fit within
+//!   `hooks_lib::types::STATE_KEY_LEN` (32) bytes — there is no lower bound
+//!   to enforce here (unlike a parameter name, which the Hook API itself
+//!   rejects below 1 byte; a `HookKey` struct always has at least one field
+//!   by its own grammar, so its encoded length is never 0). `HookKey` bakes
+//!   the upper bound in as an unconditional compile-time assert generated
+//!   alongside the impls — a `#[derive(HookKey)]` struct that encodes to
+//!   more than 32 bytes fails to compile *at its own definition*, not only
+//!   later at whatever call site first tries to use it as a key.
 //!
 //! See `hooks_lib::HookData`'s doc comment for the reciprocal note (use
 //! `HookKey` for state keys, `HookData` for state values, `ParamName`/
@@ -116,16 +118,19 @@ impl ::hooks_lib::convert::ToBytes for {name} {{
 #[automatically_derived]
 impl ::hooks_lib::state::StateKeyEncode for {name} {{
     #[inline(always)]
-    fn encode(&self) -> ::hooks_lib::types::StateKey {{
+    fn encode(&self) -> ::hooks_lib::state::EncodedStateKey {{
         const {{
             assert!(
                 <{name} as ::hooks_lib::convert::ToBytes>::MAX_LEN <= ::hooks_lib::types::STATE_KEY_LEN,
-                \"hooks-macros: #[derive(HookKey)] struct exceeds the 32-byte state key space\"
+                \"hooks-macros: #[derive(HookKey)] struct would need more than 32 bytes to encode (the state key space)\"
             );
         }}
         let mut __raw = [0u8; ::hooks_lib::types::STATE_KEY_LEN];
         let _ = ::hooks_lib::convert::ToBytes::write(self, &mut __raw);
-        ::hooks_lib::types::StateKey::from(__raw)
+        ::hooks_lib::state::EncodedStateKey::new(
+            __raw,
+            <{name} as ::hooks_lib::convert::ToBytes>::MAX_LEN,
+        )
     }}
 }}
 ",

@@ -762,7 +762,7 @@ back to this section instead of re-explaining it.
 | Xahau Binary (the protocol's own STObject/tx wire format) | **Big-endian** | `txn.rs`'s `txn_template!`-generated setters write every multi-byte field with an explicit big-endian encoding (`u32`/`u16` field values, the `tts` transaction-type code, native-amount drops — see e.g. the `.to_be_bytes()` calls building setter bodies and the `tts::$tt as u16).to_be_bytes()` STObject field header); `examples/80_reward/src/mint_txn.rs` and `examples/81_govern/src/txn.rs` (hand-rolled "Tx Builder" equivalents for the genesis hooks) do the same by hand throughout | `crates/hooks-lib/src/txn.rs`, `examples/80_reward`, `examples/81_govern` |
 | Xahau Binary — the Hook API host's "as-int64" mode | **Big-endian** | `state`/`state_foreign`/`otxn_field`/`slot` called with `write_ptr = 0, write_len = 0` return the entry's raw bytes packed big-endian into the non-negative `i64` result (xahaud `applyHook.cpp`, `data_as_int64`) | `api::state::state_u64`/`state_foreign_u64`, `api::otxn::otxn_field_u64` |
 | Xahau Binary — keylets | **Big-endian** | A keylet's first two bytes are the ledger-entry-type tag, big-endian, per xahaud's own keylet construction. rhooks never assembles keylet bytes itself — every `keylet_xxx` helper (`api/keylet.rs`) calls the host's `util_keylet` and receives an already-built, opaque `Keylet`/`[u8; 34]` back — this row documents the host's own convention, not code in this crate | xahaud host (`util_keylet`); wrapped opaquely by `crates/hooks-lib/src/api/keylet.rs` |
-| Xahau Binary — short state/param keys | **Big-endian-flavored zero-padding**: a key shorter than the fixed key width is **left**-padded with zero bytes by the host (the value's bytes end up at the *end* of the fixed-width key, not the front) | This is the host-side counterpart to `pad!`'s convention (see below) — a Rust hook that wants to address the exact same 32-byte state slot a C hook reaches by passing a short raw key must reproduce that same left-pad, not `pad!`'s right-pad | `pad_left!` (`crates/hooks-lib/src/macros.rs`) |
+| Xahau Binary — short state/param keys | **Big-endian-flavored zero-padding**: a key shorter than the fixed key width is **left**-padded with zero bytes by the host (the value's bytes end up at the *end* of the fixed-width key, not the front) | rhooks' `StateKeyEncode` layer (`[u8; N]`, `state_keys!`, `#[derive(HookKey)]`) sends a short key at its own real length and relies on this host-side left-pad directly — see §5.7 for the full rule; `pad_left!` (`crates/hooks-lib/src/macros.rs`) reproduces this same left-pad *locally*, for the rarer case of needing the already-padded bytes themselves as a value, not as a `state`/`state_set` argument | host left-pad: xahaud; local equivalent: `pad_left!` (`crates/hooks-lib/src/macros.rs`) |
 | Hook-private data: state values, param values | **Little-endian** (the guest's own native memory image — LE on `wasm32v1-none`) | The C hook idiom `state(&native_int64, 8, key, klen)` — a raw pointer to a native `int64_t`, read/written in whatever the guest's own endianness is; `crates/hooks-lib/src/convert.rs`'s `ToBytes`/`FromBytes` traits (and every `hooks_lib::types` newtype, plus the `#[derive(HookKey)]`/`#[derive(HookData)]` macros built on them) encode/decode this way; `api::state::state_u32`/`state_i64`/`state_xfl` (+ their `state_set_*`/`state_update_*` twins) read/write this convention via the ordinary (non-as-int64) buffer path | `crates/hooks-lib/src/convert.rs`, `crates/hooks-lib/src/types.rs`, `api::state::state_u32`/`state_i64`/`state_xfl`/`state_u64_le`/`state_foreign_u64_le` |
 | Raw byte sequences (`AccountId`, `Hash`, ...) | **Neutral** — not a byte-order question | An `AccountId`/`Hash` is an opaque sequence of bytes with no numeric interpretation; scalar Hook API return values, `sfcode`s, and an `XFL`'s raw bit pattern are likewise "values," not multi-byte integers subject to a byte-order convention | — |
 
@@ -799,20 +799,71 @@ module doc comment and `examples/03_hook-params`/`examples/04_errors`
 now-documented-as-normative pattern.
 
 **`pad!` vs. `pad_left!`**: both are const, compile-time zero-padding
-helpers over a short byte string, but they pad on opposite sides because
-they serve opposite conventions. `pad!` (`hooks_lib`'s own idiom for
-building a `StateKey`/`NameSpace`-shaped constant from a short name, e.g.
-`examples/02_state-counter`'s `StateKey(pad!(b"counter"))`) right-pads:
-the value comes first, zero bytes fill the rest. `pad_left!` mirrors the
-host's own behavior when it is handed a short key directly (as a C hook
-does): the host left-pads a key shorter than the fixed key width, so the
-value's bytes land at the *end* of the padded buffer. Reach for
-`pad_left!`, not `pad!`, when a Rust hook needs to land on the exact same
-state slot a C hook reaches by passing a short raw key.
+helpers over a short byte string, padding on opposite sides — `pad!`
+right-pads (value first, zero bytes after), `pad_left!` left-pads (zero
+bytes first, value last), mirroring the host's own left-pad convention for
+a short key. **Neither is needed to build an ordinary hook-state key**
+(see §5.7 — a plain `[u8; N]`, `state_keys!` variant, or `#[derive(HookKey)]`
+struct is sent at its own real length and the host left-pads it, no local
+padding involved at all); reach for one of these two macros only when a
+hook genuinely needs the *already-padded* 32 bytes themselves as a value —
+e.g. a full, already-32-byte `StateKey`/`NameSpace` constant (`pad!`), or
+reproducing what the host's left-pad of a given short key would look like,
+byte-for-byte, for some purpose other than passing it to `state`/
+`state_set` (`pad_left!`).
 
 See [`crate::convert`]'s and [`crate::state`]'s module doc comments for
 how the little-endian `ToBytes`/`FromBytes` convention flows through the
 typed storage layer built on top of it.
+
+### 5.7 Hook state key encoding: real length, not local zero-padding
+
+`state`/`state_set`/`state_foreign(_set)` accept any key from 1 to 32 bytes
+(`hook_api.h`: `TOO_SMALL` below 1, `TOO_BIG` above 32) and **left-pad** a
+shorter key internally to the host's own fixed-width storage slot (see
+§5.6's "short state/param keys" row) — this is the C hook idiom
+`state(&v, 8, "RR", 2)`: a 2-byte literal key, handed straight to the
+host, unpadded.
+
+rhooks' typed key layer (`crate::state::StateKeyEncode` — the trait behind
+`state_get`/`state_set_loose`/`state_update_loose` and their `_foreign`
+twins, `state_keys!`, and `#[derive(HookKey)]`) matches this exactly: every
+`encode()` call returns the key's own **real** encoded length, never
+locally zero-padded up to 32 bytes. Concretely:
+
+| key type | real encoded length | notes |
+|---|---|---|
+| `[u8; N]` (`1 <= N <= 32`) | `N` | direct counterpart to a C hook's short literal key; `N` is a compile-time-checked const generic (monomorphized assert) |
+| `state_keys!` unit variant | 1 (just the discriminant) | previously 32 (discriminant + zero pad) |
+| `state_keys!` tuple variant | `1 + Payload::MAX_LEN` | previously 32 (discriminant + payload + zero pad) |
+| `#[derive(HookKey)]` struct | the struct's own `ToBytes::MAX_LEN` (`<= 32`, checked at derive time) | previously always 32 (fields + zero pad) |
+| `crate::types::StateKey` | 32 (unchanged) | already a full key, nothing to shorten |
+
+This is a **breaking change** in what bytes reach the host for every key
+shorter than 32 bytes: previously, this crate right-padded a short key to a
+full 32 bytes locally (value first, zero bytes after) and sent all 32 to
+the host; now it sends only the key's own real bytes, and the host's own
+left-pad (zero bytes first, value at the end) determines the actual
+storage slot. **A key shorter than 32 bytes now lands on a different
+on-ledger slot than it did before this change** — existing state written
+under the old right-padded scheme is not reachable through the new
+left-padded one. New deployments are unaffected; a hook upgrading across
+this change would need a one-time state migration if it has existing
+short-keyed entries (full 32-byte keys, including every `crate::types::StateKey`
+use, are unaffected either way).
+
+The rationale for not padding locally: it makes "how many of these 32
+bytes does this key actually use" explicit at the call site (`b"RR"` is
+visibly a 2-byte key, not silently a 32-byte one under the hood), and it
+matches the host's own convention exactly — a Rust hook and a C hook
+passing the same short literal key now land on the exact same slot, with
+no distinct-encoding-scheme footgun between the two.
+
+Neither `pad!` nor `pad_left!` (see §5.6's "`pad!` vs. `pad_left!`"
+paragraph) is needed to build a hook-state key anymore: reach for a plain
+`[u8; N]` (e.g. `b"counter"`) directly instead, and let the host's own
+left-pad do the rest. Both macros remain useful for other fixed-size
+buffer needs unrelated to `StateKeyEncode` keys.
 
 ## 6. hooks-build
 

@@ -143,15 +143,21 @@ pub const fn padded_bytes<const N: usize>(src: &[u8]) -> [u8; N] {
 /// - the padded array is baked into the binary at compile time — no copy or
 ///   zeroing loop exists at runtime, so no loop guard is needed for it.
 ///
-/// The canonical use is building fixed-size state keys and namespaces from
-/// short names.
+/// This right-pads (`src` at the front, zero bytes at the end).
 ///
-/// This right-pads (`src` at the front, zero bytes at the end) — this
-/// crate's own convention for building a `StateKey`/`NameSpace`-shaped
-/// constant. For the host's own convention when a short key is passed
-/// directly (as a C hook does) — the host **left**-pads it instead — see
-/// [`pad_left!`](crate::pad_left) and DESIGN.md §5.6 ("Endianness
-/// conventions").
+/// **Not needed for building a short hook-state key anymore**: a
+/// `[u8; N]` (`1 <= N <= `[`crate::types::STATE_KEY_LEN`]) works directly
+/// as a [`crate::state::StateKeyEncode`] key — e.g. `state_get::<u64>(b"counter")` —
+/// sent to the host at its own real length; the host itself left-pads a
+/// short key internally (see `hooks_lib::state`'s module doc comment, "Key
+/// length and padding," and DESIGN.md §5.7). Reach for `pad!` when a
+/// fixed-size buffer genuinely needs local right-padding for some other
+/// reason — e.g. building a full, already-32-byte
+/// [`crate::types::StateKey`]/[`crate::types::NameSpace`] constant on
+/// purpose, or padding a byte string for a use unrelated to hook-state
+/// keys. [`pad_left!`](crate::pad_left) is the mirror-image macro (left-pad
+/// instead of right-pad) for the same kind of non-key use — see its own
+/// doc comment.
 ///
 /// # Examples
 /// ```
@@ -212,12 +218,17 @@ pub const fn padded_bytes_left<const N: usize>(src: &[u8]) -> [u8; N] {
 ///
 /// The host itself left-pads a state/param key shorter than the fixed key
 /// width (32 bytes for hook state, 1–32 bytes for hook/otxn parameters) —
-/// see DESIGN.md §5.6 ("Endianness conventions"). Reach for `pad_left!`,
-/// not [`pad!`](crate::pad), when a Rust hook needs to address the exact
-/// same state slot a C hook reaches by passing a short raw key: `pad!`
-/// building the same short name instead would produce a *different*
-/// 32-byte key (value at the front, not the end), pointing at a different
-/// state entry.
+/// see DESIGN.md §5.6 ("Endianness conventions") for that host-side
+/// behavior, and §5.7 ("Hook state key encoding") for why a Rust hook does
+/// **not** need to reproduce it locally for an ordinary `StateKeyEncode`
+/// key (a plain `[u8; N]`, `state_keys!` variant, or `#[derive(HookKey)]`
+/// struct passed at its own real length already lands on the same slot the
+/// host's left-pad produces — no `pad_left!` involved). Reach for
+/// `pad_left!` instead when a hook genuinely needs the *already-padded* 32
+/// bytes themselves as a value — e.g. reproducing, byte-for-byte, what the
+/// host's left-pad of a given short key would look like, for a purpose
+/// other than passing it to `state`/`state_set` (which never needs this:
+/// pass the short key directly).
 ///
 /// Same compile-time-only shape as [`pad!`](crate::pad): the array length
 /// is inferred from context, the argument must be a constant expression, a

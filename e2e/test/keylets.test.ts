@@ -107,9 +107,15 @@ const PAYCHAN_SEQ = 5
 const CRON_START_TIME = 1_700_000_000
 
 /// A "KeyletKey" `state_keys!` discriminant (0..25, declaration order in
-/// src/lib.rs) as its 32-byte, zero-padded state key, hex-encoded.
+/// src/lib.rs) as its real, 1-byte encoded state key (see
+/// `hooks_lib::state`'s module doc comment, "Key length and padding" -
+/// `state_keys!`'s unit variants send just their discriminant byte, not a
+/// locally zero-padded 32 bytes), hex-encoded as the actual on-ledger
+/// HookState key: the host itself left-pads that 1 byte to its fixed
+/// 32-byte storage width, so the discriminant lands as the *last* byte,
+/// not the first.
 function keyletStateKeyHex(discriminant: number): string {
-  return discriminant.toString(16).padStart(2, '0').toUpperCase().padEnd(64, '0')
+  return discriminant.toString(16).padStart(2, '0').toUpperCase().padStart(64, '0')
 }
 
 function accountHex(address: string): string {
