@@ -36,8 +36,10 @@
 //!
 //! # `state_keys!`
 //!
-//! Declares an enum whose variants encode to fixed 32-byte
-//! [`crate::types::StateKey`] values, for use with the functions above:
+//! Declares an enum whose variants encode to their own **real** byte length
+//! (`<= `[`crate::types::STATE_KEY_LEN`]`, 32) — see "Key length and padding"
+//! below for why this is a real length, not always-32-bytes — for use with
+//! the functions above:
 //!
 //! ```
 //! use hooks_lib::prelude::*;
@@ -62,12 +64,39 @@
 //! );
 //! ```
 //!
-//! Unit variants (`Counter` above) encode to "discriminant byte + zero
-//! padding," entirely at compile time. Tuple variants (`Balance` above)
-//! carry exactly one [`crate::convert::ToBytes`] payload, encoded at
-//! runtime as "discriminant byte + payload + zero padding"; the macro
-//! rejects (at compile time) a payload whose [`crate::convert::ToBytes::MAX_LEN`]
-//! does not leave room for the discriminant byte in the 32-byte key.
+//! Unit variants (`Counter` above) encode to just their 1-byte discriminant
+//! — no padding at all — entirely at compile time. Tuple variants
+//! (`Balance` above) carry exactly one [`crate::convert::ToBytes`] payload,
+//! encoded at runtime as "discriminant byte + payload," with **no trailing
+//! padding**: the real, sent-to-the-host length is `1 +
+//! Payload::MAX_LEN`. The macro rejects (at compile time) a payload whose
+//! [`crate::convert::ToBytes::MAX_LEN`] does not leave room for the
+//! discriminant byte in the 32-byte key.
+//!
+//! # Key length and padding: rhooks sends the real length, the host pads
+//!
+//! A hook-state key need not be a full 32 bytes — the Hook API itself
+//! accepts any key from 1 to 32 bytes (`state`/`state_set`/`state_foreign(_set)`'s
+//! `kread_len`), and **left**-zero-pads a shorter key internally to its own
+//! fixed-width storage slot. This is exactly the C hook idiom
+//! `state(&v, 8, "RR", 2)` — a 2-byte literal key, unpadded, handed straight
+//! to the host.
+//!
+//! [`StateKeyEncode::encode`] reflects this: it returns an
+//! [`EncodedStateKey`] carrying **exactly `self`'s own natural length** —
+//! never locally zero-padded up to 32 bytes. This module does not
+//! right-pad a short key the way [`crate::pad!`] does for other uses (see
+//! that macro's doc comment) — doing so here would silently point at a
+//! *different* state slot than the host's own left-pad convention (or than
+//! a C hook passing the same short key directly) would reach, and would
+//! also make "how many of these 32 bytes does this key actually use" opaque
+//! at the call site. Every [`StateKeyEncode`] impl in this crate — `[u8; N]`
+//! (`1 <= N <= `[`crate::types::STATE_KEY_LEN`]), [`crate::HookKey`]-derived
+//! structs, and `state_keys!` enums — follows this: the bytes handed to the
+//! host are exactly as many as the key's own encoding actually needs, and
+//! the host is trusted to left-pad. [`crate::types::StateKey`] (a full,
+//! already-32-byte key) is the one exception with nothing to shorten: it
+//! passes all 32 bytes through unchanged.
 //!
 //! # Struct keys (`#[derive(crate::HookKey)]`) vs. `state_keys!`
 //!
@@ -153,7 +182,7 @@
 
 use crate::convert::{FromBytes, ToBytes};
 use crate::error::{HookError, Result};
-use crate::types::StateKey;
+use crate::types::{STATE_KEY_LEN, StateKey};
 
 /// Maximum byte length of any value [`state_get`]/[`state_set_loose`]/
 /// [`state_update_loose`] (and their `_foreign` twins) read or write.
@@ -176,30 +205,138 @@ use crate::types::StateKey;
 /// functions directly instead of this module.
 const MAX_TYPED_STATE_LEN: usize = 32;
 
-/// Encodes a value into the fixed 32-byte hook-state key space.
+/// Encodes a value into hook-state key bytes: its own real length, `<= `
+/// [`crate::types::STATE_KEY_LEN`] (32) — never locally zero-padded up to
+/// 32 bytes. See the module doc comment's "Key length and padding" section
+/// for why: the Hook API accepts any key from 1 to 32 bytes and left-pads a
+/// shorter one internally, so this crate hands the host exactly as many
+/// bytes as the key naturally needs and lets the host do that padding,
+/// matching the C hook idiom of passing a short literal key directly.
 ///
-/// Implemented by every enum the [`state_keys!`](crate::state_keys) macro
-/// generates, by every [`crate::HookKey`]-derived struct (see the module doc
-/// comment's "Struct keys" section for the grammar and the compile-time
-/// 32-byte check that derive applies), and — as the identity case — by
-/// [`crate::types::StateKey`] itself (a raw, already-32-byte key, e.g. one
-/// built with [`crate::pad!`], works directly with the typed functions in
-/// this module). Deliberately **not** implemented for every
-/// [`crate::convert::ToBytes`] type: an ordinary state *value* struct (a
-/// plain `#[derive(HookData)]`) has no business also being usable as a key
-/// by accident — see [`crate::HookKey`]'s doc comment for why key and value
-/// are two separate derives.
+/// Implemented by `[u8; N]` (`1 <= N <= `[`crate::types::STATE_KEY_LEN`],
+/// checked at compile time), by every enum the
+/// [`state_keys!`](crate::state_keys) macro generates, by every
+/// [`crate::HookKey`]-derived struct (see the module doc comment's "Struct
+/// keys" section for the grammar and the compile-time 32-byte check that
+/// derive applies), and — as the one already-32-byte-with-nothing-to-shorten
+/// case — by [`crate::types::StateKey`] itself. Deliberately **not**
+/// implemented for every [`crate::convert::ToBytes`] type: an ordinary
+/// state *value* struct (a plain `#[derive(HookData)]`) has no business
+/// also being usable as a key by accident — see [`crate::HookKey`]'s doc
+/// comment for why key and value are two separate derives.
 pub trait StateKeyEncode {
-    /// The 32-byte state key `self` encodes to.
-    fn encode(&self) -> StateKey;
+    /// `self`'s own real-length key encoding — see this trait's doc comment.
+    fn encode(&self) -> EncodedStateKey;
 }
 
-/// Identity impl: a raw, already-32-byte [`crate::types::StateKey`] (e.g.
-/// one built with [`crate::pad!`]) is already a valid key as-is.
+/// The real-length byte encoding [`StateKeyEncode::encode`] returns: a
+/// fixed 32-byte buffer plus the number of leading bytes actually meaningful
+/// (`<= `[`crate::types::STATE_KEY_LEN`]). No heap allocation — this is a
+/// plain `Copy` value, exactly as zero-cost as returning a fixed-size array
+/// would be, just paired with the real length instead of always claiming
+/// all 32 bytes. [`AsRef<[u8]>`] exposes only that real-length prefix
+/// (never the unused trailing buffer), so passing `&encoded` to
+/// [`crate::api::state::state`]/[`crate::api::state::state_set`]/
+/// [`crate::api::state::state_foreign`]/[`crate::api::state::state_foreign_set`]
+/// (all bounded by `AsRef<[u8]>`) sends exactly that many bytes to the
+/// host, which is what left-pads a short key — see the module doc
+/// comment's "Key length and padding" section.
+#[derive(Clone, Copy, Debug)]
+pub struct EncodedStateKey {
+    buf: [u8; STATE_KEY_LEN],
+    len: usize,
+}
+
+impl EncodedStateKey {
+    /// Builds an `EncodedStateKey` from a full 32-byte buffer and the
+    /// number of leading bytes that are actually meaningful (the rest of
+    /// `buf` is ignored). `len` must be `<= `[`crate::types::STATE_KEY_LEN`]
+    /// — every call site in this crate enforces that at compile time
+    /// (a monomorphized `const` assert) before calling this, so it is not
+    /// re-checked here; a `len` beyond `buf`'s bounds simply yields an
+    /// empty [`AsRef<[u8]>`] slice rather than a panic, keeping this
+    /// constructor itself infallible for any caller.
+    #[inline(always)]
+    #[must_use]
+    pub const fn new(buf: [u8; STATE_KEY_LEN], len: usize) -> Self {
+        Self { buf, len }
+    }
+}
+
+impl AsRef<[u8]> for EncodedStateKey {
+    #[inline(always)]
+    fn as_ref(&self) -> &[u8] {
+        match self.buf.get(..self.len) {
+            Some(s) => s,
+            None => &[],
+        }
+    }
+}
+
+/// Identity impl: a raw, already-32-byte [`crate::types::StateKey`] passes
+/// through unchanged — there is nothing to shorten.
 impl StateKeyEncode for StateKey {
     #[inline(always)]
-    fn encode(&self) -> StateKey {
-        *self
+    fn encode(&self) -> EncodedStateKey {
+        EncodedStateKey::new(self.0, STATE_KEY_LEN)
+    }
+}
+
+/// A short, literal state key — the direct Rust counterpart to the C hook
+/// idiom of passing a short key straight to `state`/`state_set`
+/// (`state(&v, 8, "RR", 2)`): `state_get::<u64>(b"RR")` reaches the exact
+/// same, host-left-padded slot. `N` is checked at compile time (a
+/// monomorphized `const` assert, one per concrete `N`) to be `1..=`
+/// [`crate::types::STATE_KEY_LEN`] — the Hook API's own bound on a key's
+/// length — so an out-of-range `N` fails to compile rather than failing at
+/// the first host call. A bare `&[u8]` (runtime-determined length) is
+/// deliberately not supported — only a compile-time-sized `[u8; N]` — to
+/// keep that bound a compile-time guarantee, not a runtime `TOO_SMALL`/
+/// `TOO_BIG` a caller could hit unexpectedly.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::prelude::*;
+///
+/// // `NotImplemented` here is the host stub every Hook API call returns on
+/// // a host build — this only proves the `[u8; N]` `StateKeyEncode` call
+/// // chain compiles and runs.
+/// assert_eq!(state_get::<u64>(b"RR"), Err(HookError::NotImplemented));
+/// assert_eq!(state_set_loose(b"RR", &1u64), Err(HookError::NotImplemented));
+/// ```
+///
+/// An empty key (`N = 0`) fails to compile — the Hook API's own lower
+/// bound is 1 byte:
+///
+/// ```compile_fail
+/// use hooks_lib::prelude::*;
+///
+/// let _ = state_get::<u64>(b"");
+/// ```
+///
+/// A key longer than 32 bytes fails to compile:
+///
+/// ```compile_fail
+/// use hooks_lib::prelude::*;
+///
+/// let _ = state_get::<u64>(&[0u8; 33]);
+/// ```
+impl<const N: usize> StateKeyEncode for [u8; N] {
+    #[inline(always)]
+    fn encode(&self) -> EncodedStateKey {
+        const {
+            assert!(
+                N >= 1 && N <= STATE_KEY_LEN,
+                "hooks_lib::state: a [u8; N] state key must be 1..=32 bytes \
+                 (the Hook API's own key-length bound)"
+            );
+        }
+        let mut buf = [0u8; STATE_KEY_LEN];
+        if let Some(dst) = buf.get_mut(..N) {
+            dst.copy_from_slice(self);
+        }
+        EncodedStateKey::new(buf, N)
     }
 }
 
@@ -439,9 +576,11 @@ where
     state_foreign_update_loose(key, namespace, account, f)
 }
 
-/// Declares an enum whose variants encode to fixed 32-byte
-/// [`crate::types::StateKey`] values, implementing [`StateKeyEncode`] for
-/// it. See the module doc comment for the encoding rules and an example.
+/// Declares an enum whose variants encode to their own real byte length
+/// (discriminant plus payload, `<= `[`crate::types::STATE_KEY_LEN`], never
+/// locally padded up to 32), implementing [`StateKeyEncode`] for it. See
+/// the module doc comment's "Key length and padding" section for the
+/// encoding rules and an example.
 ///
 /// Grammar: unit variants (`Name`) and single-payload tuple variants
 /// (`Name(PayloadType)`, `PayloadType: `[`crate::convert::ToBytes`]) may be
@@ -519,7 +658,7 @@ macro_rules! __state_keys_step {
 
         impl $crate::state::StateKeyEncode for $Name {
             #[inline(always)]
-            fn encode(&self) -> $crate::types::StateKey {
+            fn encode(&self) -> $crate::state::EncodedStateKey {
                 match self {
                     $($arms)*
                 }
@@ -576,7 +715,11 @@ macro_rules! __state_keys_step {
                     if let Some(__byte) = __out.get_mut(0) {
                         *__byte = $next;
                     }
-                    $crate::types::StateKey::from(__out)
+                    // Real length: just the 1-byte discriminant — a unit
+                    // variant carries no payload, so there is nothing else
+                    // to send (see the module doc comment's "Key length
+                    // and padding" section).
+                    $crate::state::EncodedStateKey::new(__out, 1usize)
                 }
             ],
             discs = [ $($discs)* $next, ],
@@ -619,7 +762,15 @@ macro_rules! __state_keys_step {
                             __payload, __rest,
                         );
                     }
-                    $crate::types::StateKey::from(__out)
+                    // Real length: discriminant byte + payload — no
+                    // trailing padding (see the module doc comment's "Key
+                    // length and padding" section).
+                    $crate::state::EncodedStateKey::new(
+                        __out,
+                        1usize.wrapping_add(
+                            <$payload as $crate::convert::ToBytes>::MAX_LEN,
+                        ),
+                    )
                 }
             ],
             discs = [ $($discs)* $next, ],
@@ -725,6 +876,50 @@ mod tests {
     }
 
     #[test]
+    fn short_array_key_encodes_to_its_own_real_length_unpadded() {
+        // The direct Rust counterpart to the C hook idiom
+        // `state(&v, 8, "RR", 2)`: a short literal key, sent to the host
+        // exactly as-is — no local zero-padding up to 32 bytes.
+        let encoded = b"RR".encode();
+        assert_eq!(encoded.as_ref(), b"RR");
+        assert_eq!(encoded.as_ref().len(), 2);
+    }
+
+    #[test]
+    fn single_byte_array_key_encodes_to_one_byte() {
+        let encoded = [7u8].encode();
+        assert_eq!(encoded.as_ref(), &[7u8]);
+    }
+
+    #[test]
+    fn full_32_byte_array_key_encodes_unchanged() {
+        let raw = [0xABu8; STATE_KEY_LEN];
+        let encoded = raw.encode();
+        assert_eq!(encoded.as_ref(), &raw[..]);
+    }
+
+    #[test]
+    fn full_state_key_passes_through_all_32_bytes_unchanged() {
+        let raw = [0xCDu8; STATE_KEY_LEN];
+        let key = StateKey::from(raw);
+        let encoded = key.encode();
+        assert_eq!(encoded.as_ref(), &raw[..]);
+        assert_eq!(encoded.as_ref().len(), STATE_KEY_LEN);
+    }
+
+    #[test]
+    fn different_length_array_keys_encode_to_different_bytes() {
+        // `b"RR"` (2 bytes) and a hypothetical zero-padded-to-32 version of
+        // the same bytes must NOT compare equal here — this module never
+        // performs that local padding (the host does it, on its own left
+        // side) — see the module doc comment's "Key length and padding"
+        // section.
+        let short = b"RR".encode();
+        assert_ne!(short.as_ref().len(), STATE_KEY_LEN);
+        assert_eq!(short.as_ref(), b"RR");
+    }
+
+    #[test]
     fn smoke_not_implemented_on_host() {
         assert_eq!(
             state_get::<u32>(&StateKey::from([0u8; STATE_KEY_LEN])),
@@ -768,26 +963,30 @@ mod tests {
     }
 
     #[test]
-    fn unit_variant_encodes_discriminant_and_zero_pad() {
-        let mut expected = [0u8; STATE_KEY_LEN];
-        expected[0] = 0;
-        assert_eq!(TestKey::Counter.encode(), StateKey::from(expected));
+    fn unit_variant_encodes_just_the_discriminant_no_padding() {
+        // Real length is 1 byte — no local zero-padding up to 32 (the host
+        // left-pads; see the module doc comment's "Key length and padding"
+        // section).
+        let encoded = TestKey::Counter.encode();
+        assert_eq!(encoded.as_ref(), &[0u8]);
     }
 
     #[test]
-    fn tuple_variant_encodes_discriminant_payload_and_zero_pad() {
-        let mut expected = [0u8; STATE_KEY_LEN];
+    fn tuple_variant_encodes_discriminant_plus_payload_no_padding() {
+        // Real length is 1 (discriminant) + 4 (u32 payload) = 5 bytes.
+        let encoded = TestKey::Balance(0x0102_0304).encode();
+        let mut expected = [0u8; 5];
         expected[0] = 1;
         expected[1..5].copy_from_slice(&0x0102_0304u32.to_le_bytes());
-        assert_eq!(
-            TestKey::Balance(0x0102_0304).encode(),
-            StateKey::from(expected)
-        );
+        assert_eq!(encoded.as_ref(), &expected[..]);
     }
 
     #[test]
     fn distinct_variants_encode_to_distinct_keys() {
-        assert_ne!(TestKey::Counter.encode(), TestKey::Balance(0).encode());
+        assert_ne!(
+            TestKey::Counter.encode().as_ref(),
+            TestKey::Balance(0).encode().as_ref()
+        );
     }
 
     // `TypedStateKey`/`hook_state!`: a key type paired with exactly one

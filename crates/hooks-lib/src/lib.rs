@@ -196,13 +196,18 @@ pub use hooks_macros::account_id;
 ///   `HookKey` reflects that by generating only [`convert::ToBytes`] plus
 ///   [`state::StateKeyEncode`]: no `FromBytes`, no `FixedRead`, no inherent
 ///   `LEN` const.
-/// - A key has a bound the Hook API's fixed key space imposes — a key is
-///   always exactly 32 bytes, zero-padded — distinct from a value's lack of
-///   any size cap (beyond this crate's own `MAX_TYPED_STATE_LEN`
+/// - A key has a bound the Hook API's fixed key space imposes — its real
+///   encoded length must fit within 32 bytes — distinct from a value's lack
+///   of any size cap (beyond this crate's own `MAX_TYPED_STATE_LEN`
 ///   convenience limit — see [`state`]'s module doc comment). `HookKey`
-///   checks the 32-byte bound **at derive time**, unconditionally: a
+///   checks that bound **at derive time**, unconditionally: a
 ///   `#[derive(HookKey)]` struct that encodes to 33+ bytes fails to compile
-///   at its own definition, before it's ever used as a key at all.
+///   at its own definition, before it's ever used as a key at all. Unlike an
+///   earlier design, the encoded key sent to the host is **not** locally
+///   zero-padded up to 32 bytes — it is exactly the struct's own natural
+///   length, e.g. 2 bytes for a `{ tag: u8, small: u8 }`, and the host
+///   itself left-pads a key shorter than 32 bytes (see [`state`]'s module
+///   doc comment, "Key length and padding").
 /// - Only a `#[derive(HookKey)]` struct, a [`state_keys!`](crate::state_keys)
 ///   enum, or [`types::StateKey`] itself implements
 ///   [`state::StateKeyEncode`] — an ordinary `#[derive(HookData)]` *value*
@@ -224,8 +229,29 @@ pub use hooks_macros::account_id;
 ///   comment's "What gets generated"/"Zero-cost by construction" sections);
 ///   this derive only adds the `StateKeyEncode` impl on top.
 /// - `impl state::StateKeyEncode for Name`: encodes `self` via the `ToBytes`
-///   impl above into a zero-padded 32-byte [`types::StateKey`], with a
-///   compile-time (monomorphized) assert that `Name`'s encoded length fits.
+///   impl above into an [`state::EncodedStateKey`] carrying exactly `Name`'s
+///   own real encoded length (never padded to 32), with a compile-time
+///   (monomorphized) assert that the length fits within 32 bytes.
+///
+/// # Real length, not zero-padded: the exact byte image sent to the host
+///
+/// The bytes [`state::StateKeyEncode::encode`] produces are `Name`'s fields,
+/// little-endian, back-to-back — nothing more. A `{ tag: u8, small: u16 }`
+/// key encodes to exactly 3 bytes, not 32:
+///
+/// ```
+/// use hooks_lib::HookKey;
+/// use hooks_lib::state::StateKeyEncode;
+///
+/// #[derive(HookKey, Clone, Copy)]
+/// struct ShortKey {
+///     tag: u8,
+///     small: u16,
+/// }
+///
+/// let encoded = ShortKey { tag: 0x11, small: 0x2233 }.encode();
+/// assert_eq!(encoded.as_ref(), &[0x11, 0x33, 0x22]);
+/// ```
 ///
 /// # Examples
 ///
@@ -547,16 +573,18 @@ pub use hooks_macros::HookData;
 ///   with an ordinary rustc trait-bound error naming the missing trait.
 /// - A parameter name has its own length bound the Hook API itself
 ///   enforces — [`convert::PARAM_NAME_MAX_LEN`], **1 to 32 bytes**
-///   (`hook_api.h`: `TOO_SMALL` below 1, `TOO_BIG` above 32) — distinct
-///   from a hook state key's *fixed* 32 bytes, always zero-padded (see
-///   [`HookKey`]), or a state *value*'s lack of any size cap at all.
+///   (`hook_api.h`: `TOO_SMALL` below 1, `TOO_BIG` above 32) — the same
+///   upper bound a hook state key's real encoded length is checked against
+///   (see [`HookKey`]; a key is sent to the host at its own real length,
+///   never locally zero-padded — the Hook API host itself left-pads a
+///   shorter key), while a state *value* has no size cap at all.
 ///   `ParamName` checks this **at derive time**, unconditionally: a
 ///   `#[derive(ParamName)]` struct that encodes to 0 or to 33+ bytes fails
 ///   to compile at its own definition, before it's ever used as a
 ///   parameter name at all (contrast with [`HookKey`]'s analogous
 ///   derive-time check, which only has an upper bound — a key may be
-///   shorter than 32 bytes, zero-padded, but a parameter name may not be
-///   shorter than 1 byte).
+///   shorter than 32 bytes, but a parameter name may not be shorter than 1
+///   byte).
 ///
 /// # Grammar
 ///

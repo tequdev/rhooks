@@ -749,6 +749,60 @@ the baked template's data segment — and the *runtime* blob length is
 whatever `etxn_details` actually returns (116 bytes without `cbak`, 138
 with), so cbak-vs-not needs no declaration-time switching at all.
 
+### 5.6 Hook state key encoding: real length, not local zero-padding
+
+`state`/`state_set`/`state_foreign(_set)` accept any key from 1 to 32 bytes
+(`hook_api.h`: `TOO_SMALL` below 1, `TOO_BIG` above 32) and **left-pad** a
+shorter key internally to the host's own fixed-width storage slot — this
+is the C hook idiom `state(&v, 8, "RR", 2)`: a 2-byte literal key, handed
+straight to the host, unpadded.
+
+rhooks' typed key layer (`crate::state::StateKeyEncode` — the trait behind
+`state_get`/`state_set_loose`/`state_update_loose` and their `_foreign`
+twins, `state_keys!`, and `#[derive(HookKey)]`) matches this exactly: every
+`encode()` call returns the key's own **real** encoded length, never
+locally zero-padded up to 32 bytes. Concretely:
+
+| key type | real encoded length | notes |
+|---|---|---|
+| `[u8; N]` (`1 <= N <= 32`) | `N` | direct counterpart to a C hook's short literal key; `N` is a compile-time-checked const generic (monomorphized assert) |
+| `state_keys!` unit variant | 1 (just the discriminant) | previously 32 (discriminant + zero pad) |
+| `state_keys!` tuple variant | `1 + Payload::MAX_LEN` | previously 32 (discriminant + payload + zero pad) |
+| `#[derive(HookKey)]` struct | the struct's own `ToBytes::MAX_LEN` (`<= 32`, checked at derive time) | previously always 32 (fields + zero pad) |
+| `crate::types::StateKey` | 32 (unchanged) | already a full key, nothing to shorten |
+
+This is a **breaking change** in what bytes reach the host for every key
+shorter than 32 bytes: previously, this crate right-padded a short key to a
+full 32 bytes locally (value first, zero bytes after) and sent all 32 to
+the host; now it sends only the key's own real bytes, and the host's own
+left-pad (zero bytes first, value at the end) determines the actual
+storage slot. **A key shorter than 32 bytes now lands on a different
+on-ledger slot than it did before this change** — existing state written
+under the old right-padded scheme is not reachable through the new
+left-padded one. New deployments are unaffected; a hook upgrading across
+this change would need a one-time state migration if it has existing
+short-keyed entries (full 32-byte keys, including every `crate::types::StateKey`
+use, are unaffected either way).
+
+The rationale for not padding locally: it makes "how many of these 32
+bytes does this key actually use" explicit at the call site (`b"RR"` is
+visibly a 2-byte key, not silently a 32-byte one under the hood), and it
+matches the host's own convention exactly — a Rust hook and a C hook
+passing the same short literal key now land on the exact same slot, with
+no distinct-encoding-scheme footgun between the two.
+
+`crate::pad!` (right-pad a byte-string constant, entirely at compile time —
+see `macros.rs`) is unaffected as a macro, but is no longer needed to build
+a hook-state key: reach for a plain `[u8; N]` (e.g. `b"counter"`) directly
+instead. It remains useful for other fixed-size buffer needs — e.g.
+deliberately building a full, already-32-byte `StateKey`/`NameSpace`
+constant, or padding a byte string for a use unrelated to hook-state keys.
+(A separate, not-yet-merged change adds a `pad_left!` — a left-pad
+counterpart to `pad!`, for reproducing the host's own left-pad convention
+locally when a hook needs the padded bytes themselves rather than just the
+short key; once that lands, the same "not needed for `StateKeyEncode` keys
+— the host already left-pads them" reasoning applies to it too.)
+
 ## 6. hooks-build
 
 `std` crate: `src/main.rs` (clap CLI) + `src/lib.rs` (pipeline as pure

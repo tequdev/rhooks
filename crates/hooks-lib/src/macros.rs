@@ -143,8 +143,16 @@ pub const fn padded_bytes<const N: usize>(src: &[u8]) -> [u8; N] {
 /// - the padded array is baked into the binary at compile time — no copy or
 ///   zeroing loop exists at runtime, so no loop guard is needed for it.
 ///
-/// The canonical use is building fixed-size state keys and namespaces from
-/// short names.
+/// **Not needed for building a short hook-state key anymore**: a
+/// `[u8; N]` (`1 <= N <= `[`crate::types::STATE_KEY_LEN`]) works directly
+/// as a [`crate::state::StateKeyEncode`] key — e.g. `state_get::<u64>(b"counter")` —
+/// sent to the host at its own real length (the host itself left-pads a
+/// short key; see `hooks_lib::state`'s module doc comment, "Key length and
+/// padding"). Reach for `pad!` when a fixed-size buffer genuinely needs
+/// local right-padding for some other reason — e.g. building a full,
+/// already-32-byte [`crate::types::StateKey`]/[`crate::types::NameSpace`]
+/// constant on purpose, or padding a byte string for a use unrelated to
+/// hook-state keys.
 ///
 /// # Examples
 /// ```
