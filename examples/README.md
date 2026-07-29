@@ -28,10 +28,11 @@ directory is prefixed) and matches what its own README, `Cargo.toml`, and
 | 09 | [`state-foreign`](09_state-foreign) | `state_foreign`: reading another (hook-parameter-configured) account's hook state |
 | 10 | [`emit-txn`](10_emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
 | 12 | [`typed-data`](12_typed-data) | `#[derive(HookData)]`: composite (multi-field) state keys/values and `otxn_param`/`hook_param` structs, in place of hand-packed byte buffers |
+| 13 | [`keylets`](13_keylets) | `hooks_lib::api::keylet`'s 26 typed `keylet_xxx` helpers (one per `KEYLET_*` constant), in place of the single untyped `util_keylet` |
 | 14 | [`account-id-macro`](14_account-id-macro) | `hooks_lib::account_id!`: compile-time r-address -> `AccountId` decode, cross-checked against `hook_account`/`util_accid`/`util_raddr` |
 
-(11 and 13 are reserved for other in-flight work — see git history/other
-branches — hence the jump from `12` to `14`.)
+(11 is reserved for other in-flight work — see git history/other
+branches — hence the jump from `10` to `12`.)
 
 ## 80+: Production hooks in Rust
 

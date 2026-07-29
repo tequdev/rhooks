@@ -304,7 +304,8 @@ src/
     ├── slot.rs    # slot_* family, meta_slot, xpop_slot
     ├── sto.rs     # sto_subfield, sto_subarray, sto_emplace, sto_erase, sto_validate
     ├── float.rs   # thin fns backing XFL (float_sto, float_sto_set, slot_float)
-    ├── util.rs    # util_accid, util_raddr, util_sha512h, util_verify, util_keylet
+    ├── util.rs    # util_accid, util_raddr, util_sha512h, util_verify, util_keylet(_buf)
+    ├── keylet.rs  # one typed keylet_xxx() per KEYLET_* constant, built on util_keylet_buf
     └── trace.rs   # trace, trace_num, trace_float
 ```
 
