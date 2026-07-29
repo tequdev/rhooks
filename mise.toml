@@ -88,6 +88,14 @@ cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 cargo run -p hooks-build -- build --manifest-path examples/12_typed-data/Cargo.toml
 cargo run -p hooks-build -- check examples/12_typed-data/out/typed_data.wasm
 
+# account-id-macro (11 and 13 are reserved for other in-flight work, hence
+# the jump from 12 to 14 — see examples/README.md): its util_raddr scratch
+# buffer is a `static` (hooks_lib::static_cell::HookStatic), same "avoid a
+# compiler-generated zero-init loop" idiom as emit-txn above — a bare
+# `[0u8; 34]` stack local was the one thing that needed it here.
+cargo run -p hooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
+cargo run -p hooks-build -- check examples/14_account-id-macro/out/account_id_macro.wasm
+
 # 80+: production hooks (see examples/README.md's "80+" section). Both
 # need every fallible Hook API call routed through their own `src/raw.rs`
 # (bypassing hooks-lib's Result<_, HookError> wrapper) and reward/govern.c

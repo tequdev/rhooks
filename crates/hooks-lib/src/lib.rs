@@ -33,6 +33,9 @@
 //! - [`hook`] / [`cbak`] — attribute macros that turn a plain, argument-less
 //!   `fn name() -> i64` into the wasm export shape the Hook host requires
 //!   (see `hooks-macros`'s crate doc comment).
+//! - [`account_id!`](account_id) — decodes a classic XRPL/Xahau r-address
+//!   into an [`types::AccountId`] literal entirely at compile time (zero
+//!   runtime/wasm-size cost).
 //! - [`hook_errors!`] / [`exit_on_err!`] — define a `#[repr(i64)]` user error
 //!   enum and convert `Result<T, YourEnum>` into a `rollback!` at the hook's
 //!   boundary (see `errors.rs`).
@@ -105,6 +108,73 @@ pub use hooks_macros::hook;
 /// Hook module can export, invoked when a transaction it previously emitted
 /// settles.
 pub use hooks_macros::cbak;
+
+/// Decodes a classic XRPL/Xahau r-address (base58check, e.g.
+/// `"rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh"`) into an [`types::AccountId`]
+/// literal — **entirely at compile time**, inside the proc-macro (host-side
+/// base58 decode + double-SHA256 checksum verification, hand-written in
+/// `hooks-macros` — see its crate doc comment for why not a `sha2`/`bs58`
+/// dependency). The expansion is a plain `AccountId([u8; 20])` literal, so
+/// this costs the compiled Hook wasm binary **nothing**: no decode logic
+/// ships in the binary at all, and it works in `const`/`static` position.
+///
+/// This replaces hand-computing/hardcoding a 20-byte array for a
+/// well-known address — e.g. `examples/80_reward`/`examples/81_govern`
+/// both hand-hardcode `GENESIS_ACCOUNT`, the Xahau/XRPL standalone-network
+/// genesis/master account, as a raw `AccountId([0xB5, 0xF7, ...])` literal;
+/// `account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh")` produces the exact
+/// same value from the address string directly.
+///
+/// A malformed address (bad character, wrong length, wrong version byte,
+/// or a failed checksum) is a `compile_error!` at the macro call site
+/// naming exactly what was wrong — never a runtime failure.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::account_id;
+/// use hooks_lib::types::AccountId;
+///
+/// // The Xahau/XRPL standalone-network genesis/master account (seed
+/// // "masterpassphrase") — see the note above about `GENESIS_ACCOUNT`.
+/// const OWNER: AccountId = account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh");
+/// assert_eq!(
+///     OWNER.0,
+///     [
+///         0xB5, 0xF7, 0x62, 0x79, 0x8A, 0x53, 0xD5, 0x43, 0xA0, 0x14, 0xCA, 0xF8, 0xB2, 0x97,
+///         0xCF, 0xF8, 0xF2, 0xF9, 0x37, 0xE8
+///     ]
+/// );
+///
+/// // `ACCOUNT_ZERO`, XRPL's well-known all-zero special address — also
+/// // usable in a `static`, not just a bare `const`, exactly like
+/// // `AccountId::zeroed()` elsewhere in this crate.
+/// static ACCOUNT_ZERO: AccountId = account_id!("rrrrrrrrrrrrrrrrrrrrrhoLvTp");
+/// assert_eq!(ACCOUNT_ZERO.0, [0u8; 20]);
+/// ```
+///
+/// A checksum mismatch (last character `h` -> `H`) fails to compile:
+/// ```compile_fail
+/// hooks_lib::account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTH");
+/// ```
+///
+/// A wrong version byte (this address doesn't even start with `'r'`) fails
+/// to compile:
+/// ```compile_fail
+/// hooks_lib::account_id!("sJHw2iRxXngPFKZvYbjkfifqt8CJghksMM");
+/// ```
+///
+/// A truncated address (wrong decoded length) fails to compile:
+/// ```compile_fail
+/// hooks_lib::account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdty");
+/// ```
+///
+/// An invalid character (`'0'` is not in the XRPL base58 alphabet) fails
+/// to compile:
+/// ```compile_fail
+/// hooks_lib::account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyT0");
+/// ```
+pub use hooks_macros::account_id;
 
 /// Derives [`convert::ToBytes`] and an explicit [`state::StateKeyEncode`]
 /// impl for a fixed-size, named-field struct used as a **composite
