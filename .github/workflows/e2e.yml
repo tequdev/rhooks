@@ -15,99 +15,14 @@ env:
   XAHAUD_VERSION: 2026.6.21-release+3350
 
 jobs:
+  # Same build as ci.yml's `examples` job — see build-examples.yml, the
+  # single source of truth shared by both workflows (a matrix job per
+  # example, fail-fast: false, so one example failing never blocks the
+  # others from building; `e2e` below still needs ALL of them to succeed
+  # before deploying, via `needs: build-hooks`).
   build-hooks:
     name: Build example hooks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Rust toolchain (per rust-toolchain.toml)
-        run: rustup show active-toolchain || rustup toolchain install
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-            examples
-
-      # Same build invocations as ci.yml's `examples` job (kept in sync
-      # manually - see mise.toml's `build-examples` task, the single
-      # source of truth for the actual flags each example needs), in the
-      # numbered (suggested reading) order under examples/ — see
-      # examples/README.md.
-      - name: accept-all
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/01_accept-all/Cargo.toml
-          cargo run -p hooks-build -- check examples/01_accept-all/out/accept_all.wasm
-
-      - name: state-counter
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
-          cargo run -p hooks-build -- check examples/02_state-counter/out/state_counter.wasm
-
-      - name: hook-params
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/03_hook-params/Cargo.toml
-          cargo run -p hooks-build -- check examples/03_hook-params/out/hook_params.wasm
-
-      - name: errors
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/04_errors/Cargo.toml
-          cargo run -p hooks-build -- check examples/04_errors/out/errors.wasm
-
-      - name: firewall
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/05_firewall/Cargo.toml
-          cargo run -p hooks-build -- check examples/05_firewall/out/firewall.wasm
-
-      - name: guard-patterns
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/06_guard-patterns/Cargo.toml
-          cargo run -p hooks-build -- check examples/06_guard-patterns/out/guard_patterns.wasm
-
-      - name: xfl-math
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/07_xfl-math/Cargo.toml
-          cargo run -p hooks-build -- check examples/07_xfl-math/out/xfl_math.wasm
-
-      - name: slot-ledger
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/08_slot-ledger/Cargo.toml
-          cargo run -p hooks-build -- check examples/08_slot-ledger/out/slot_ledger.wasm
-
-      - name: state-foreign
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/09_state-foreign/Cargo.toml
-          cargo run -p hooks-build -- check examples/09_state-foreign/out/state_foreign.wasm
-
-      - name: emit-txn
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
-          cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
-
-      - name: account-id-macro
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
-          cargo run -p hooks-build -- check examples/14_account-id-macro/out/account_id_macro.wasm
-
-      # 80+: production hooks (examples/README.md's "80+" section, needed
-      # by e2e/test/reward.test.ts and govern.test.ts).
-      - name: reward
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/80_reward/Cargo.toml
-          cargo run -p hooks-build -- check examples/80_reward/out/reward.wasm
-
-      - name: govern
-        run: |
-          cargo run -p hooks-build -- build --manifest-path examples/81_govern/Cargo.toml
-          cargo run -p hooks-build -- check examples/81_govern/out/govern.wasm
-
-      - name: Upload example hook binaries
-        uses: actions/upload-artifact@v7
-        with:
-          name: example-hooks
-          path: examples/*/out/*.wasm
-          if-no-files-found: error
+    uses: ./.github/workflows/build-examples.yml
 
   e2e:
     name: Deploy & test on standalone Xahau
@@ -120,14 +35,14 @@ jobs:
       - name: Download example hook binaries
         uses: actions/download-artifact@v7
         with:
-          name: example-hooks
+          pattern: example-hooks-*
           path: examples-out
 
       - name: Place downloaded wasm files back under examples/*/out/
         run: |
           set -e
-          for dir in examples-out/*/out; do
-            example="$(basename "$(dirname "$dir")")"
+          for dir in examples-out/example-hooks-*; do
+            example="$(basename "$dir" | sed 's/^example-hooks-//')"
             mkdir -p "examples/${example}/out"
             cp "$dir"/*.wasm "examples/${example}/out/"
           done

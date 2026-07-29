@@ -1,0 +1,159 @@
+name: Build examples (reusable)
+
+# Reusable workflow: the ONE place that builds every crate under examples/
+# through hooks-build and validates the output. Called from both ci.yml
+# (as its `examples` job) and e2e.yml (as its `build-hooks` job) so the
+# two workflows can never drift out of sync with each other again — the
+# historical failure mode here was a *step* being added to one workflow's
+# hand-written per-example list and forgotten in the other's (or forgotten
+# entirely for a new example). There is now only one list, and it isn't
+# even hand-written: the `discover` job below derives it from
+# examples/*/Cargo.toml, so adding a new example directory needs zero
+# workflow edits (a per-example flag override, if the example needs one,
+# is the only case that still touches this file — see the `discover` job).
+#
+# Jobs (all independent except `build`, which needs the other two):
+#   discover    - lists examples/*/Cargo.toml and emits the build matrix
+#   build-tool  - builds `hooks-build` once (release) and shares the
+#                 binary via artifact, so it isn't rebuilt per example
+#   clippy      - lints the whole examples workspace once (not per-example)
+#   build       - matrix job, one leg per example, fail-fast: false so one
+#                 example failing never blocks the others from completing
+#
+# mise.toml's `build-examples` task (the local equivalent) is intentionally
+# NOT generated from this same discovery logic — it's plain shell so it
+# stays readable and debuggable when run by hand; keep its per-example
+# invocations and comments in sync with the flag overrides declared in
+# `discover` below when either changes.
+
+on:
+  workflow_call: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  discover:
+    name: Discover examples
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build example matrix from examples/*/Cargo.toml
+        id: discover
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Per-example `hooks-build build` flag overrides. This is the
+          # ONLY place per-example build flags are declared for CI — add
+          # one line per example that needs non-default flags (keyed by
+          # its examples/ directory name) and both ci.yml and e2e.yml
+          # pick it up automatically, with no further workflow edits.
+          declare -A EXTRA_ARGS=(
+            # [11_gas-counter]="--api-version 1"
+            # [13_keylets]="--auto-guard --default-maxiter 34"
+          )
+
+          matrix='[]'
+          for manifest in examples/*/Cargo.toml; do
+            dir="$(dirname "$manifest")"
+            name="$(basename "$dir")"
+            pkg="$(grep -m1 '^name = ' "$manifest" | sed -E 's/name = "(.*)"/\1/')"
+            wasm="${pkg//-/_}"
+            args="${EXTRA_ARGS[$name]:-}"
+            entry="$(jq -nc --arg name "$name" --arg dir "$dir" --arg wasm "$wasm" --arg args "$args" \
+              '{name: $name, dir: $dir, wasm: $wasm, args: $args}')"
+            matrix="$(jq -c --argjson e "$entry" '. + [$e]' <<<"$matrix")"
+          done
+
+          echo "Discovered matrix:"
+          jq . <<<"$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build-tool:
+    name: Build hooks-build (shared binary)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (per rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build hooks-build (release)
+        run: cargo build -p hooks-build --release
+
+      - name: Upload hooks-build binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: hooks-build-bin
+          path: target/release/hooks-build
+          if-no-files-found: error
+          retention-days: 1
+
+  clippy:
+    name: Clippy (examples workspace, wasm32v1-none)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (per rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: examples
+
+      - name: Clippy (examples, wasm32v1-none, deny warnings)
+        # --lib instead of --all-targets: wasm32v1-none has no `test` crate,
+        # so the implicit test-profile target can never build for it.
+        working-directory: examples
+        run: cargo clippy --workspace --lib --target wasm32v1-none -- -D warnings
+
+  build:
+    name: ${{ matrix.name }}
+    needs: [discover, build-tool]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (per rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: examples
+
+      - name: Download hooks-build binary
+        uses: actions/download-artifact@v7
+        with:
+          name: hooks-build-bin
+          path: bin
+
+      # Building each example through hooks-build and then `check`ing the
+      # produced binary doubles as the end-to-end test of the whole
+      # toolchain (cleaner, guard pass, validator) — no_std cdylib hooks
+      # have no runnable unit tests. `bin/hooks-build` is the binary
+      # `build-tool` built once and shared above, so it isn't recompiled
+      # once per example here.
+      - name: Build and check
+        run: |
+          set -euo pipefail
+          chmod +x bin/hooks-build
+          bin/hooks-build build --manifest-path "${{ matrix.dir }}/Cargo.toml" ${{ matrix.args }}
+          bin/hooks-build check "${{ matrix.dir }}/out/${{ matrix.wasm }}.wasm"
+
+      - name: Upload hook binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: example-hooks-${{ matrix.name }}
+          path: ${{ matrix.dir }}/out/*.wasm
+          if-no-files-found: error
