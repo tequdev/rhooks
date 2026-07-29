@@ -36,11 +36,11 @@ import { calculateHookOn, convertStringToHex, type TransactionMetadata } from 'x
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-typed-data'
-// hooks-build's printed worst case for typed_data.wasm (`mise run build-examples`)
-// - includes the composite `AdminName`/`PauseSwitch` pause-switch path (see
-// the README's "Measured cost of a composite name" section: 413 without it,
-// 463 as committed).
-const WORST_CASE_INSTRUCTIONS = 463
+// hooks-build's printed worst case for typed_data.wasm (`mise run build-examples`),
+// at this workspace's opt-level = 3 default (docs/DESIGN.md's §2 C6) - includes
+// the composite `AdminName`/`PauseSwitch` pause-switch path (see the README's
+// "Measured cost of a composite name" section for the with/without comparison).
+const WORST_CASE_INSTRUCTIONS = 489
 
 const ACTION_DEPOSIT = 1
 const ACTION_WITHDRAW = 2

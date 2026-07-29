@@ -120,7 +120,7 @@ doc comments for the full rationale, and `hooks_lib::HookKey`'s doc
 comment for a `compile_fail` example pinning the mismatch case.
 `state_get_typed`/`state_set_typed` and `hook_param_typed`/`otxn_param_typed` cost
 nothing beyond the loose functions they replace, *for a plain-tag
-parameter name* — measured at 413 worst-case instructions either way, the
+parameter name* — measured at 441 worst-case instructions either way, the
 same as this hook's logic minus the `AdminName` pause switch covered next
 (see that section for the one place this hook's cost *does* go up, and
 why).
@@ -217,18 +217,19 @@ the only way to *prove* that is to build both versions through
 `hooks-build` and compare `hooks-build check`'s reported worst-case
 instruction count.
 
-This table is a real `hooks-build build`/`check` measurement of this hook's
-core deposit-ledger logic (the state key/value pairing plus the plain-tag
-`CFG`/`INS` parameters; not yet counting the `AdminName` composite
-parameter name covered below), built twice — once with the derives
-(`DepositKey`/`DepositValue`/`Config`/`Instruction`, as committed), once
-with all four replaced by the hand-packed functions above (everything else
-byte-for-byte identical):
+This table is a real `hooks-build build`/`check` measurement, at this
+workspace's `opt-level = 3` default (`examples/Cargo.toml`, `docs/
+DESIGN.md`'s §2 C6), of this hook's core deposit-ledger logic (the state
+key/value pairing plus the plain-tag `CFG`/`INS` parameters; not yet
+counting the `AdminName` composite parameter name covered below), built
+twice — once with the derives (`DepositKey`/`DepositValue`/`Config`/
+`Instruction`, as committed), once with all four replaced by the
+hand-packed functions above (everything else byte-for-byte identical):
 
 | version | worst-case instructions | wasm size |
 |---|---|---|
-| derived (this crate, as committed) | 413 | 1433 bytes |
-| hand-packed (`.get()`/`.get_mut()` per field, as most hooks write it today) | 545 | 1708 bytes |
+| derived (this crate, as committed) | 441 | 1504 bytes |
+| hand-packed (`.get()`/`.get_mut()` per field, as most hooks write it today) | 525 | 1674 bytes |
 
 The derive isn't just *as cheap as* hand-packing here — it measures
 **cheaper**: the generated `write`/`read` check the struct's total length
@@ -408,10 +409,10 @@ feature removed (everything else byte-for-byte identical):
 
 | version | worst-case instructions | wasm size |
 |---|---|---|
-| without the `AdminName` pause switch | 413 | 1433 bytes |
-| with the `AdminName` pause switch (as committed) | 463 | 1584 bytes |
+| without the `AdminName` pause switch | 441 | 1504 bytes |
+| with the `AdminName` pause switch (as committed) | 489 | 1652 bytes |
 
-+50 instructions, +151 bytes — the honest, unavoidable cost of one
++48 instructions, +148 bytes — the honest, unavoidable cost of one
 composite-name-keyed `hook_param` lookup (the struct encode itself, plus
 the extra branch/rollback path checking it). Still guard-clean at the
 source level: no `--auto-guard`/`--default-maxiter` needed either way.
