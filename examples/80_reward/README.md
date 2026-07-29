@@ -13,9 +13,9 @@ active-validator L1 governance seat.
 Build: `hooks-build build --manifest-path examples/80_reward/Cargo.toml`
 (also wired into `mise run build-examples`).
 
-- Worst-case instructions: **13698** (`hook`), 0 (`cbak` — none declared)
+- Worst-case instructions: **13680** (`hook`), 0 (`cbak` — none declared)
 - Max block/loop/if nesting: **24** (limit: 32)
-- Binary size: **7205 bytes**
+- Binary size: **7175 bytes**
 
 ## Files
 
