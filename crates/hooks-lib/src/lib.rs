@@ -93,6 +93,11 @@ pub mod xfl_unchecked;
 #[doc(hidden)]
 pub use macros::padded_bytes;
 
+// `pad_left!` expands to `$crate::padded_bytes_left(...)` — same reasoning
+// as `padded_bytes` above.
+#[doc(hidden)]
+pub use macros::padded_bytes_left;
+
 /// Direct re-export of `hooks-core`: raw Hook API declarations and every
 /// C-verbatim constant. See the crate doc comment for why this is a plain
 /// alias rather than a re-exporting wrapper module.
@@ -445,6 +450,47 @@ pub use hooks_macros::HookKey;
 /// let key = StateKey::from([0u8; 32]);
 /// let value: Result<Option<DepositValue>> = state_get(&key);
 /// assert_eq!(value, Err(HookError::NotImplemented));
+/// ```
+///
+/// # Full byte image: fields are little-endian, back-to-back, in
+/// declaration order
+///
+/// The examples above only check `Name::LEN`/round-trip-through-itself —
+/// this one instead pins down `write()`'s exact output byte-for-byte
+/// against a hand-built `expected` array, proving both each field's
+/// little-endian encoding (see DESIGN.md §5.6, "Endianness conventions")
+/// and its offset directly, not just that encode-then-decode is the
+/// identity function:
+///
+/// ```
+/// use hooks_lib::HookData;
+/// use hooks_lib::convert::ToBytes;
+///
+/// #[derive(HookData, Clone, Copy)]
+/// struct FullImage {
+///     a: u8,
+///     b: u16,
+///     c: u32,
+///     d: u64,
+/// }
+///
+/// let value = FullImage {
+///     a: 0x11,
+///     b: 0x2233,
+///     c: 0x4455_6677,
+///     d: 0x8899_AABB_CCDD_EEFF,
+/// };
+///
+/// let mut buf = [0u8; 15];
+/// assert_eq!(value.write(&mut buf), 15);
+/// assert_eq!(FullImage::LEN, 15);
+///
+/// let mut expected = [0u8; 15];
+/// expected[0..1].copy_from_slice(&0x11u8.to_le_bytes());
+/// expected[1..3].copy_from_slice(&0x2233u16.to_le_bytes());
+/// expected[3..7].copy_from_slice(&0x4455_6677u32.to_le_bytes());
+/// expected[7..15].copy_from_slice(&0x8899_AABB_CCDD_EEFFu64.to_le_bytes());
+/// assert_eq!(buf, expected);
 /// ```
 ///
 /// An enum is rejected at compile time (`HookData` only derives for a named-

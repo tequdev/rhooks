@@ -8,12 +8,16 @@
 //!   notes `state_set` "carr[ies] no write buffer"), so [`state_update_u64`]
 //!   writes back with `to_be_bytes` to round-trip through that same
 //!   big-endian convention.
-//! - [`state_u32`], [`state_i64`], [`state_xfl`] (and their `state_set_*`/
-//!   `state_update_*` twins) instead read/write a plain fixed-size buffer
-//!   via [`state_exact`] and decode/encode it **little-endian** — the
-//!   convention the `state-counter` example already uses by hand
-//!   (`u64::from_le_bytes`/`to_le_bytes` around a plain `state`/`state_set`
-//!   round-trip). These do not use the host's as-int64 mode at all.
+//! - [`state_u32`], [`state_i64`], [`state_xfl`], [`state_u64_le`] (and their
+//!   `state_set_*`/`state_update_*` twins, where present) instead read/write
+//!   a plain fixed-size buffer via [`state_exact`] and decode/encode it
+//!   **little-endian** — the convention the `state-counter` example already
+//!   uses by hand (`u64::from_le_bytes`/`to_le_bytes` around a plain
+//!   `state`/`state_set` round-trip). These do not use the host's as-int64
+//!   mode at all. [`state_u64_le`] is the unsigned 64-bit counterpart to
+//!   [`state_u64`]'s as-int64 big-endian read — see its own doc comment for
+//!   the side-by-side comparison, and DESIGN.md §5.6 ("Endianness
+//!   conventions") for the full two-world rule this split reflects.
 //!
 //! Every helper above is a standalone function keyed by a raw `&[u8]` — for
 //! a typed layer where the key itself is a compile-time-checked enum
@@ -149,10 +153,49 @@ pub fn state<B: AsMut<[u8]> + ?Sized, K: AsRef<[u8]> + ?Sized>(
 /// `data_as_int64`, `applyHook.cpp`). Note the interpretation is
 /// **big-endian**: an 8-byte little-endian counter read this way comes back
 /// byte-swapped.
+///
+/// **Intended use**: this reads an entry whose bytes originated from Xahau
+/// Binary itself — e.g. a value mirroring a protocol field like
+/// `Tx.Sequence`, or interop with a C hook that wrote the entry with
+/// explicit big-endian bytes to match protocol convention (see DESIGN.md
+/// §5.6, "Endianness conventions", for the full two-world rule). It is
+/// **not** the right function for reading a value this crate's own typed
+/// storage layer wrote — `crate::state`'s `state_get`/`state_set_loose` and
+/// every `hooks_lib::types`/`#[derive(HookData)]` value are little-endian
+/// by convention, and reading one of those through this big-endian as-int64
+/// path silently byte-swaps it (both calls succeed; only the returned value
+/// is wrong). Reach for [`state_u64_le`] instead when the entry was written
+/// by this crate's typed/LE layer.
 #[inline(always)]
 pub fn state_u64<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<u64> {
     let key = key.as_ref();
     res(unsafe { hooks_core::state(0, 0, key.as_ptr() as u32, key.len() as u32) }).map(|v| v as u64)
+}
+
+/// Read this hook's own state entry for `key` as a plain little-endian
+/// `u64`, via the ordinary (non-as-int64) buffer path — the little-endian
+/// counterpart to [`state_u64`]'s big-endian as-int64 mode (see DESIGN.md
+/// §5.6, "Endianness conventions").
+///
+/// | | [`state_u64`] | `state_u64_le` |
+/// |---|---|---|
+/// | Endianness | big-endian | little-endian |
+/// | Host mechanism | as-int64 (`write_ptr=0, write_len=0`) | ordinary buffer read ([`state_exact`]) |
+/// | Reads an entry written by | Xahau Binary / a BE-writing C hook | this crate's typed layer (`ToBytes`/`FromBytes`, `state_set_loose`/`state_set_typed`) or hand-written `to_le_bytes` |
+/// | Size constraint | ≤8 bytes, top bit clear, else [`crate::error::HookError::TooBig`] | must be exactly 8 bytes, else [`crate::error::HookError::TooSmall`] |
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::state::state_u64_le;
+/// use hooks_lib::error::HookError;
+///
+/// let key = [0u8; 32];
+/// assert_eq!(state_u64_le(&key), Err(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn state_u64_le<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<u64> {
+    state_exact::<[u8; 8]>(key.as_ref()).map(u64::from_le_bytes)
 }
 
 /// Read this hook's own state entry for `key`, requiring it to be exactly
@@ -372,6 +415,11 @@ where
 /// Read a foreign state entry as a big-endian `u64` ("as-int64" mode; see
 /// [`state_u64`] for the size/top-bit rules and endianness caveat).
 /// `namespace`/`account` follow [`state_foreign`]'s `Option` convention.
+///
+/// **Intended use**: like [`state_u64`], this is for an entry whose bytes
+/// originated from Xahau Binary itself, not one written by this crate's own
+/// little-endian typed layer (see DESIGN.md §5.6) — reach for
+/// [`state_foreign_u64_le`] for the latter.
 #[inline(always)]
 pub fn state_foreign_u64<'ns, 'ac, K, N, A>(key: &K, namespace: N, account: A) -> Result<u64>
 where
@@ -395,6 +443,23 @@ where
         )
     })
     .map(|v| v as u64)
+}
+
+/// Read a foreign state entry as a plain little-endian `u64`, via the
+/// ordinary (non-as-int64) buffer path — the little-endian counterpart to
+/// [`state_foreign_u64`]'s big-endian as-int64 mode (see [`state_u64_le`]
+/// and DESIGN.md §5.6, "Endianness conventions", for the full comparison).
+/// `namespace`/`account` follow [`state_foreign`]'s `Option` convention.
+#[inline(always)]
+pub fn state_foreign_u64_le<'ns, 'ac, K, N, A>(key: &K, namespace: N, account: A) -> Result<u64>
+where
+    K: AsRef<[u8]> + ?Sized,
+    N: ForeignRef<'ns>,
+    A: ForeignRef<'ac>,
+{
+    let mut raw = [0u8; 8];
+    let _ = state_foreign(&mut raw, key, namespace, account)?;
+    Ok(u64::from_le_bytes(raw))
 }
 
 /// Write a state entry belonging to another namespace/account (a foreign
@@ -444,6 +509,11 @@ mod tests {
         assert_eq!(state_u64(&key), Err(HookError::NotImplemented));
         assert_eq!(
             state_foreign_u64(&key, None, None),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(state_u64_le(&key), Err(HookError::NotImplemented));
+        assert_eq!(
+            state_foreign_u64_le(&key, None, None),
             Err(HookError::NotImplemented)
         );
         assert_eq!(state_set(&out, &key), Err(HookError::NotImplemented));
@@ -558,5 +628,25 @@ mod tests {
             absent_as_none::<u64>(Err(HookError::TooBig)),
             Err(HookError::TooBig)
         );
+    }
+
+    #[test]
+    fn state_u64_le_agrees_with_the_typed_le_layer() {
+        // No host call involved: proves `state_u64_le`'s `u64::from_le_bytes`
+        // decodes the exact same bytes the typed `ToBytes`/`FromBytes` layer
+        // (crate::convert, little-endian by convention — see DESIGN.md §5.6)
+        // produces/expects for a `u64`, so the two are interchangeable on the
+        // wire for a value this crate's own typed layer wrote.
+        use crate::convert::{FromBytes, ToBytes};
+
+        let value: u64 = 0x0102_0304_0506_0708;
+        let mut buf = [0u8; 8];
+        assert_eq!(value.write(&mut buf), 8);
+
+        // `state_u64_le`'s decode step, applied directly to the typed
+        // layer's own encoding.
+        assert_eq!(u64::from_le_bytes(buf), value);
+        // And the typed layer decodes its own encoding back too.
+        assert_eq!(u64::read(&buf), Ok(value));
     }
 }
