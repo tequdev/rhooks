@@ -24,7 +24,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-accept-all'
 // hooks-build's printed worst case for accept_all.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 14
+const WORST_CASE_INSTRUCTIONS = 15
 
 describe('accept-all', () => {
   let testContext: XrplIntegrationTestContext
