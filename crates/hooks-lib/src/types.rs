@@ -36,7 +36,7 @@
 //! Every type here also implements [`crate::convert::ToBytes`]/
 //! [`crate::convert::FromBytes`] (a fixed-length passthrough to/from its
 //! inner array), so all ten work directly as
-//! [`crate::state::state_get`]/[`crate::state::state_set_typed`] value
+//! [`crate::state::state_get`]/[`crate::state::state_set_loose`] value
 //! types.
 //!
 //! All of these are always zero-initialized as `[0u8; N]` at call sites —

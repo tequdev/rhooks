@@ -81,7 +81,14 @@ cargo run -p hooks-build -- check examples/09_state-foreign/out/state_foreign.wa
 cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
 cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 
-# keylets (11 and 12 are reserved for other in-flight work — see
+# typed-data: #[derive(HookData)]-based composite state keys/values and
+# otxn_param/hook_param structs. Guard-clean at the source level (see its
+# own README's "Zero-cost: measured, not assumed" section) and builds with
+# no extra flags.
+cargo run -p hooks-build -- build --manifest-path examples/12_typed-data/Cargo.toml
+cargo run -p hooks-build -- check examples/12_typed-data/out/typed_data.wasm
+
+# keylets (11 is reserved for other in-flight work — see
 # examples/README.md): 26 typed keylet_xxx helpers, one per KEYLET_*
 # constant. No extra flags — this workspace's opt-level = 3 default
 # (docs/DESIGN.md's §2 C6) already keeps Keylet's 34-byte scratch buffer

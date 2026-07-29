@@ -1,4 +1,4 @@
-//! Typed hook state: [`state_get`]/[`state_set_typed`]/[`state_update_typed`]
+//! Typed hook state: [`state_get`]/[`state_set_loose`]/[`state_update_loose`]
 //! (and their `_foreign` twins), built over [`mod@crate::api::state`]'s raw
 //! caller-buffer functions and the [`crate::convert::ToBytes`]/
 //! [`crate::convert::FromBytes`] traits, plus the
@@ -11,8 +11,8 @@
 //! convenience wrappers over [`crate::api::state::state_exact`] for exactly
 //! the primitive Rust integer/[`crate::xfl::XFL`] cases, each one a
 //! standalone function with no key-type story of its own — the caller still
-//! passes a raw `&[u8]` key. This module's [`state_get`]/[`state_set_typed`]/
-//! [`state_update_typed`] instead work for *any* type implementing
+//! passes a raw `&[u8]` key. This module's [`state_get`]/[`state_set_loose`]/
+//! [`state_update_loose`] instead work for *any* type implementing
 //! [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`] (every
 //! `hooks_lib::types` newtype already does, and so does any hook-defined
 //! type that implements the traits itself), and are meant to be paired with
@@ -68,13 +68,95 @@
 //! runtime as "discriminant byte + payload + zero padding"; the macro
 //! rejects (at compile time) a payload whose [`crate::convert::ToBytes::MAX_LEN`]
 //! does not leave room for the discriminant byte in the 32-byte key.
+//!
+//! # Struct keys (`#[derive(crate::HookKey)]`) vs. `state_keys!`
+//!
+//! [`state_keys!`](crate::state_keys) suits a **small, fixed set** of
+//! distinct state entries: every variant is a separate, independently named
+//! case (`Counter`, `Balance(AccountId)`, ...), each carrying at most one
+//! [`crate::convert::ToBytes`] payload. A key that is itself a **composite of
+//! several fields** — a tag byte plus an `AccountId` plus a `u32` sequence
+//! number, say — doesn't fit that shape (a tuple variant takes exactly one
+//! payload) and previously had to be hand-packed into a raw
+//! [`crate::types::StateKey`] byte buffer.
+//!
+//! [`crate::HookKey`] closes that gap: derive it on an ordinary named-field
+//! struct (every field a fixed-size type — see its doc comment for the exact
+//! grammar), and the struct becomes directly usable as a `state_get`/
+//! `state_set_loose` key, via the [`StateKeyEncode`] impl it generates —
+//! `state_get(&MyKey { .. })` works with no `state_keys!` declaration at all.
+//! The two are complementary, not competing: `state_keys!` for a handful of
+//! named, independent key *cases*; a `#[derive(HookKey)]` struct for one key
+//! shape built out of several *fields* — and nothing stops a `state_keys!`
+//! tuple variant's single payload from itself being a `HookKey`-derived
+//! struct, for a hybrid of both. See [`crate::HookKey`]'s doc comment for why
+//! this is a *separate* derive from [`crate::HookData`] (the state-*value*
+//! counterpart) rather than one derive serving both roles.
+//!
+//! Only a [`crate::HookKey`]-derived struct, a
+//! [`state_keys!`](crate::state_keys) enum, or [`crate::types::StateKey`]
+//! itself implements [`StateKeyEncode`] — an ordinary
+//! [`crate::convert::ToBytes`] type (a plain `#[derive(HookData)]` value
+//! struct included) does **not** automatically qualify, so a state *value*
+//! type can never be passed where a key is expected by accident.
+//! [`crate::HookKey`]'s derive checks at compile time that the struct fits
+//! the 32-byte key space (the same bound [`encode_write`]'s value-side check
+//! enforces below), rather than silently truncating.
+//!
+//! # Pairing a key with its value type: [`TypedStateKey`]
+//!
+//! [`state_get`]/[`state_set_loose`]/[`state_update_loose`] take the key and
+//! the value type `T` as *independent* generic parameters — nothing at the
+//! type level stops calling `state_get::<WrongValue>(&key)` for a
+//! `key`/`WrongValue` combination that was never meant to go together, as
+//! long as `WrongValue: FromBytes` (true of nearly every fixed-size type
+//! this crate provides — including, say, a *different* key's value type).
+//! [`TypedStateKey`] closes that gap: implement it for a key type (directly,
+//! or with the one-line [`hook_state!`](crate::hook_state) macro)
+//! to declare its one paired value type once, then use
+//! [`state_get_typed`]/[`state_set_typed`]/[`state_update_typed`] (+
+//! `_foreign` twins) — these read `K::Value` off the key's own type, so a
+//! mismatched value type has no generic parameter left to hide in; it's a
+//! compile error instead of a latent bug. Prefer these whenever a key type
+//! only ever pairs with one value type (every `HookKey` key in practice).
+//!
+//! # Relationship to the `hook_param`/`otxn_param` typed layer
+//!
+//! [`crate::convert::TypedParamName`] is this module's counterpart for Hook
+//! API parameters, deliberately shaped to *feel* the same even though the
+//! two mechanisms aren't identical:
+//!
+//! | | this module (hook state) | [`crate::convert::TypedParamName`] (params) |
+//! |---|---|---|
+//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(Name => Ty)` |
+//! | safe accessor(s) | `state_get_typed(&key)`/`state_set_typed`/`state_update_typed` | `hook_param_typed(&name)`/`otxn_param_typed(&name)` |
+//! | loose escape hatch | [`state_get`]/[`state_set_loose`]/[`state_update_loose`] (independent `T`) | `hook_param_exact`/`otxn_param_exact` (independent `T`) |
+//! | shared foundation | both built on [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`] — see [`crate::HookKey`]/[`crate::HookData`] (state key/value) and [`crate::ParamName`]/[`crate::ParamValue`] (param name/value) for the analogous but separate derives each side uses |
+//!
+//! Both follow the identical shape: declare a pairing once, then call an
+//! accessor that takes **a reference to a key/name value** and resolves the
+//! paired type from it — no turbofish, and no return-type-driven inference
+//! either: the argument, not the call site's inferred return type, is what
+//! picks `Value`. The one real mechanism difference: a
+//! `hook_param`/`otxn_param` is read-only from the reading hook's own
+//! perspective (`hook_param_set` writes a *different* hook's parameter, not
+//! this one) — so `TypedParamName`'s accessors are `_typed`-suffixed like
+//! this module's, but there is only ever a "get" shape, never a
+//! "set"/"update" one.
+//!
+//! Also see [`crate::HookKey`]/[`crate::HookData`]'s doc comments for the
+//! composite-struct story this module's side shares with
+//! [`crate::ParamName`]/[`crate::ParamValue`], and
+//! [`crate::convert::TypedParamName`]'s doc comment for the reciprocal
+//! comparison and its own zero-cost story (parameter names have a cost
+//! dimension state keys don't: see that doc comment's "Zero-cost" section).
 
 use crate::convert::{FromBytes, ToBytes};
 use crate::error::{HookError, Result};
 use crate::types::StateKey;
 
-/// Maximum byte length of any value [`state_get`]/[`state_set_typed`]/
-/// [`state_update_typed`] (and their `_foreign` twins) read or write.
+/// Maximum byte length of any value [`state_get`]/[`state_set_loose`]/
+/// [`state_update_loose`] (and their `_foreign` twins) read or write.
 ///
 /// 32, **not** picked to fit the largest type this crate provides
 /// ([`crate::types::IouAmount`] is 48 bytes and does not fit) — picked
@@ -96,20 +178,51 @@ const MAX_TYPED_STATE_LEN: usize = 32;
 
 /// Encodes a value into the fixed 32-byte hook-state key space.
 ///
-/// Implemented by [`crate::types::StateKey`] itself (identity — a raw,
-/// already-32-byte key, e.g. one built with [`crate::pad!`], works directly
-/// with the typed functions in this module) and by every enum the
-/// [`state_keys!`](crate::state_keys) macro generates.
+/// Implemented by every enum the [`state_keys!`](crate::state_keys) macro
+/// generates, by every [`crate::HookKey`]-derived struct (see the module doc
+/// comment's "Struct keys" section for the grammar and the compile-time
+/// 32-byte check that derive applies), and — as the identity case — by
+/// [`crate::types::StateKey`] itself (a raw, already-32-byte key, e.g. one
+/// built with [`crate::pad!`], works directly with the typed functions in
+/// this module). Deliberately **not** implemented for every
+/// [`crate::convert::ToBytes`] type: an ordinary state *value* struct (a
+/// plain `#[derive(HookData)]`) has no business also being usable as a key
+/// by accident — see [`crate::HookKey`]'s doc comment for why key and value
+/// are two separate derives.
 pub trait StateKeyEncode {
     /// The 32-byte state key `self` encodes to.
     fn encode(&self) -> StateKey;
 }
 
+/// Identity impl: a raw, already-32-byte [`crate::types::StateKey`] (e.g.
+/// one built with [`crate::pad!`]) is already a valid key as-is.
 impl StateKeyEncode for StateKey {
     #[inline(always)]
     fn encode(&self) -> StateKey {
         *self
     }
+}
+
+/// A [`StateKeyEncode`] key type bound to exactly one value type.
+///
+/// [`state_get`]/[`state_set_loose`]/[`state_update_loose`] (and their
+/// `_foreign` twins) take the key and the value type `T` as *independent*
+/// generic parameters — nothing stops calling `state_get::<WrongValue>(&key)`
+/// for a `key`/`WrongValue` pairing that was never intended, as long as
+/// `WrongValue: FromBytes` (true of nearly every fixed-size type this crate
+/// provides). Implementing `TypedStateKey` for a key type — directly, or via
+/// [`hook_state!`](crate::hook_state) — ties it to exactly one
+/// value type; [`state_get_typed`]/[`state_set_typed`]/
+/// [`state_update_typed`] (+ `_foreign` twins) then read `K::Value` off
+/// the key's own type, so there is no second, independently-chosen value
+/// type left for a mismatch to hide in. Prefer these over the loose
+/// `state_get`/`state_set_loose`/`state_update_loose` whenever a key type
+/// only ever pairs with one value type — which is every `#[derive(HookKey)]`
+/// key, and every `state_keys!` variant that doesn't need to share its enum
+/// with variants of differing value types.
+pub trait TypedStateKey: StateKeyEncode {
+    /// The one value type this key is paired with.
+    type Value: ToBytes + FromBytes;
 }
 
 /// Shared read path for [`state_get`]/[`state_foreign_get`]: turns a raw
@@ -133,7 +246,7 @@ fn decode_read<T: FromBytes>(
     }
 }
 
-/// Shared write path for [`state_set_typed`]/[`state_foreign_set_typed`]:
+/// Shared write path for [`state_set_loose`]/[`state_foreign_set_loose`]:
 /// encodes `value` into a [`MAX_TYPED_STATE_LEN`]-byte scratch buffer.
 ///
 /// A compile-time check (monomorphized per `T`) rejects any `T` whose
@@ -166,28 +279,60 @@ pub fn state_get<T: FromBytes>(key: &impl StateKeyEncode) -> Result<Option<T>> {
     decode_read(result, &raw)
 }
 
+/// Read this hook's own state entry for `key`, decoded as `key`'s own
+/// [`TypedStateKey::Value`] — the key/value-pairing-safe counterpart to
+/// [`state_get`] (see [`TypedStateKey`]'s doc comment for why). `Ok(None)`
+/// means no entry exists — see the module doc comment.
+#[inline(always)]
+pub fn state_get_typed<K: TypedStateKey>(key: &K) -> Result<Option<K::Value>> {
+    state_get::<K::Value>(key)
+}
+
 /// Write this hook's own state entry for `key`, encoding `value` as `T`.
 /// Returns the number of bytes written.
 #[inline(always)]
-pub fn state_set_typed<T: ToBytes>(key: &impl StateKeyEncode, value: &T) -> Result<usize> {
+pub fn state_set_loose<T: ToBytes>(key: &impl StateKeyEncode, value: &T) -> Result<usize> {
     let encoded = key.encode();
     let raw = encode_write(value);
     let src = raw.get(..T::MAX_LEN).ok_or(HookError::TooBig)?;
     crate::api::state::state_set(src, &encoded)
 }
 
+/// Write this hook's own state entry for `key`, encoding `value` as `key`'s
+/// own [`TypedStateKey::Value`] — the key/value-pairing-safe counterpart to
+/// [`state_set_loose`] (see [`TypedStateKey`]'s doc comment for why):
+/// `value`'s type is checked against `K::Value` at the call site, so
+/// passing a value meant for a different key is a compile error. Returns
+/// the number of bytes written.
+#[inline(always)]
+pub fn state_set_typed<K: TypedStateKey>(key: &K, value: &K::Value) -> Result<usize> {
+    state_set_loose(key, value)
+}
+
 /// Read-modify-write this hook's own state entry for `key`: reads the
 /// current value (or `None` if absent), calls `f` to compute the next
 /// value, writes it back, and returns the number of bytes written.
 #[inline(always)]
-pub fn state_update_typed<T, F>(key: &impl StateKeyEncode, f: F) -> Result<usize>
+pub fn state_update_loose<T, F>(key: &impl StateKeyEncode, f: F) -> Result<usize>
 where
     T: FromBytes + ToBytes,
     F: FnOnce(Option<T>) -> T,
 {
     let current = state_get::<T>(key)?;
     let next = f(current);
-    state_set_typed(key, &next)
+    state_set_loose(key, &next)
+}
+
+/// Read-modify-write this hook's own state entry for `key`, using `key`'s
+/// own [`TypedStateKey::Value`] — the key/value-pairing-safe counterpart to
+/// [`state_update_loose`] (see [`TypedStateKey`]'s doc comment for why).
+#[inline(always)]
+pub fn state_update_typed<K, F>(key: &K, f: F) -> Result<usize>
+where
+    K: TypedStateKey,
+    F: FnOnce(Option<K::Value>) -> K::Value,
+{
+    state_update_loose(key, f)
 }
 
 /// Read a state entry belonging to another namespace/account, decoded as
@@ -211,7 +356,7 @@ pub fn state_foreign_get<T: FromBytes>(
 /// [`crate::api::state::state_foreign`]'s `Option` convention. Returns the
 /// number of bytes written.
 #[inline(always)]
-pub fn state_foreign_set_typed<T: ToBytes>(
+pub fn state_foreign_set_loose<T: ToBytes>(
     key: &impl StateKeyEncode,
     value: &T,
     namespace: Option<&[u8]>,
@@ -229,7 +374,7 @@ pub fn state_foreign_set_typed<T: ToBytes>(
 /// `namespace`/`account` follow
 /// [`crate::api::state::state_foreign`]'s `Option` convention.
 #[inline(always)]
-pub fn state_foreign_update_typed<T, F>(
+pub fn state_foreign_update_loose<T, F>(
     key: &impl StateKeyEncode,
     namespace: Option<&[u8]>,
     account: Option<&[u8]>,
@@ -241,7 +386,57 @@ where
 {
     let current = state_foreign_get::<T>(key, namespace, account)?;
     let next = f(current);
-    state_foreign_set_typed(key, &next, namespace, account)
+    state_foreign_set_loose(key, &next, namespace, account)
+}
+
+/// Read a state entry belonging to another namespace/account, decoded as
+/// `key`'s own [`TypedStateKey::Value`] — the key/value-pairing-safe
+/// counterpart to [`state_foreign_get`] (see [`TypedStateKey`]'s doc
+/// comment for why). `namespace`/`account` follow
+/// [`crate::api::state::state_foreign`]'s `Option` convention. `Ok(None)`
+/// means no entry exists — see the module doc comment.
+#[inline(always)]
+pub fn state_foreign_get_typed<K: TypedStateKey>(
+    key: &K,
+    namespace: Option<&[u8]>,
+    account: Option<&[u8]>,
+) -> Result<Option<K::Value>> {
+    state_foreign_get::<K::Value>(key, namespace, account)
+}
+
+/// Write a state entry belonging to another namespace/account, encoding
+/// `value` as `key`'s own [`TypedStateKey::Value`] — the
+/// key/value-pairing-safe counterpart to [`state_foreign_set_loose`] (see
+/// [`TypedStateKey`]'s doc comment for why). `namespace`/`account` follow
+/// [`crate::api::state::state_foreign`]'s `Option` convention. Returns the
+/// number of bytes written.
+#[inline(always)]
+pub fn state_foreign_set_typed<K: TypedStateKey>(
+    key: &K,
+    value: &K::Value,
+    namespace: Option<&[u8]>,
+    account: Option<&[u8]>,
+) -> Result<usize> {
+    state_foreign_set_loose(key, value, namespace, account)
+}
+
+/// Read-modify-write a state entry belonging to another namespace/account,
+/// using `key`'s own [`TypedStateKey::Value`] — the key/value-pairing-safe
+/// counterpart to [`state_foreign_update_loose`] (see [`TypedStateKey`]'s
+/// doc comment for why). `namespace`/`account` follow
+/// [`crate::api::state::state_foreign`]'s `Option` convention.
+#[inline(always)]
+pub fn state_foreign_update_typed<K, F>(
+    key: &K,
+    namespace: Option<&[u8]>,
+    account: Option<&[u8]>,
+    f: F,
+) -> Result<usize>
+where
+    K: TypedStateKey,
+    F: FnOnce(Option<K::Value>) -> K::Value,
+{
+    state_foreign_update_loose(key, namespace, account, f)
 }
 
 /// Declares an enum whose variants encode to fixed 32-byte
@@ -440,6 +635,45 @@ macro_rules! __state_keys_step {
     };
 }
 
+/// Implements [`TypedStateKey`] for `$Key`, pairing it with `$Value` — the
+/// one-line way to opt a key type into [`state_get_typed`]/
+/// [`state_set_typed`]/[`state_update_typed`] (+ `_foreign` twins).
+/// See [`TypedStateKey`]'s doc comment for why these are safer than the
+/// loose `state_get`/`state_set_loose`/`state_update_loose`.
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{hook_state, HookData, HookKey};
+///
+/// #[derive(HookKey, Clone, Copy)]
+/// struct MyKey {
+///     tag: u8,
+/// }
+///
+/// #[derive(HookData, Clone, Copy, Debug, PartialEq)]
+/// struct MyValue {
+///     count: u32,
+/// }
+///
+/// hook_state!(MyKey => MyValue);
+///
+/// // `NotImplemented` here is the host stub every Hook API call returns on
+/// // a host build — this only proves the generated `TypedStateKey`/
+/// // `state_get_typed` call chain compiles and runs.
+/// assert_eq!(
+///     state_get_typed(&MyKey { tag: 0 }),
+///     Err(HookError::NotImplemented)
+/// );
+/// ```
+#[macro_export]
+macro_rules! hook_state {
+    ($Key:ty => $Value:ty) => {
+        impl $crate::state::TypedStateKey for $Key {
+            type Value = $Value;
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     // Tests are exempt from the panic-freedom lints (see docs/DESIGN.md
@@ -497,11 +731,11 @@ mod tests {
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_set_typed(&StateKey::from([0u8; STATE_KEY_LEN]), &1u32),
+            state_set_loose(&StateKey::from([0u8; STATE_KEY_LEN]), &1u32),
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_update_typed(&StateKey::from([0u8; STATE_KEY_LEN]), |_: Option<u32>| 1u32),
+            state_update_loose(&StateKey::from([0u8; STATE_KEY_LEN]), |_: Option<u32>| 1u32),
             Err(HookError::NotImplemented)
         );
         assert_eq!(
@@ -509,11 +743,11 @@ mod tests {
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_foreign_set_typed(&StateKey::from([0u8; STATE_KEY_LEN]), &1u32, None, None),
+            state_foreign_set_loose(&StateKey::from([0u8; STATE_KEY_LEN]), &1u32, None, None),
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            state_foreign_update_typed(
+            state_foreign_update_loose(
                 &StateKey::from([0u8; STATE_KEY_LEN]),
                 None,
                 None,
@@ -554,5 +788,38 @@ mod tests {
     #[test]
     fn distinct_variants_encode_to_distinct_keys() {
         assert_ne!(TestKey::Counter.encode(), TestKey::Balance(0).encode());
+    }
+
+    // `TypedStateKey`/`hook_state!`: a key type paired with exactly one
+    // value type, via the paired `_typed`-suffixed functions (see their
+    // doc comments).
+    hook_state!(TestKey => u32);
+
+    #[test]
+    fn typed_pair_smoke_not_implemented_on_host() {
+        assert_eq!(
+            state_get_typed(&TestKey::Counter),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            state_set_typed(&TestKey::Counter, &1u32),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            state_update_typed(&TestKey::Counter, |_| 1u32),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            state_foreign_get_typed(&TestKey::Counter, None, None),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            state_foreign_set_typed(&TestKey::Counter, &1u32, None, None),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            state_foreign_update_typed(&TestKey::Counter, None, None, |_| 1u32),
+            Err(HookError::NotImplemented)
+        );
     }
 }

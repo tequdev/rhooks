@@ -1,7 +1,7 @@
 //! Information about the originating transaction (the transaction that
 //! triggered this hook invocation).
 
-use crate::convert::FixedRead;
+use crate::convert::{FixedRead, TypedParamName};
 use crate::error::{Result, res};
 use crate::tx_type::TxType;
 use crate::types::Hash;
@@ -119,6 +119,86 @@ pub fn otxn_param<B: AsMut<[u8]> + ?Sized>(out: &mut B, name: &[u8]) -> Result<u
     .map(|v| v as usize)
 }
 
+/// Read a Hook parameter attached to the originating transaction, requiring
+/// it to be exactly `T`'s length — any [`crate::convert::FixedRead`] type,
+/// most commonly a `hooks_lib::types` newtype, a raw `[u8; N]`, or a
+/// [`crate::ParamValue`]-derived struct. A parameter longer than that already
+/// fails as [`crate::error::HookError::TooSmall`] from the underlying host
+/// call; a parameter shorter is caught by `T::read_exact` itself and mapped
+/// to the same variant — see [`otxn_field_exact`]/`state_exact` (`state.rs`)
+/// for the identical pattern and rationale. No loop, no panic.
+///
+/// `T` is inferred from context, not a turbofish — see
+/// [`otxn_field_exact`]'s doc comment for the full story.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::otxn::otxn_param_exact;
+/// use hooks_lib::error::{HookError, Result};
+///
+/// let value: Result<[u8; 4]> = otxn_param_exact(b"CFG");
+/// assert_eq!(value, Err(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
+    T::read_exact(|buf| otxn_param(buf, name))
+}
+
+/// Read a Hook parameter attached to the originating transaction, named by
+/// `name` itself — see [`crate::convert::TypedParamName`]'s doc comment
+/// for why this is the safer alternative to [`otxn_param_exact`] when a
+/// parameter is always meant to decode as `name`'s one paired value type:
+/// there is no separate `name` argument spelled independently of the type
+/// that could name a *different* parameter than the one actually
+/// intended. `N::Value` (the return type) is inferred from `name`'s own
+/// type — no turbofish.
+///
+/// Costs nothing beyond [`otxn_param_exact`] for the common
+/// plain-byte-string-name case (e.g. via
+/// [`otxn_parameter!`](crate::otxn_parameter)'s two-argument form) — see
+/// [`crate::convert::TypedParamName`]'s "Zero-cost" section. A
+/// **composite, struct-shaped** name costs a small, genuine runtime encode
+/// instead (unavoidable for an arbitrary type) — see the same doc comment.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::api::otxn::otxn_param_typed;
+/// use hooks_lib::convert::TypedParamName;
+/// use hooks_lib::error::{HookError, Result};
+///
+/// struct Instruction([u8; 9]);
+///
+/// impl hooks_lib::convert::FixedRead for Instruction {
+///     fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+///         <[u8; 9]>::read_exact(read).map(Instruction)
+///     }
+/// }
+///
+/// struct InsName;
+///
+/// impl hooks_lib::convert::ToBytes for InsName {
+///     const MAX_LEN: usize = 3;
+///     fn write(&self, buf: &mut [u8]) -> usize {
+///         hooks_lib::convert::ToBytes::write(b"INS", buf)
+///     }
+/// }
+///
+/// impl TypedParamName for InsName {
+///     type Value = Instruction;
+/// }
+///
+/// let value = otxn_param_typed(&InsName);
+/// assert_eq!(value.err(), Some(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn otxn_param_typed<N: TypedParamName>(name: &N) -> Result<N::Value> {
+    let mut name_buf = [0u8; crate::convert::PARAM_NAME_MAX_LEN];
+    let name = name.name_bytes(&mut name_buf);
+    otxn_param_exact::<N::Value>(name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +226,77 @@ mod tests {
             Err(HookError::NotImplemented)
         );
         assert_eq!(otxn_param(&mut buf, b"x"), Err(HookError::NotImplemented));
+        assert_eq!(
+            otxn_param_exact::<[u8; 4]>(b"x"),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            otxn_param_typed(&TestParamName),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            otxn_param_typed(&TestKeyParamName { tag: 1 }),
+            Err(HookError::NotImplemented)
+        );
+    }
+
+    // Simple/static form: `Name` is a marker type, `name_bytes` overridden
+    // to skip the default (encoding) body entirely.
+    #[derive(Debug, PartialEq)]
+    struct TestParam([u8; 4]);
+
+    impl FixedRead for TestParam {
+        fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+            <[u8; 4]>::read_exact(read).map(TestParam)
+        }
+    }
+
+    struct TestParamName;
+
+    impl crate::convert::ToBytes for TestParamName {
+        const MAX_LEN: usize = 1;
+
+        fn write(&self, buf: &mut [u8]) -> usize {
+            crate::convert::ToBytes::write(b"x", buf)
+        }
+    }
+
+    impl crate::convert::TypedParamName for TestParamName {
+        type Value = TestParam;
+
+        fn name_bytes<'buf>(
+            &self,
+            _buf: &'buf mut [u8; crate::convert::PARAM_NAME_MAX_LEN],
+        ) -> &'buf [u8] {
+            b"x"
+        }
+    }
+
+    // Composite form: relies on `TypedParamName::name_bytes`'s default
+    // body (the genuine runtime encode, exercised here with a trivial
+    // one-field name).
+    #[derive(Debug, PartialEq)]
+    struct TestKeyParam([u8; 4]);
+
+    impl FixedRead for TestKeyParam {
+        fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+            <[u8; 4]>::read_exact(read).map(TestKeyParam)
+        }
+    }
+
+    struct TestKeyParamName {
+        tag: u8,
+    }
+
+    impl crate::convert::ToBytes for TestKeyParamName {
+        const MAX_LEN: usize = 1;
+
+        fn write(&self, buf: &mut [u8]) -> usize {
+            crate::convert::ToBytes::write(&self.tag, buf)
+        }
+    }
+
+    impl crate::convert::TypedParamName for TestKeyParamName {
+        type Value = TestKeyParam;
     }
 }

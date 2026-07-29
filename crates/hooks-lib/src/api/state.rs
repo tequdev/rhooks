@@ -19,8 +19,8 @@
 //! a typed layer where the key itself is a compile-time-checked enum
 //! variant and the value can be any [`crate::convert::ToBytes`]/
 //! [`crate::convert::FromBytes`] type (including every `hooks_lib::types`
-//! newtype), see [`mod@crate::state`]'s `state_get`/`state_set_typed`/
-//! `state_update_typed` and the [`state_keys!`](crate::state_keys) macro,
+//! newtype), see [`mod@crate::state`]'s `state_get`/`state_set_loose`/
+//! `state_update_loose` and the [`state_keys!`](crate::state_keys) macro,
 //! built on top of this module's [`state`]/[`state_set`]/[`state_exact`].
 //!
 //! ## Why every `key`/`out`/`data` parameter here is generic, not `&[u8]`/`&mut [u8]`

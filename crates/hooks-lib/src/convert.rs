@@ -7,7 +7,7 @@
 //! [`crate::api::state::state_u64`]'s *underlying state entries* (as
 //! opposed to that function's own big-endian "as-int64" wire encoding —
 //! see its doc comment) so the typed storage layer (`crate::state`'s
-//! `state_get`/`state_set_typed`/`state_update_typed`) can encode/decode
+//! `state_get`/`state_set_loose`/`state_update_loose`) can encode/decode
 //! arbitrary fixed-size types without repeating that logic per call site.
 //!
 //! # Implementor's contract
@@ -62,6 +62,56 @@ pub trait FromBytes: Sized {
     /// Returns [`HookError::TooSmall`] if `buf` is shorter than the
     /// encoding this type expects.
     fn read(buf: &[u8]) -> Result<Self>;
+}
+
+impl ToBytes for u8 {
+    const MAX_LEN: usize = 1;
+
+    #[inline(always)]
+    fn write(&self, buf: &mut [u8]) -> usize {
+        match buf.get_mut(..1) {
+            Some(dst) => {
+                dst.copy_from_slice(&self.to_le_bytes());
+                1
+            }
+            None => 0,
+        }
+    }
+}
+
+impl FromBytes for u8 {
+    #[inline(always)]
+    fn read(buf: &[u8]) -> Result<Self> {
+        let src = buf.get(..1).ok_or(HookError::TooSmall)?;
+        let mut arr = [0u8; 1];
+        arr.copy_from_slice(src);
+        Ok(u8::from_le_bytes(arr))
+    }
+}
+
+impl ToBytes for u16 {
+    const MAX_LEN: usize = 2;
+
+    #[inline(always)]
+    fn write(&self, buf: &mut [u8]) -> usize {
+        match buf.get_mut(..2) {
+            Some(dst) => {
+                dst.copy_from_slice(&self.to_le_bytes());
+                2
+            }
+            None => 0,
+        }
+    }
+}
+
+impl FromBytes for u16 {
+    #[inline(always)]
+    fn read(buf: &[u8]) -> Result<Self> {
+        let src = buf.get(..2).ok_or(HookError::TooSmall)?;
+        let mut arr = [0u8; 2];
+        arr.copy_from_slice(src);
+        Ok(u16::from_le_bytes(arr))
+    }
 }
 
 impl ToBytes for u32 {
@@ -241,9 +291,367 @@ impl<const N: usize> FixedRead for [u8; N] {
     }
 }
 
+/// Maximum length, in bytes, of a `hook_param`/`otxn_param` parameter
+/// *name* — the Hook API's own bound on the `read_len` argument naming the
+/// parameter (`hook_api.h`: `TOO_BIG` above 32 bytes, `TOO_SMALL` below 1).
+///
+/// A parameter name is **not** a fixed-32-byte, zero-padded key the way a
+/// [`crate::types::StateKey`] is (see [`crate::state::StateKeyEncode`]) —
+/// it is matched at its own *natural* length: `"MIN"` (3 bytes) and a
+/// hypothetical zero-padded 32-byte version of the same three bytes name
+/// two different parameters, not one. [`crate::ParamName`]'s encoding
+/// reflects that: a name's wire bytes are exactly its
+/// [`ToBytes::MAX_LEN`], never padded up to this constant — this constant
+/// is only an upper (and, at `1`, a lower) bound the encoded length must
+/// satisfy.
+pub const PARAM_NAME_MAX_LEN: usize = 32;
+
+/// Pairs a Hook API parameter **name** type with the one **value** type
+/// it's read as — this module's counterpart to
+/// [`crate::state::TypedStateKey`], deliberately shaped the same way:
+/// implement it for a name type (directly, or with
+/// [`hook_parameter!`](crate::hook_parameter)/
+/// [`otxn_parameter!`](crate::otxn_parameter)), then call
+/// [`crate::api::hook_ctx::hook_param_typed`]/[`crate::api::otxn::otxn_param_typed`]
+/// with **a reference to a name value** — the accessor resolves
+/// [`Value`](Self::Value) from the name argument itself, exactly like
+/// [`crate::state::state_get_typed`] resolves `K::Value` from the key
+/// argument. [`crate::api::hook_ctx::hook_param_exact`]/
+/// [`crate::api::otxn::otxn_param_exact`] take a raw `&[u8]` name and the
+/// value type `T` as two *independent* arguments instead — nothing stops
+/// calling `otxn_param_exact::<WrongType>(b"INS")` for a name/type pairing
+/// that was never intended, as long as `WrongType: FixedRead` (true of
+/// nearly every fixed-size type this crate provides); `TypedParamName`
+/// closes that gap the same way [`crate::state::TypedStateKey`] closes it
+/// for state keys.
+///
+/// Named `TypedParamName`, not `ParamName` — a name that would collide
+/// with [`crate::ParamName`], the *derive macro* that gives a composite
+/// name struct its [`ToBytes`] impl (this trait's supertrait). Keeping the
+/// two apart avoids the misleading suggestion that `#[derive(ParamName)]`
+/// implements this trait itself — it doesn't; the derive only provides the
+/// `ToBytes` encoding a `TypedParamName` impl (added by
+/// [`hook_parameter!`](crate::hook_parameter)/
+/// [`otxn_parameter!`](crate::otxn_parameter)) then builds on. See
+/// [`crate::ParamName`]'s and [`crate::ParamValue`]'s doc comments for the
+/// two derives backing the "name" (`Self`) and "value" (`Self::Value`)
+/// sides of this trait, respectively.
+///
+/// A Hook API parameter name is a genuine **variable-length key of up to
+/// [`PARAM_NAME_MAX_LEN`] (32) bytes** — the same shape as a hook state key
+/// (see [`crate::state::StateKeyEncode`]) — so `Self` may be any
+/// [`ToBytes`] type, not just a plain marker: a whole composite
+/// [`crate::ParamName`]-derived struct works exactly like a composite
+/// state key, with the one difference that a parameter name is encoded at
+/// its own **natural** length, never zero-padded to a fixed size.
+///
+/// # Zero-cost for the (overwhelmingly common) plain-byte-string case
+///
+/// Encoding an arbitrary `ToBytes` value into bytes is, in general, a real
+/// (if small) runtime computation — [`name_bytes`](Self::name_bytes)'s
+/// default body runs `self.write(..)` once per call (Rust has no stable
+/// way to run a trait method at compile time yet). But a **plain
+/// byte-string name** has nothing to compute: its wire encoding *is* its
+/// in-memory representation. [`hook_parameter!`](crate::hook_parameter)/
+/// [`otxn_parameter!`](crate::otxn_parameter)'s two-argument form (a
+/// declared marker type plus the literal, e.g.
+/// `hook_parameter!(CfgName, b"CFG" => Config)`) overrides `name_bytes` to
+/// return the literal directly — a `'static` reference, no copy, no
+/// buffer, nothing to encode — skipping the default body entirely.
+/// `examples/12_typed-data`'s README measures this directly: its plain
+/// `CFG`/`INS` names cost the identical worst-case instruction count as
+/// the loose `hook_param_exact`/`otxn_param_exact` this replaces.
+///
+/// # Relationship to the hook-state typed layer
+///
+/// `TypedParamName` deliberately mirrors [`crate::state::TypedStateKey`]
+/// (see its doc comment for the full comparison table): declare the
+/// pairing once ([`hook_parameter!`](crate::hook_parameter)/
+/// [`otxn_parameter!`](crate::otxn_parameter) here, [`crate::hook_state!`]
+/// there), then call an accessor that takes **a reference to a name/key
+/// value** and resolves the paired type from it (`hook_param_typed`/
+/// `otxn_param_typed` here, `state_get_typed`/`state_set_typed`/`state_update_typed`
+/// there) — no turbofish, no chance of a mismatch. The one difference: a
+/// parameter is read-only from the reading hook's own perspective, so
+/// there is no `hook_param`/`otxn_param` counterpart to `state_set_typed`/
+/// `state_update_typed`.
+pub trait TypedParamName: ToBytes {
+    /// The one value type this name is paired with.
+    type Value: FixedRead;
+
+    /// Encodes `self`'s parameter-name bytes into `buf`, returning the
+    /// encoded slice. `buf` must be at least [`PARAM_NAME_MAX_LEN`] bytes.
+    ///
+    /// The default implementation runs `self.write(buf)` (the only option
+    /// for an arbitrary [`ToBytes`] type) and returns the written prefix —
+    /// correct for any composite, struct-shaped name, but a small, genuine
+    /// runtime encode. [`hook_parameter!`](crate::hook_parameter)/
+    /// [`otxn_parameter!`](crate::otxn_parameter)'s plain-byte-string form
+    /// overrides this to return the literal directly, ignoring `buf` and
+    /// `self` both — see this trait's "Zero-cost" section.
+    ///
+    /// A compile-time check (monomorphized per `Self`) rejects a `Self`
+    /// whose [`ToBytes::MAX_LEN`] falls outside `1..=`[`PARAM_NAME_MAX_LEN`]
+    /// — the Hook API's own bound on a parameter name's length.
+    #[inline(always)]
+    fn name_bytes<'buf>(&self, buf: &'buf mut [u8; PARAM_NAME_MAX_LEN]) -> &'buf [u8] {
+        const {
+            assert!(
+                <Self as ToBytes>::MAX_LEN >= 1,
+                "hooks_lib: TypedParamName::MAX_LEN must be at least 1 byte \
+                 (the Hook API's parameter-name lower bound)"
+            );
+            assert!(
+                <Self as ToBytes>::MAX_LEN <= PARAM_NAME_MAX_LEN,
+                "hooks_lib: TypedParamName::MAX_LEN exceeds the Hook API's \
+                 32-byte parameter-name upper bound"
+            );
+        }
+        let n = self.write(buf);
+        buf.get(..n).unwrap_or(&[])
+    }
+}
+
+/// Implements [`TypedParamName`] for a **name** type, pairing it with
+/// `$Ty` — the one-line way to opt a name into
+/// [`crate::api::hook_ctx::hook_param_typed`] (this hook's own installed
+/// parameters). Two forms, both spelled `.. => $Ty`, mirroring
+/// [`crate::hook_state!`]'s `Key => Value` — the name (the part that
+/// *locates* the parameter) comes first, the type it names (what gets
+/// *retrieved*) comes last:
+///
+/// - `hook_parameter!($Name, $bytes => $Ty)` — `$Name` a marker type
+///   *already declared* by the caller (typically a unit struct, e.g.
+///   `struct CfgName;`); `$bytes` a byte-string literal (or any
+///   `&'static [u8; N]` expression) naming the parameter. Generates a
+///   trivial [`ToBytes`] impl for `$Name` (to satisfy
+///   [`TypedParamName`]'s supertrait bound) and overrides
+///   [`TypedParamName::name_bytes`] to return `$bytes` directly, at zero
+///   runtime cost (see [`TypedParamName`]'s "Zero-cost" section). Covers
+///   the common case, a plain short tag like `b"CFG"`.
+/// - `hook_parameter!($Name => $Ty)` — `$Name` any [`ToBytes`] type
+///   (typically a [`crate::ParamName`]-derived struct) — for a
+///   **composite** parameter name, the same idea as
+///   [`crate::hook_state!`]'s composite state key, just encoded at its own
+///   natural length instead of zero-padded. Uses
+///   [`TypedParamName::name_bytes`]'s default body (a small, genuine
+///   runtime encode — unavoidable for an arbitrary type). `$Ty` itself is
+///   typically [`crate::ParamValue`]-derived.
+///
+/// Either way, call [`crate::api::hook_ctx::hook_param_typed`] with **a
+/// reference to a name value** (`&CfgName` for the marker case, an
+/// ordinary struct literal like `&AdminName { section: 0, field: 0 }` for
+/// the composite case) — `$Ty` is inferred from the name argument, never a
+/// turbofish.
+///
+/// Identical grammar and expansion to
+/// [`otxn_parameter!`](crate::otxn_parameter) — the two are kept as
+/// **separate** macros (rather than one macro shared by both) purely for
+/// readability at the declaration site: `hook_parameter!` documents that a
+/// name is meant to be read via [`crate::api::hook_ctx::hook_param_typed`]
+/// (this hook's own installed parameters), [`otxn_parameter!`](crate::otxn_parameter)
+/// that it's meant for [`crate::api::otxn::otxn_param_typed`] (a parameter
+/// attached to the *originating transaction*) — both implement the exact
+/// same [`TypedParamName`] trait.
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{ParamValue, hook_parameter};
+///
+/// #[derive(ParamValue)]
+/// struct Config {
+///     min_amount: u64,
+/// }
+///
+/// struct CfgName;
+/// hook_parameter!(CfgName, b"CFG" => Config);
+///
+/// let cfg = hook_param_typed(&CfgName);
+/// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
+/// ```
+///
+/// A composite (struct-shaped) parameter name — the value type is
+/// inferred from the name argument, no annotation needed even inside
+/// `.is_err()`:
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{ParamName, ParamValue, hook_parameter};
+///
+/// #[derive(ParamName, Clone, Copy)]
+/// struct SeatParamName {
+///     topic: u8,
+///     seat: u8,
+/// }
+///
+/// #[derive(ParamValue)]
+/// struct Vote {
+///     value: u8,
+/// }
+///
+/// hook_parameter!(SeatParamName => Vote);
+///
+/// let name = SeatParamName { topic: b'S', seat: 0 };
+/// assert!(hook_param_typed(&name).is_err());
+/// ```
+#[macro_export]
+macro_rules! hook_parameter {
+    ($Name:ty, $bytes:expr => $Ty:ty) => {
+        #[automatically_derived]
+        impl $crate::convert::ToBytes for $Name {
+            const MAX_LEN: usize = { $bytes.len() };
+
+            #[inline(always)]
+            fn write(&self, buf: &mut [u8]) -> usize {
+                $crate::convert::ToBytes::write($bytes, buf)
+            }
+        }
+
+        #[automatically_derived]
+        impl $crate::convert::TypedParamName for $Name {
+            type Value = $Ty;
+
+            #[inline(always)]
+            fn name_bytes<'buf>(
+                &self,
+                _buf: &'buf mut [u8; $crate::convert::PARAM_NAME_MAX_LEN],
+            ) -> &'buf [u8] {
+                $bytes
+            }
+        }
+    };
+    ($Name:ty => $Ty:ty) => {
+        #[automatically_derived]
+        impl $crate::convert::TypedParamName for $Name {
+            type Value = $Ty;
+        }
+    };
+}
+
+/// Implements [`TypedParamName`] for a **name** type, pairing it with
+/// `$Ty` — the one-line way to opt a name into
+/// [`crate::api::otxn::otxn_param_typed`] (a parameter attached to the
+/// *originating transaction*). Identical grammar and expansion to
+/// [`hook_parameter!`](crate::hook_parameter) — see that macro's doc
+/// comment for the full writeup (both forms, the "why two separate
+/// macros" rationale, why the name comes first, and the `hook_state!`
+/// parallel); kept as a separate macro purely so the declaration site
+/// documents which of `hook_param`/`otxn_param` a name is meant for.
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{ParamValue, otxn_parameter};
+///
+/// #[derive(ParamValue)]
+/// struct Instruction {
+///     action: u8,
+/// }
+///
+/// struct InsName;
+/// otxn_parameter!(InsName, b"INS" => Instruction);
+///
+/// let ins = otxn_param_typed(&InsName);
+/// assert_eq!(ins.err(), Some(HookError::NotImplemented));
+/// ```
+///
+/// A composite (struct-shaped) parameter name:
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{ParamName, ParamValue, otxn_parameter};
+///
+/// #[derive(ParamName, Clone, Copy)]
+/// struct SeatParamName {
+///     topic: u8,
+///     seat: u8,
+/// }
+///
+/// #[derive(ParamValue)]
+/// struct Vote {
+///     value: u8,
+/// }
+///
+/// otxn_parameter!(SeatParamName => Vote);
+///
+/// let name = SeatParamName { topic: b'S', seat: 0 };
+/// assert!(otxn_param_typed(&name).is_err());
+/// ```
+#[macro_export]
+macro_rules! otxn_parameter {
+    ($Name:ty, $bytes:expr => $Ty:ty) => {
+        #[automatically_derived]
+        impl $crate::convert::ToBytes for $Name {
+            const MAX_LEN: usize = { $bytes.len() };
+
+            #[inline(always)]
+            fn write(&self, buf: &mut [u8]) -> usize {
+                $crate::convert::ToBytes::write($bytes, buf)
+            }
+        }
+
+        #[automatically_derived]
+        impl $crate::convert::TypedParamName for $Name {
+            type Value = $Ty;
+
+            #[inline(always)]
+            fn name_bytes<'buf>(
+                &self,
+                _buf: &'buf mut [u8; $crate::convert::PARAM_NAME_MAX_LEN],
+            ) -> &'buf [u8] {
+                $bytes
+            }
+        }
+    };
+    ($Name:ty => $Ty:ty) => {
+        #[automatically_derived]
+        impl $crate::convert::TypedParamName for $Name {
+            type Value = $Ty;
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn u8_round_trips() {
+        let mut buf = [0u8; 1];
+        assert_eq!(0xABu8.write(&mut buf), 1);
+        assert_eq!(buf, [0xAB]);
+        assert_eq!(u8::read(&buf), Ok(0xABu8));
+    }
+
+    #[test]
+    fn u8_write_into_empty_buffer_writes_nothing() {
+        let mut buf: [u8; 0] = [];
+        assert_eq!(0xABu8.write(&mut buf), 0);
+    }
+
+    #[test]
+    fn u8_read_from_empty_buffer_fails() {
+        assert_eq!(u8::read(&[]), Err(HookError::TooSmall));
+    }
+
+    #[test]
+    fn u16_round_trips() {
+        let mut buf = [0u8; 2];
+        assert_eq!(0x0102u16.write(&mut buf), 2);
+        assert_eq!(buf, 0x0102u16.to_le_bytes());
+        assert_eq!(u16::read(&buf), Ok(0x0102u16));
+    }
+
+    #[test]
+    fn u16_write_into_short_buffer_writes_nothing() {
+        let mut buf = [0xFFu8; 1];
+        assert_eq!(0x0102u16.write(&mut buf), 0);
+        assert_eq!(buf, [0xFF]);
+    }
+
+    #[test]
+    fn u16_read_from_short_buffer_fails() {
+        assert_eq!(u16::read(&[0u8; 1]), Err(HookError::TooSmall));
+    }
 
     #[test]
     fn u32_round_trips() {
