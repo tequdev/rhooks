@@ -98,6 +98,7 @@ mod sha256;
 
 use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
 
+mod decl_pair;
 mod hook_data;
 mod hook_key;
 mod param_name;
@@ -199,6 +200,37 @@ pub fn derive_param_name(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(ParamValue)]
 pub fn derive_param_value(input: TokenStream) -> TokenStream {
     param_value::derive(input)
+}
+
+/// Declares a hook-state key/value pairing — see `hooks_lib::hook_state!`'s
+/// doc comment (the public-facing re-export site) for the full grammar
+/// staircase (Forms 1–4 plus the backward-compatible existing-types form)
+/// and worked examples. Implemented in [`decl_pair`]; kept as a thin
+/// `#[proc_macro]` entry point here, mirroring [`hook`]/[`cbak`]'s split
+/// between the `#[proc_macro...]` entry point and its implementation.
+#[proc_macro]
+pub fn hook_state(input: TokenStream) -> TokenStream {
+    decl_pair::expand(input, decl_pair::Role::State)
+}
+
+/// Declares a Hook API parameter name/value pairing, read via
+/// `hook_param_typed` — see `hooks_lib::hook_parameter!`'s doc comment (the
+/// public-facing re-export site) for the full grammar staircase and worked
+/// examples. Implemented in [`decl_pair`]; kept as a thin `#[proc_macro]`
+/// entry point here, mirroring [`hook`]/[`cbak`]'s split between the
+/// `#[proc_macro...]` entry point and its implementation.
+#[proc_macro]
+pub fn hook_parameter(input: TokenStream) -> TokenStream {
+    decl_pair::expand(input, decl_pair::Role::HookParam)
+}
+
+/// Identical grammar to [`macro@hook_parameter`], targeting
+/// `otxn_param_typed` (a parameter attached to the *originating
+/// transaction*) instead of `hook_param_typed` — see
+/// `hooks_lib::otxn_parameter!`'s doc comment for the full writeup.
+#[proc_macro]
+pub fn otxn_parameter(input: TokenStream) -> TokenStream {
+    decl_pair::expand(input, decl_pair::Role::OtxnParam)
 }
 
 /// Decodes a classic XRPL/Xahau r-address (base58check string literal,

@@ -55,7 +55,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 /// Generates the `FromBytes`/`FixedRead` impls, for an already-validated
 /// [`StructShape`]. Deliberately does *not* generate `ToBytes`/an inherent
 /// `LEN` const — see this module's doc comment for why.
-fn generate(shape: &StructShape) -> TokenStream {
+pub(crate) fn generate(shape: &StructShape) -> TokenStream {
     let name = &shape.name;
 
     // Referenced wherever `HookData`'s codegen would use `<Self as

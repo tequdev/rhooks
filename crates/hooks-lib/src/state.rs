@@ -602,6 +602,59 @@ where
 /// Rust discriminants, since a data-carrying variant cannot have one on
 /// stable Rust) — declaration order is significant, and inserting or
 /// reordering a variant changes every later variant's encoded key.
+///
+/// # Pairing with `hook_state!`
+///
+/// A `state_keys!` enum implements [`StateKeyEncode`] but not
+/// [`TypedStateKey`] — pair it with a value type via
+/// [`hook_state!`](crate::hook_state)'s backward-compatible two-type form
+/// (both sides already declared) exactly like a `#[derive(HookKey)]`
+/// struct:
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{hook_state, state_keys};
+///
+/// state_keys! {
+///     /// This hook's persistent data.
+///     enum DataKey {
+///         /// A running counter.
+///         Counter,
+///         /// A per-owner balance, keyed by the owner's account.
+///         Balance(AccountId),
+///     }
+/// }
+///
+/// hook_state!(DataKey => u32);
+///
+/// // `NotImplemented` here is the host stub every Hook API call returns on
+/// // a host build — this only proves the generated `TypedStateKey`/
+/// // `state_get_typed` call chain compiles and runs.
+/// assert_eq!(
+///     state_get_typed(&DataKey::Counter),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_set_typed(&DataKey::Counter, &1u32),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_update_typed(&DataKey::Counter, |_| 1u32),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_foreign_get_typed(&DataKey::Counter, None, None),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_foreign_set_typed(&DataKey::Counter, &1u32, None, None),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_foreign_update_typed(&DataKey::Counter, None, None, |_| 1u32),
+///     Err(HookError::NotImplemented)
+/// );
+/// ```
 #[macro_export]
 macro_rules! state_keys {
     (
@@ -799,69 +852,13 @@ macro_rules! __state_keys_step {
     };
 }
 
-/// Implements [`TypedStateKey`] for `$Key`, pairing it with `$Value` — the
-/// one-line way to opt a key type into [`state_get_typed`]/
-/// [`state_set_typed`]/[`state_update_typed`] (+ `_foreign` twins).
-/// See [`TypedStateKey`]'s doc comment for why these are safer than the
-/// loose `state_get`/`state_set_loose`/`state_update_loose`.
-///
-/// ```
-/// use hooks_lib::prelude::*;
-/// use hooks_lib::{hook_state, HookData, HookKey};
-///
-/// #[derive(HookKey, Clone, Copy)]
-/// struct MyKey {
-///     tag: u8,
-/// }
-///
-/// #[derive(HookData, Clone, Copy, Debug, PartialEq)]
-/// struct MyValue {
-///     count: u32,
-/// }
-///
-/// hook_state!(MyKey => MyValue);
-///
-/// // `NotImplemented` here is the host stub every Hook API call returns on
-/// // a host build — this only proves the generated `TypedStateKey`/
-/// // `state_get_typed` call chain compiles and runs.
-/// assert_eq!(
-///     state_get_typed(&MyKey { tag: 0 }),
-///     Err(HookError::NotImplemented)
-/// );
-/// ```
-///
-/// # `$Key` must be a *local* type — a bare `[u8; N]` does not work here
-///
-/// `hook_state!` expands to `impl TypedStateKey for $Key { .. }`, and Rust's
-/// orphan rule requires either the trait or the type being implemented to
-/// be local to the current crate. From a hook crate (which is never
-/// `hooks_lib` itself), [`TypedStateKey`] is a foreign trait, so `$Key`
-/// must be a type the hook crate itself defines — in practice, a
-/// `#[derive(HookKey)]` struct (see [`crate::HookKey`]), even a
-/// single-field one wrapping a plain `[u8; N]`. A bare `[u8; N]` (a `core`
-/// type, not local to the hook crate either) fails to compile with rustc's
-/// own orphan-rule diagnostic (`E0117`) — [`crate::state::state_get`]/
-/// [`crate::state::state_set_loose`] (the *loose*, independently-typed
-/// accessors) remain the right choice for a bare array key that has no
-/// business being paired with exactly one value type:
-///
-/// ```compile_fail
-/// use hooks_lib::prelude::*;
-/// use hooks_lib::hook_state;
-///
-/// // ERROR (E0117): neither `TypedStateKey` nor `[u8; 7]` is local to
-/// // this crate — wrap the key in a local `#[derive(HookKey)]` struct
-/// // instead (see the example above).
-/// hook_state!([u8; 7] => u64);
-/// ```
-#[macro_export]
-macro_rules! hook_state {
-    ($Key:ty => $Value:ty) => {
-        impl $crate::state::TypedStateKey for $Key {
-            type Value = $Value;
-        }
-    };
-}
+// `hook_state!`'s doc comment and re-export live in `lib.rs`, not here:
+// `#[macro_export]`-style hoisting to the crate root (what the old
+// `macro_rules!` version of this macro relied on) doesn't apply to a plain
+// `pub use` of a proc-macro — it re-exports at wherever the `pub use`
+// itself is written, so it has to be at the crate root directly (matching
+// where every other proc-macro re-export — `HookKey`, `HookData`, `hook`,
+// `cbak`, ... — already lives).
 
 #[cfg(test)]
 mod tests {
@@ -1030,33 +1027,18 @@ mod tests {
     // `TypedStateKey`/`hook_state!`: a key type paired with exactly one
     // value type, via the paired `_typed`-suffixed functions (see their
     // doc comments).
-    hook_state!(TestKey => u32);
-
-    #[test]
-    fn typed_pair_smoke_not_implemented_on_host() {
-        assert_eq!(
-            state_get_typed(&TestKey::Counter),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_set_typed(&TestKey::Counter, &1u32),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_update_typed(&TestKey::Counter, |_| 1u32),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_foreign_get_typed(&TestKey::Counter, None, None),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_foreign_set_typed(&TestKey::Counter, &1u32, None, None),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_foreign_update_typed(&TestKey::Counter, None, None, |_| 1u32),
-            Err(HookError::NotImplemented)
-        );
-    }
+    //
+    // `hook_state!` is a proc-macro (see `hooks_lib::hook_state!`'s doc
+    // comment) whose expansion hardcodes `::hooks_lib::...` paths — correct
+    // when invoked from an external hook crate (where `hooks_lib` is a
+    // real, named dependency), but not resolvable from *inside* this crate's
+    // own `#[cfg(test)]` module (the same reason `#[derive(HookKey)]`/
+    // `#[derive(HookData)]`/etc. are only ever exercised via doctests here,
+    // never in-crate — see e.g. `lib.rs`'s `HookData`/`HookKey` doc
+    // comments). So this pairing is exercised as a doctest instead — see
+    // `state_keys!`'s doc comment's "Pairing with `hook_state!`" section,
+    // which pairs a `state_keys!` enum (the same shape as `TestKey` above)
+    // with `hook_state!`'s backward-compatible two-type form and asserts
+    // the identical `NotImplemented`-on-host smoke behavior this test used
+    // to check directly.
 }
