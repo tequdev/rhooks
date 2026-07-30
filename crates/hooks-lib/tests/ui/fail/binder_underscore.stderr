@@ -1,0 +1,7 @@
+error: hook_state!: `_` is not an instance binder — give the instance a name (e.g. `hook_state!(deposit_state, ..)`), or leave the binder out entirely if the declaration is all you want
+ --> tests/ui/fail/binder_underscore.rs:7:5
+  |
+7 |     hook_state!(_, MyKey = b"MK" => u64);
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)

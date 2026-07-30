@@ -1,0 +1,7 @@
+error: hook_state!: an instance binder needs a form that declares the key/name — `MyKey` is already declared elsewhere, so bind it with an ordinary `let my_key = ..;` instead
+  --> tests/ui/fail/binder_with_existing_pairing.rs:17:5
+   |
+17 |     hook_state!(my_key, MyKey => MyValue);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,7 @@
+error: hook_parameter!: `acctParam` is not snake_case — an instance binder names a local variable, so it must start with a lowercase ASCII letter and contain only lowercase ASCII letters, digits and underscores (e.g. `acct_param`, not `acctParam` or `_acct`)
+ --> tests/ui/fail/binder_not_snake_case.rs:8:5
+  |
+8 |     hook_parameter!(acctParam, AcctParamName = b"ACCT" => [u8; 20]);
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `hook_parameter` (in Nightly builds, run with -Z macro-backtrace for more info)

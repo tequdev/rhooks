@@ -1,0 +1,7 @@
+error: expected item after attributes
+ --> tests/ui/fail/binder_item_position.rs:7:1
+  |
+7 | hook_state!(counter, CounterKey = b"CTR" => u64);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)

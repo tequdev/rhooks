@@ -371,12 +371,18 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// default body runs `self.write(..)` once per call (Rust has no stable
 /// way to run a trait method at compile time yet). But a **plain
 /// byte-string name** has nothing to compute: its wire encoding *is* its
-/// in-memory representation. [`hook_parameter!`](crate::hook_parameter)/
-/// [`otxn_parameter!`](crate::otxn_parameter)'s two-argument form (a
-/// declared marker type plus the literal, e.g.
-/// `hook_parameter!(CfgName, b"CFG" => Config)`) overrides `with_name_bytes`
-/// to hand the literal straight to the closure — no copy, no buffer,
-/// nothing to encode — skipping the default body entirely.
+/// in-memory representation. Both of
+/// [`hook_parameter!`](crate::hook_parameter)/
+/// [`otxn_parameter!`](crate::otxn_parameter)'s fixed-byte-string forms —
+/// Form 1, `hook_parameter!(CfgName = b"CFG" => Config)`, which declares
+/// `CfgName` itself, and the `existing` keyword form,
+/// `hook_parameter!(existing CfgName = b"CFG" => Config)`, which attaches
+/// the same impls to a marker type the caller declared — override
+/// `with_name_bytes` to hand the literal straight to the closure: no copy,
+/// no buffer, nothing to encode, skipping the default body entirely. (Those
+/// two forms additionally expose the bytes as
+/// `CfgName.get_name() -> &'static [u8]`, a `const fn` reading out of the
+/// same literal.)
 /// `examples/12_typed-data`'s README measures this directly: its plain
 /// `CFG`/`INS` names cost the identical worst-case instruction count as
 /// the loose `hook_param_exact`/`otxn_param_exact` this replaces.
@@ -449,6 +455,15 @@ pub trait TypedParamName: ToBytes {
     /// A compile-time check (monomorphized per `Self`) rejects a `Self`
     /// whose [`ToBytes::MAX_LEN`] falls outside `1..=`[`PARAM_NAME_MAX_LEN`]
     /// — the Hook API's own bound on a parameter name's length.
+    ///
+    /// An override **replaces** that check along with the body, so every
+    /// override the declaration macros generate carries its own
+    /// monomorphized copy of the same assertion. This matters most for the
+    /// two-type pairing form (`hook_parameter!(MyName => MyValue)`), whose
+    /// `MyName` is a caller-authored [`ToBytes`] type the macro never
+    /// declared and never length-checked: without the copy, a name encoding
+    /// to 0 bytes (rejected by the host at runtime) or to a multi-kilobyte
+    /// scratch buffer would compile with no complaint at all.
     #[inline(always)]
     fn with_name_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         const {

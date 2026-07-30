@@ -1,0 +1,7 @@
+error: hook_state!: give every field an initial value: `DepositKey { .. } = { field: value, .. }` — an instance binder never leaves key fields uninitialized (a half-built key would silently store under an all-zero ledger key)
+ --> tests/ui/fail/binder_struct_without_init.rs:8:5
+  |
+8 |     hook_state!(deposit, DepositKey {tag: u8, owner: u64} => DepositValue {amount: u64});
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,5 @@
+error[E0080]: evaluation panicked: hooks-macros: a Hook API parameter name must encode to at least 1 byte (the Hook API's parameter-name lower bound)
+  --> tests/ui/fail/param_name_len_zero.rs:25:1
+   |
+25 | hook_parameter!(ZeroLenName => Value);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here

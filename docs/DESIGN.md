@@ -687,14 +687,54 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
   `rollback(b"panic", ...)` then `unreachable` — examples just work; users
   embedding differently can disable it.
 - `hook_state!`/`hook_parameter!`/`otxn_parameter!` — a declaration-macro
-  **grammar staircase** of five forms (from a fully-fixed zero-sized
-  key/name down to a fully composite, runtime-constructed one, plus a
-  backward-compatible "pair two already-declared types" form; parameters
-  keep one more backward-compatible comma-form besides), each declaring in
-  one line what previously took a separate `#[derive(HookKey)]`/
-  `#[derive(HookData)]`/`#[derive(ParamName)]`/`#[derive(ParamValue)]`
-  struct plus a `Key => Value` pairing. See `hooks_lib::hook_state!`'s doc
-  comment for the full grammar and worked examples.
+  **grammar staircase** of six forms (from a fully-fixed zero-sized
+  key/name down to a fully composite, runtime-constructed one, plus an
+  `existing Name = bytes => Ty` form that attaches the same impls to a
+  key/name type the *caller* declared, plus a backward-compatible "pair two
+  already-declared types" form), each declaring in one line what previously
+  took a separate `#[derive(HookKey)]`/`#[derive(HookData)]`/
+  `#[derive(ParamName)]`/`#[derive(ParamValue)]` struct plus a
+  `Key => Value` pairing. See `hooks_lib::hook_state!`'s doc comment for the
+  full grammar and worked examples.
+  **Declared types carry their own accessors.** Forms 1–4 and `existing`
+  all generate inherent methods on
+  the key/name type — `get_state`/`set_state`/`update_state`/`delete_state`
+  for a state key, `get_value` (plus a `const fn get_name` on the two
+  fixed-byte-string forms) for a parameter name — each an
+  `#[inline(always)]` forward to the free function of the same name, so
+  `key.get_state()` and `state_get_typed(&key)` are the same code and the
+  choice is purely one of reading order. `delete_state` is backed by a new
+  free function, `state::state_delete` — the explicit, value-type-
+  independent deletion API (deletion is a zero-length `state_set`, which
+  `state_set_typed(&key, &Value)` can only reach by way of a `Value` that
+  happens to encode to nothing, so spelling it as a call that takes only a
+  key is both clearer and available to keys with no pairing at all). The
+  "pair two already-declared types" form deliberately gets **no** methods:
+  it declares nothing, so growing them there would claim four method names
+  on a type these macros do not own. The removed parameters-only comma-form
+  (`hook_parameter!(Name, b".." => Ty)`) is exactly what the `existing`
+  keyword form replaces, one-for-one. Note that `existing` itself declares
+  no type: it emits impls (and the accessors) for a key/name type the
+  caller declared.
+  **Optional instance binder.** Form 1, and a struct form with an explicit
+  `= { field: value, .. }` initializer — the two forms that can name a
+  complete instance — may lead with a `snake_case` identifier and a comma
+  (`hook_state!(counter, CounterKey = b"CTR" => u64)`), which additionally
+  binds one instance of the declared type to a local variable — statement
+  position only, since the expansion becomes "items plus a `let`", which
+  also makes the declared types function-local. That is the intended
+  envelope: the binder is for a key whose declaration, value and accesses
+  all live in one hook function; anything shared across functions or module
+  `const`s keeps using the non-binder forms at module scope. There is no
+  implicit `Default`, so a forgotten initializer field stays rustc's own
+  missing-field error at the caller's own tokens. The other four forms — an
+  uninitialized struct form, the newtype form, `existing`, and the two-type
+  pairing form — each get a diagnostic naming the way out. The binder
+  identifier and a struct initializer's brace group are spliced into the
+  generated `let` as the **caller's own tokens**, never rebuilt from a
+  string: local bindings are hygienic, so a binder that arrives through a
+  caller's `macro_rules!` wrapper would otherwise bind in the wrapper's
+  syntax context and be invisible to the code that asked for it.
   **Function-like `#[proc_macro]`s in `hooks-macros`, not `macro_rules!`**
   (a change from the crate's original design): the grammar needs real
   lookahead disambiguation between forms (a `{`/bare `=`/`,`/second bare
@@ -711,7 +751,10 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
   at the macro invocation with a `compile_error!` naming the offending
   identifier — the one piece of validation `macro_rules!` categorically
   cannot do (there is no way to inspect an identifier's own spelling from
-  inside a `macro_rules!` matcher).
+  inside a `macro_rules!` matcher). The instance binder is checked the same
+  way, against the mirror-image rule: `snake_case`, not a lone `_`, not a
+  raw identifier, and not a Rust keyword (strict *and* reserved, edition
+  2024's `gen` included), because it names a local variable.
 
 **Every composite name/key this grammar declares gets an exact-size
 encode buffer, not a generic worst-case-sized one.** `TypedParamName`'s
@@ -731,6 +774,15 @@ went from **+607** worst-case instructions over the raw baseline to
 **0** — see `examples/81_govern/src/lib.rs`'s `IS{seat}` doc comment.
 `examples/12_typed-data`'s composite `AdminName` parameter improved too
 (485 → 470 worst-case instructions), confirming the fix generalizes.
+Overriding `with_name_bytes` also *replaces* the trait default's own
+`1..=PARAM_NAME_MAX_LEN` length assertion, so every generated override
+carries a monomorphized copy of it. That matters most for the "pair two
+already-declared types" form, whose name type is caller-authored and never
+saw the derive-time check: without the copy, a `ToBytes` name encoding to
+0 bytes (which the host rejects at runtime) or to several kilobytes (a
+stack buffer well past the memset-inlining threshold) compiled with no
+complaint at all.
+
 `StateKeyEncode`/`EncodedStateKey` were checked for the identical
 asymmetry and found not to have it: a hook-state key's raw `[u8; N]`
 baseline *already* goes through `EncodedStateKey`'s own always-32-byte

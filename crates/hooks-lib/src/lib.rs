@@ -582,7 +582,7 @@ pub use hooks_macros::HookData;
 /// turbofish and no chance of a key/value mismatch (see
 /// [`state::TypedStateKey`]'s doc comment for why).
 ///
-/// A **grammar staircase** of five forms, from a fully-fixed key down to a
+/// A **grammar staircase** of six forms, from a fully-fixed key down to a
 /// fully composite, runtime-constructed one — pick the narrowest one that
 /// fits; every form's value side (after `=>`) independently accepts either
 /// an already-declared type or an *inline* definition (`=> Name { field:
@@ -595,7 +595,18 @@ pub use hooks_macros::HookData;
 /// | 2 | struct, with a fixed instance | `hook_state!(CounterKey {name: [u8; 7]} = {name: b"counter"} => u64);` |
 /// | 3 | struct, constructed per call site | `hook_state!(DepositKey {tag: u8, owner: AccountId} => Deposit);` |
 /// | 4 | newtype (tuple struct) around one existing type | `hook_state!(AccountKey AccountId => AccountData {balance: XFL, sequence: u16});` |
-/// | existing | two already-declared types, paired as-is | `hook_state!(MyKey => MyValue);` |
+/// | `existing` | impls only, on a key type **you** declared | `hook_state!(existing MyOwnKey = b"MK" => u64);` |
+/// | existing pair | two already-declared types, paired as-is | `hook_state!(MyKey => MyValue);` |
+///
+/// Forms 1–4 **declare** the key type; `existing` declares nothing and
+/// emits impls for a key type you declared yourself. All five get the same
+/// four inherent accessors on that key type —
+/// `get_state`/`set_state`/`update_state`/`delete_state` — while the plain
+/// two-type pairing form gets none. Two of the five additionally accept a
+/// leading **instance binder** (`hook_state!(counter, CounterKey = ..)`),
+/// which also binds one instance to a local variable: Form 1, and a struct
+/// form with an explicit `= { field: value, .. }` initializer. Both topics
+/// have their own sections below.
 ///
 /// Every type name this macro itself *declares* (a Form 1–4 key, or an
 /// inline value) must be `UpperCamelCase` — first character an uppercase
@@ -713,6 +724,134 @@ pub use hooks_macros::HookData;
 ///     state_get_typed(&MyKey { tag: 0 }),
 ///     Err(HookError::NotImplemented)
 /// );
+/// ```
+///
+/// # `existing` form: impls only, on a key type you declared
+///
+/// `hook_state!(existing $Name = $bytes => $Value)` attaches everything Form
+/// 1 generates — the fixed key bytes, the [`state::StateKeyEncode`] impl,
+/// the [`state::TypedStateKey`] pairing and the four accessors below — to a
+/// type **you** declared, instead of declaring one. Reach for it when the
+/// key type needs something this macro does not generate: a visibility, a
+/// doc comment, extra derives, an attribute:
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::hook_state;
+///
+/// /// This hook's reward rate — public, because a sibling module reads it.
+/// #[derive(Clone, Copy)]
+/// pub struct RewardRateKey;
+///
+/// hook_state!(existing RewardRateKey = b"RR" => u64);
+///
+/// assert_eq!(RewardRateKey.get_state(), Err(HookError::NotImplemented));
+/// ```
+///
+/// `existing` is a contextual keyword (a type of your own named `existing`
+/// still works in the two-type form), it accepts only the fixed-bytes shape
+/// above, and it is **module position only** — it emits impls for a type the
+/// module owns, so it cannot be combined with an instance binder. This form
+/// replaces the removed `hook_parameter!($Name, $bytes => $Ty)` comma-form
+/// one-for-one, and `hook_state!` gains the same capability with it.
+///
+/// One consequence of declaring the type yourself: since the generated
+/// accessors are `pub` methods on *your* type, a `pub` key type needs a
+/// value type that is at least as visible (rustc's ordinary `E0446`,
+/// "private type in public interface"). The forms that declare the key
+/// themselves never run into this — the type they declare is private, like
+/// the value.
+///
+/// # Generated methods: `get_state`/`set_state`/`update_state`/`delete_state`
+///
+/// Every **declaring** form (1–4 and `existing`) puts the four state
+/// operations on the key type itself, each an `#[inline(always)]` forward to
+/// the free function of the same name — `key.get_state()` and
+/// `state::state_get_typed(&key)` compile to the same code, so the choice is
+/// purely about which reads better:
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::hook_state;
+///
+/// hook_state!(BalanceKey {owner: AccountId} => Balance {drops: u64});
+///
+/// let key = BalanceKey { owner: AccountId::default() };
+///
+/// // All four are available; every call reaches the host stub here.
+/// assert!(key.get_state().is_err());
+/// assert!(key.set_state(&Balance { drops: 1 }).is_err());
+/// assert!(key.update_state(|_| Balance { drops: 1 }).is_err());
+/// assert!(key.delete_state().is_err());
+/// ```
+///
+/// The two-type pairing form deliberately gets **none** of them: it declares
+/// nothing, so growing inherent methods there would claim four method names
+/// on a type this macro does not own (use the free functions for such a
+/// key). If your own inherent impl already defines one of these names, that
+/// is a duplicate-definition error (`E0592`); if a *trait* of yours defines
+/// it, the inherent method silently wins at the call site — these four names
+/// are macro-owned API on a declared key type.
+///
+/// # Instance binder: `hook_state!($binder, $decl)`
+///
+/// A declaration whose key, value and accesses all live inside one function
+/// can lead with a `snake_case` **instance binder**, which declares
+/// everything as usual and then binds one instance to a local variable:
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::hook_state;
+///
+/// fn tally(owner: AccountId) -> Result<usize> {
+///     // Form 1: the type's own name is its one instance.
+///     hook_state!(total, TotalKey = b"TOT" => u64);
+///     let _ = total.get_state()?;
+///
+///     // Struct form: the initializer is an ordinary *runtime* expression,
+///     // and the binding is `let mut`, so the key can be re-aimed between
+///     // accesses.
+///     hook_state!(deposit, DepositKey {tag: u8, owner: AccountId} = {tag: 1, owner}
+///                 => DepositValue {amount: u64});
+///     deposit.tag = 2;
+///     deposit.set_state(&DepositValue { amount: 1 })
+/// }
+///
+/// // Host stubs: the call chain compiles and runs, and fails at the host.
+/// assert!(tally(AccountId::default()).is_err());
+/// ```
+///
+/// Rules worth knowing before reaching for it:
+///
+/// - **Statement position only.** The expansion is "items plus a `let`", so
+///   an invocation with a binder at module scope fails with rustc's own
+///   "expected item" error, and the types it declares are function-local.
+///   When a key type must be shared — module `const`s, helper functions,
+///   more than one hook entry point — use the (unchanged) non-binder forms
+///   at module scope and call the same methods on a locally-built value
+///   (`DepositKey { .. }.get_state()`).
+/// - **Only two forms take one:** Form 1, and a struct form *with* an
+///   explicit `= { field: value, .. }` initializer — the two that can name
+///   a complete instance. A struct form without an initializer, the newtype
+///   form (Form 4), the `existing` form and the two-type pairing form each
+///   get a diagnostic naming the way out.
+/// - The initializer's fields are checked by rustc itself (it is re-emitted
+///   verbatim inside `$Name { .. }`), so a forgotten field is an ordinary
+///   missing-field error at your own tokens — a binder never leaves a key
+///   half-initialized.
+/// - No `const` of the struct's own name is declared in binder mode (Form
+///   2's `const` needs a compile-time initializer; a binder's is a runtime
+///   expression).
+///
+/// ```compile_fail
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::hook_state;
+///
+/// // ERROR: an instance binder must be snake_case — `CounterKey, ..` is
+/// // read as the removed comma-form instead.
+/// fn f() {
+///     hook_state!(CounterKey, b"CTR" => u64);
+/// }
 /// ```
 ///
 /// # `$Key` must be a *local* type — a bare `[u8; N]` does not work here
@@ -887,12 +1026,15 @@ pub use hooks_macros::ParamName;
 /// for how this mirrors the hook-state side).
 ///
 /// The identical **grammar staircase** [`hook_state!`](crate::hook_state)
-/// uses — see its doc comment for the full table and worked examples of
-/// each form, and [`otxn_parameter!`](crate::otxn_parameter) (identical
-/// grammar, targeting `otxn_param_typed` instead) — **plus one more**
-/// backward-compatible form neither `hook_state!` nor `otxn_parameter!`'s
-/// own doc comment repeats: the original comma-separated 3-argument form,
-/// predating this grammar staircase.
+/// uses — see its doc comment for the full table, the worked example of
+/// each form, the generated accessors every declaring form carries, and the
+/// optional instance binder (Form 1 or an initializer-carrying struct form
+/// only). The only
+/// difference on this side is *which* accessors a declared name gets:
+/// `get_value` (plus `get_name` on the two fixed-byte-string forms) rather
+/// than the state quartet, because a parameter is read-only from the
+/// reading hook's own perspective. [`otxn_parameter!`](crate::otxn_parameter)
+/// is this macro with `otxn_param_typed` in place of `hook_param_typed`.
 ///
 /// | form | name shape | example |
 /// |---|---|---|
@@ -900,21 +1042,44 @@ pub use hooks_macros::ParamName;
 /// | 2 | struct, with a fixed instance | see [`hook_state!`](crate::hook_state) — identical shape, applied to a name instead of a key |
 /// | 3 | struct, constructed per call site | `hook_parameter!(SeatParamName {topic: u8, seat: u8} => Vote);` |
 /// | 4 | newtype (tuple struct) around one existing type | see [`hook_state!`](crate::hook_state) — identical shape |
-/// | existing | two already-declared types, paired as-is | `hook_parameter!(SeatParamName => Vote);` |
-/// | legacy | `$Name` declared *separately* by the caller | `hook_parameter!(CfgName, b"CFG" => Config);` |
+/// | `existing` | impls only, on a name type **you** declared | `hook_parameter!(existing CfgName = b"CFG" => Config);` |
+/// | existing pair | two already-declared types, paired as-is | `hook_parameter!(SeatParamName => Vote);` |
+/// | binder | Form 1 or an initialized struct form, plus a local instance | `hook_parameter!(cfg, CfgName = b"CFG" => Config);` |
 ///
-/// # Form 1 and the legacy form both keep the zero-copy fast path
+/// # Removed: the `$Name, $bytes => $Ty` comma-form
+///
+/// The original comma-separated 3-argument form is **gone**. Its purpose —
+/// attaching fixed name bytes to a marker type the caller declares
+/// themselves, so it can carry its own visibility, derives and docs — is now
+/// the `existing` keyword form, which does the same job explicitly (and
+/// gives the name the generated accessors besides):
+///
+/// ```text
+/// hook_parameter!(CfgName, b"CFG" => Config);          // removed
+/// hook_parameter!(existing CfgName = b"CFG" => Config); // write this
+/// hook_parameter!(CfgName = b"CFG" => Config);          // or this, to have the macro declare `CfgName`
+/// ```
+///
+/// The comma is now the instance binder's separator, so an invocation
+/// leading with `$UpperCamelCase ,` gets a `compile_error!` naming both
+/// replacements.
+///
+/// # Form 1 and the `existing` form both keep the zero-copy fast path
 ///
 /// A **plain byte-string name** has nothing to compute: its wire encoding
 /// *is* its in-memory representation. Both Form 1 (which additionally
-/// declares `$Name` as a new unit struct) and the pre-existing legacy form
-/// (`$Name` declared separately by the caller) override
+/// declares `$Name` as a new unit struct) and the `existing` form (`$Name`
+/// declared separately by the caller) override
 /// [`convert::TypedParamName::with_name_bytes`] to hand the literal
 /// straight to the closure — no copy, no buffer, nothing to encode — at
 /// the exact same cost as the loose [`api::hook_ctx::hook_param_exact`]
 /// this replaces (see [`convert::TypedParamName`]'s doc comment, "Zero-cost
 /// for the plain-byte-string case," and `examples/12_typed-data`'s README,
-/// which measures this directly).
+/// which measures this directly). Those same two forms expose the literal
+/// as `$Name.get_name() -> &'static [u8]`, a `const fn`; composite names
+/// (Forms 2–4) get no `get_name` — encoding one is a runtime computation,
+/// and `with_name_bytes` (an exact-size scratch buffer, handed to a closure)
+/// is the way to reach those bytes.
 ///
 /// # Every composite form gets a right-sized buffer too
 ///
@@ -941,25 +1106,57 @@ pub use hooks_macros::ParamName;
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
 /// ```
 ///
-/// The legacy form — `$Name` a marker type the caller already declared
-/// separately (predates Form 1; kept for backward compatibility, and for
-/// the rare case a name type needs to derive something Form 1 doesn't
-/// generate for it):
+/// The `existing` form — `$Name` a marker type the caller declared
+/// separately, for when it needs a visibility, a doc comment or derives
+/// Form 1 does not generate for it. Note the generated `get_name`/
+/// `get_value` methods, which every declaring form (this one included)
+/// provides:
 ///
 /// ```
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::{ParamValue, hook_parameter};
 ///
+/// // `pub`, because `CfgName` below is: the generated
+/// // `pub fn get_value(&self) -> Result<Config>` would otherwise leak a
+/// // private type out of a public type's inherent impl (`E0446`). The
+/// // macro-declaring forms never hit this — the type they declare is
+/// // private, like the value.
 /// #[derive(ParamValue)]
-/// struct Config {
+/// pub struct Config {
 ///     min_amount: u64,
 /// }
 ///
-/// struct CfgName;
-/// hook_parameter!(CfgName, b"CFG" => Config);
+/// /// Names this hook's `CFG` install-time parameter.
+/// pub struct CfgName;
+/// hook_parameter!(existing CfgName = b"CFG" => Config);
 ///
+/// assert_eq!(CfgName.get_name(), b"CFG".as_slice());
+/// assert_eq!(CfgName.get_value().err(), Some(HookError::NotImplemented));
+///
+/// // The method is exactly `hook_param_typed(&CfgName)`, inlined.
 /// let cfg = hook_param_typed(&CfgName);
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
+/// ```
+///
+/// An instance binder, for a parameter read inside one function only —
+/// `get_value()` fixes the role at the declaration, so `hook_parameter!`
+/// always reads this hook's own installed parameters and
+/// [`otxn_parameter!`](crate::otxn_parameter) always reads the originating
+/// transaction's:
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{ParamValue, hook_parameter};
+///
+/// fn min_amount() -> u64 {
+///     hook_parameter!(cfg, CfgName = b"CFG" => Config {min_amount: u64});
+///
+///     assert_eq!(cfg.get_name(), b"CFG".as_slice());
+///     cfg.get_value().map(|c| c.min_amount).unwrap_or(1_000_000)
+/// }
+///
+/// // Nothing is installed on a host build, so the fallback is what comes back.
+/// assert_eq!(min_amount(), 1_000_000);
 /// ```
 ///
 /// # Form 3: composite name, constructed per call site
@@ -1001,9 +1198,10 @@ pub use hooks_macros::ParamName;
 /// ```
 pub use hooks_macros::hook_parameter;
 
-/// Identical grammar to [`macro@hook_parameter`] (including its extra
-/// backward-compatible legacy 3-argument form) — see its doc comment for
-/// the full writeup and every form's worked example. Targets
+/// Identical grammar to [`macro@hook_parameter`] — see its doc comment for
+/// the full writeup and every form's worked example, including the
+/// `existing` form, the generated `get_name`/`get_value` methods and the
+/// optional instance binder, all of which work here unchanged. Targets
 /// [`api::otxn::otxn_param_typed`] (a parameter attached to the
 /// *originating transaction*) instead of `hook_param_typed`; kept as a
 /// separate macro purely so the declaration site documents which of
@@ -1091,8 +1289,9 @@ pub use hooks_macros::otxn_parameter;
 ///
 /// # Examples
 ///
-/// A composite parameter value, paired with a plain byte-string name via
-/// [`otxn_parameter!`](crate::otxn_parameter)'s two-argument form:
+/// A composite parameter value, paired with a plain byte-string name the
+/// caller declared themselves, via
+/// [`otxn_parameter!`](crate::otxn_parameter)'s `existing` form:
 ///
 /// ```
 /// use hooks_lib::prelude::*;
@@ -1105,7 +1304,7 @@ pub use hooks_macros::otxn_parameter;
 /// }
 ///
 /// struct CfgName;
-/// otxn_parameter!(CfgName, b"CFG" => Config);
+/// otxn_parameter!(existing CfgName = b"CFG" => Config);
 ///
 /// let cfg = otxn_param_typed(&CfgName);
 /// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
@@ -1167,7 +1366,7 @@ pub mod prelude {
     pub use crate::convert::{FixedRead, FromBytes, ToBytes, TypedParamName};
     pub use crate::error::{HookError, Result};
     pub use crate::state::{
-        StateKeyEncode, TypedStateKey, state_foreign_get, state_foreign_get_typed,
+        StateKeyEncode, TypedStateKey, state_delete, state_foreign_get, state_foreign_get_typed,
         state_foreign_set_loose, state_foreign_set_typed, state_foreign_update_loose,
         state_foreign_update_typed, state_get, state_get_typed, state_set_loose, state_set_typed,
         state_update_loose, state_update_typed,

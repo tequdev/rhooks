@@ -1,0 +1,8 @@
+error[E0063]: missing field `owner` in initializer of `DepositKey`
+  --> tests/ui/fail/binder_missing_init_field.rs:9:5
+   |
+9  | /     hook_state!(deposit, DepositKey {tag: u8, owner: u64} = {tag: 1}
+10 | |                 => DepositValue {amount: u64});
+   | |______________________________________________^ missing `owner`
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
