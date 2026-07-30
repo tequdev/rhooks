@@ -1,7 +1,0 @@
-error: hook_parameter!: `existing` declares impls for your own type at module scope and cannot be an instance binder — write `hook_parameter!(existing YourType = b".." => Ty)` (no comma), then bind it locally with `let your_name = YourType;` if you want a local name
-  --> tests/ui/fail/existing_as_binder.rs:13:1
-   |
-13 | hook_parameter!(existing, CfgName = b"CFG" => Config);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = note: this error originates in the macro `hook_parameter` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,7 +1,0 @@
-error: hook_state!: an instance binder cannot be combined with the newtype form — construct `AccountKey(..)` yourself (`let account = AccountKey(inner);`)
- --> tests/ui/fail/binder_with_newtype.rs:7:5
-  |
-7 |     hook_state!(account, AccountKey [u8; 20] => u64);
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)

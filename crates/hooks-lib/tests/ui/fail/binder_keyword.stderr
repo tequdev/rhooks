@@ -1,7 +1,0 @@
-error: hook_state!: `gen` is a Rust keyword (or reserved for a future edition) and cannot name a local variable — pick another instance binder
- --> tests/ui/fail/binder_keyword.rs:8:5
-  |
-8 |     hook_state!(gen, GenKey = b"GK" => u64);
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)

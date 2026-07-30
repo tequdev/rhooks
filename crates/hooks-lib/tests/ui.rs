@@ -10,12 +10,22 @@
 //! not that the caller was told anything useful.
 //!
 //! What the pinned `.stderr` files are really guarding is the **wording and
-//! the span** of each diagnostic: several of them (the removed comma-form,
-//! the `existing`-as-a-binder case) exist precisely because a vaguer,
+//! the span** of each diagnostic: several of them (the `existing`-as-a-binder
+//! case, the malformed `existing` tail) exist precisely because a vaguer,
 //! technically-correct error would leave the caller staring at a macro
 //! expansion they did not write. Regenerate them deliberately, with
 //! `TRYBUILD=overwrite cargo test -p hooks-lib --test ui`, and read the diff
 //! — an unexpected span change is the signal this file exists to catch.
+//!
+//! Fixtures are **grouped by rule, not one per case**: each macro invocation
+//! fails independently during expansion, so rustc reports every one of them
+//! in a single compilation and one `.stderr` can pin a whole rule
+//! (`binder_idents.rs` covers seven rejected identifier shapes). The
+//! fixtures kept separate are the ones whose failure comes from *rustc*
+//! rather than from a `compile_error!` — an item-position `let`, a
+//! missing struct-literal field, a `non_camel_case` type name, a method that
+//! was deliberately never generated — where grouping would blur which
+//! mechanism produced which message.
 //!
 //! Fixture output is toolchain-specific; this repo pins one stable version
 //! in `rust-toolchain.toml`, which is what makes byte-exact comparison

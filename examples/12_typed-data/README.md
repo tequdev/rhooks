@@ -60,7 +60,7 @@ hook_state!(DepositKey {tag: u8, owner: AccountId} => DepositValue {amount: u64,
 DepositKey { tag: u8, owner: AccountId }`, `#[derive(HookData)] struct
 DepositValue { amount: u64, deadline: u32, flags: u8 }`, and
 `hook_state!(DepositKey => DepositValue)` to pair them (see
-`hooks_lib::hook_state!`'s doc comment for that longhand backward-compatible
+`hooks_lib::hook_state!`'s doc comment for that longhand two-type pairing
 form) — and used directly — no manual byte packing anywhere in
 `src/lib.rs`:
 
@@ -180,8 +180,8 @@ those literal bytes back as `CfgName.get_name() -> &'static [u8]`, a
 such method.) When the name type has to be declared separately by the
 caller — to carry its own visibility, derives or docs — the `existing`
 keyword form does that: `hook_parameter!(existing CfgName = b"CFG" =>
-Config)`, which replaced the original comma-separated 3-argument form; see
-`hooks_lib::hook_parameter!`'s doc comment for a worked example. See
+Config)`; see `hooks_lib::hook_parameter!`'s doc comment for a worked
+example. See
 `hooks_lib::convert::TypedParamName`'s doc comment for the full zero-cost
 rationale, and the "Composite parameter names" section below for this hook's own worked composite-name example and
 its measured cost.

@@ -1,7 +1,0 @@
-error: hook_parameter!: an instance binder needs a form that declares the key/name — `b"CFG"` is already declared elsewhere, so bind it with an ordinary `let cfg_name = ..;` instead
-  --> tests/ui/fail/legacy_comma_lowercase_marker.rs:16:1
-   |
-16 | hook_parameter!(cfg_name, b"CFG" => Config);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = note: this error originates in the macro `hook_parameter` (in Nightly builds, run with -Z macro-backtrace for more info)

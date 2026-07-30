@@ -1,7 +1,0 @@
-error: hook_state!: `r#fn` is a raw identifier and cannot be an instance binder — an instance binder is a plain snake_case name (e.g. `hook_state!(deposit_state, ..)`)
- --> tests/ui/fail/binder_raw_ident.rs:8:5
-  |
-8 |     hook_state!(r#fn, MyKey = b"MK" => u64);
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)

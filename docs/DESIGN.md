@@ -690,8 +690,8 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
   **grammar staircase** of six forms (from a fully-fixed zero-sized
   key/name down to a fully composite, runtime-constructed one, plus an
   `existing Name = bytes => Ty` form that attaches the same impls to a
-  key/name type the *caller* declared, plus a backward-compatible "pair two
-  already-declared types" form), each declaring in one line what previously
+  key/name type the *caller* declared, plus a "pair two already-declared
+  types" form), each declaring in one line what previously
   took a separate `#[derive(HookKey)]`/`#[derive(HookData)]`/
   `#[derive(ParamName)]`/`#[derive(ParamValue)]` struct plus a
   `Key => Value` pairing. See `hooks_lib::hook_state!`'s doc comment for the
@@ -711,9 +711,7 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
   key is both clearer and available to keys with no pairing at all). The
   "pair two already-declared types" form deliberately gets **no** methods:
   it declares nothing, so growing them there would claim four method names
-  on a type these macros do not own. The removed parameters-only comma-form
-  (`hook_parameter!(Name, b".." => Ty)`) is exactly what the `existing`
-  keyword form replaces, one-for-one. Note that `existing` itself declares
+  on a type these macros do not own. Note that `existing` itself declares
   no type: it emits impls (and the accessors) for a key/name type the
   caller declared.
   **Optional instance binder.** Form 1, and a struct form with an explicit

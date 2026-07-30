@@ -1,7 +1,0 @@
-error: hook_parameter!: the `CfgName, b".." => Ty` comma-form was removed — write `CfgName = b".." => Ty` (declares `CfgName`), or `existing CfgName = b".." => Ty` if you declare `CfgName` yourself; an instance binder must be snake_case (`hook_parameter!(cfg, CfgName = b"CFG" => Config)`)
-  --> tests/ui/fail/legacy_comma_const_expr.rs:15:1
-   |
-15 | hook_parameter!(CfgName, CFG_NAME => Config);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = note: this error originates in the macro `hook_parameter` (in Nightly builds, run with -Z macro-backtrace for more info)

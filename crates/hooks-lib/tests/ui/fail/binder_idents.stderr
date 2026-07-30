@@ -1,0 +1,55 @@
+error: hook_state!: `acctParam` is not snake_case — an instance binder names a local variable, so it must start with a lowercase ASCII letter and contain only lowercase ASCII letters, digits and underscores (e.g. `acct_param`, not `acctParam` or `_acct`). To declare a type instead, drop the comma: `hook_state!(Name = b".." => Ty)`
+  --> tests/ui/fail/binder_idents.rs:16:5
+   |
+16 |     hook_state!(acctParam, AcctKey = b"AK" => u64);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: hook_state!: `CfgName` is not snake_case — an instance binder names a local variable, so it must start with a lowercase ASCII letter and contain only lowercase ASCII letters, digits and underscores (e.g. `acct_param`, not `acctParam` or `_acct`). To declare a type instead, drop the comma: `hook_state!(Name = b".." => Ty)`
+  --> tests/ui/fail/binder_idents.rs:20:5
+   |
+20 |     hook_state!(CfgName, CfgKey = b"CK" => u64);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: hook_state!: `type` is a Rust keyword (or reserved for a future edition) and cannot name a local variable — pick another instance binder
+  --> tests/ui/fail/binder_idents.rs:23:5
+   |
+23 |     hook_state!(type, TypeKey = b"TK" => u64);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: hook_state!: `gen` is a Rust keyword (or reserved for a future edition) and cannot name a local variable — pick another instance binder
+  --> tests/ui/fail/binder_idents.rs:26:5
+   |
+26 |     hook_state!(gen, GenKey = b"GK" => u64);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: hook_state!: `r#fn` is a raw identifier and cannot be an instance binder — an instance binder is a plain snake_case name (e.g. `hook_state!(deposit_state, ..)`)
+  --> tests/ui/fail/binder_idents.rs:30:5
+   |
+30 |     hook_state!(r#fn, RawKey = b"RK" => u64);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: hook_state!: `_` is not an instance binder — give the instance a name (e.g. `hook_state!(deposit_state, ..)`), or leave the binder out entirely if the declaration is all you want
+  --> tests/ui/fail/binder_idents.rs:33:5
+   |
+33 |     hook_state!(_, UnderscoreKey = b"UK" => u64);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: hook_state!: `existing` declares impls for your own type at module scope and cannot be an instance binder — write `hook_state!(existing YourType = b".." => Ty)` (no comma), then bind it locally with `let your_name = YourType;` if you want a local name
+  --> tests/ui/fail/binder_idents.rs:38:5
+   |
+38 |     hook_state!(existing, ExistingKey = b"EK" => u64);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)

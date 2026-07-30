@@ -1,9 +1,9 @@
 //! Shared parser + codegen backing the `hook_state!`/`hook_parameter!`/
 //! `otxn_parameter!` declaration-macro grammar — a "staircase" of four
 //! *declaring* forms (plus two forms that declare no type of their own:
-//! the `existing` keyword form and the backward-compatible two-type
-//! pairing form), from a fully-fixed key/name down to a fully composite,
-//! runtime-constructed one:
+//! the `existing` keyword form and the two-type pairing form), from a
+//! fully-fixed key/name down to a fully composite, runtime-constructed
+//! one:
 //!
 //! ```text
 //! // Form 1: fully fixed key/name (a zero-sized-type struct is declared).
@@ -25,7 +25,7 @@
 //! struct MyOwnKey;
 //! hook_state!(existing MyOwnKey = b"MK" => u64);
 //!
-//! // Existing form (backward-compatible): pairs two already-declared types.
+//! // Pairing form: pairs two already-declared types.
 //! hook_state!(SomeExistingKey => SomeExistingValue);
 //! ```
 //!
@@ -371,9 +371,8 @@ fn collect_until_arrow(c: &mut Cursor, mac: &str, subject: &str) -> Result<Strin
 /// signal `snake_case`/`SCREAMING_SNAKE_CASE`, never valid `UpperCamelCase`).
 /// Only applied to names this macro itself declares ([`KeySpec::Existing`]/
 /// [`KeySpec::ExistingFixed`] reference a type the *caller* already named,
-/// which this macro has no business re-validating — and which, historically,
-/// callers of the removed comma-form did spell in `snake_case` or as a raw
-/// identifier).
+/// which this macro has no business re-validating — a caller's own marker
+/// type may perfectly well be spelled `snake_case` or as a raw identifier).
 fn check_upper_camel_case(name: &str, span: Span, mac: &str) -> Result<(), TokenStream> {
     let mut chars = name.chars();
     let first_ok = matches!(chars.next(), Some(c) if c.is_ascii_uppercase());
@@ -412,24 +411,6 @@ const RUST_KEYWORDS: &[&str] = &[
     "typeof", "unsized", "virtual", "yield",
 ];
 
-/// The diagnostic for the **removed** `$Name, $bytes => $Ty` comma-form.
-///
-/// Emitted whenever an invocation leads with an `UpperCamelCase` identifier
-/// followed by a comma — regardless of what follows that comma. A leading
-/// type name in binder position can only be the old comma-form (an instance
-/// binder names a local variable and is `snake_case` by construction), so
-/// guessing at the caller's intent from the rest of the tokens would only
-/// produce a worse message than naming the removal outright and listing both
-/// replacements.
-fn legacy_comma_form_removed(mac: &str, name: &str) -> String {
-    format!(
-        "{mac}: the `{name}, b\"..\" => Ty` comma-form was removed — write \
-         `{name} = b\"..\" => Ty` (declares `{name}`), or `existing {name} = \
-         b\"..\" => Ty` if you declare `{name}` yourself; an instance binder \
-         must be snake_case (`{mac}(cfg, CfgName = b\"CFG\" => Config)`)"
-    )
-}
-
 /// Validates an instance-binder identifier: `[a-z][a-z0-9_]*`, not a lone
 /// `_`, not a Rust keyword.
 ///
@@ -461,7 +442,9 @@ fn check_binder_ident(name: &str, span: Span, mac: &str) -> Result<(), TokenStre
                 "{mac}: `{name}` is not snake_case — an instance binder names \
                  a local variable, so it must start with a lowercase ASCII \
                  letter and contain only lowercase ASCII letters, digits and \
-                 underscores (e.g. `acct_param`, not `acctParam` or `_acct`)"
+                 underscores (e.g. `acct_param`, not `acctParam` or `_acct`). \
+                 To declare a type instead, drop the comma: `{mac}(Name = \
+                 b\"..\" => Ty)`"
             ),
         ));
     }
@@ -491,9 +474,7 @@ fn check_binder_ident(name: &str, span: Span, mac: &str) -> Result<(), TokenStre
 /// 2. `existing` — reserved, because `existing, Name = ..` would otherwise
 ///    parse as a perfectly valid binder literally named `existing` and
 ///    silently drop the caller's intended `existing` keyword form.
-/// 3. An `UpperCamelCase` identifier — the removed comma-form (see
-///    [`legacy_comma_form_removed`]).
-/// 4. Anything else — validated as a binder by [`check_binder_ident`].
+/// 3. Anything else — validated as a binder by [`check_binder_ident`].
 fn parse_binder(c: &mut Cursor, mac: &str) -> Result<Option<Binder>, TokenStream> {
     let id = match c.peek() {
         Some(TokenTree::Ident(id)) if is_punct(c.peek_at(1), ',') => id.clone(),
@@ -522,9 +503,6 @@ fn parse_binder(c: &mut Cursor, mac: &str) -> Result<Option<Binder>, TokenStream
                  with `let your_name = YourType;` if you want a local name"
             ),
         ));
-    }
-    if matches!(name.chars().next(), Some(ch) if ch.is_ascii_uppercase()) {
-        return Err(err(span, &legacy_comma_form_removed(mac, &name)));
     }
     check_binder_ident(&name, span, mac)?;
 
@@ -654,7 +632,7 @@ fn parse(
 /// `existing<..>` — are handed back to [`parse_key`] untouched, so no
 /// pre-existing invocation changes meaning. Everything else after a leading
 /// `existing` is a malformed keyword form and gets its own targeted
-/// diagnostic rather than one of the binder/legacy ones.
+/// diagnostic rather than the binder one.
 fn try_parse_existing(c: &mut Cursor, mac: &str) -> Option<Result<KeySpec, TokenStream>> {
     match c.peek() {
         Some(TokenTree::Ident(id)) if id.to_string() == "existing" => {}
@@ -677,9 +655,9 @@ fn try_parse_existing(c: &mut Cursor, mac: &str) -> Option<Result<KeySpec, Token
             )));
         }
     };
-    // Not naming-checked: `existing` names a type the *caller* declared (the
-    // removed comma-form it replaces accepted `snake_case` and raw-identifier
-    // markers, and those callers must keep working).
+    // Not naming-checked: `existing` names a type the *caller* declared, so
+    // its spelling is the caller's business — a `snake_case` or raw-identifier
+    // marker type is perfectly legal here.
     let name = name_id.to_string();
     let name_span = name_id.span();
     c.bump(); // `existing`
@@ -813,11 +791,10 @@ fn parse_key(c: &mut Cursor, mac: &str) -> Result<KeySpec, TokenStream> {
         });
     }
 
-    // A comma here can no longer begin any form: the only comma this
-    // grammar accepts is the instance binder's, and `parse_binder` has
-    // already consumed (or rejected) it before this function runs — so
-    // reaching one here means a second binder, or the removed comma-form
-    // written after a binder.
+    // A comma here cannot begin any form: the only comma this grammar
+    // accepts is the instance binder's, and `parse_binder` has already
+    // consumed (or rejected) it before this function runs — so reaching one
+    // here means a second binder.
     if is_punct(c.peek_at(1), ',') {
         return Err(err(
             c.peek_at(1).map_or_else(Span::call_site, TokenTree::span),
@@ -829,9 +806,8 @@ fn parse_key(c: &mut Cursor, mac: &str) -> Result<KeySpec, TokenStream> {
         ));
     }
 
-    // `Name => ..` (the arrow starts immediately) — the existing,
-    // backward-compatible two-type form, `Name` a bare already-declared
-    // type.
+    // `Name => ..` (the arrow starts immediately) — the two-type pairing
+    // form, `Name` a bare already-declared type.
     if is_arrow_at(c, 1) {
         c.bump(); // Name
         return Ok(KeySpec::Existing {
@@ -842,7 +818,7 @@ fn parse_key(c: &mut Cursor, mac: &str) -> Result<KeySpec, TokenStream> {
     // Anything immediately after the leading identifier that continues the
     // *same* type — `::` (a multi-segment path, e.g. `crate::MyKey`) or `<`
     // (generic args) — means this whole run is one existing, more complex
-    // type (the backward-compatible form): collect it verbatim.
+    // type (the two-type pairing form): collect it verbatim.
     if is_punct(c.peek_at(1), ':') || is_punct(c.peek_at(1), '<') {
         return Ok(KeySpec::Existing {
             ty: collect_until_arrow(c, mac, "a key/name type")?,
@@ -959,7 +935,7 @@ fn value_struct_codegen(shape: &StructShape, role: Role) -> String {
 /// Generates the ordinary pairing impl — `impl TypedStateKey for {key} {
 /// type Value = {value}; }` (state) or `impl TypedParamName for {key} {
 /// type Value = {value}; ..}` (parameters) — this is the form every
-/// backward-compatible/Form-2/3/4 declaration uses.
+/// Form-2/3/4 and two-type pairing declaration uses.
 ///
 /// For the parameter case, also overrides
 /// [`TypedParamName::with_name_bytes`](::hooks_lib::convert::TypedParamName::with_name_bytes)

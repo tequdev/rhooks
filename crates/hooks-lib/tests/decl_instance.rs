@@ -56,7 +56,7 @@ hook_state!(CounterKey {tag: u8} = {tag: 7} => u64);
 hook_state!(NeverCalledKey = b"NC" => u64);
 
 /// A caller-declared marker type carrying its own visibility and docs — the
-/// capability the removed `Name, b".." => Ty` comma-form used to provide.
+/// reason to declare a key type yourself rather than let the macro do it.
 pub struct OwnStateKey;
 hook_state!(existing OwnStateKey = b"OSK" => u64);
 

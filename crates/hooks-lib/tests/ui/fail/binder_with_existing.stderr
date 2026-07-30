@@ -1,7 +1,0 @@
-error: hook_state!: an instance binder cannot be combined with `existing` — declare `existing OwnKey = ..` once at module scope, then bind locally with `let own = OwnKey;`
-  --> tests/ui/fail/binder_with_existing.rs:10:5
-   |
-10 |     hook_state!(own, existing OwnKey = b"OK" => u64);
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)

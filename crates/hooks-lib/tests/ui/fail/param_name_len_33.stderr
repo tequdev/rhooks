@@ -1,5 +1,0 @@
-error[E0080]: evaluation panicked: hooks-macros: a Hook API parameter name would exceed the Hook API's 32-byte parameter-name upper bound
-  --> tests/ui/fail/param_name_len_33.rs:24:1
-   |
-24 | hook_parameter!(TooLongName => Value);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here

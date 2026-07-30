@@ -666,7 +666,7 @@ where
 ///
 /// A `state_keys!` enum implements [`StateKeyEncode`] but not
 /// [`TypedStateKey`] — pair it with a value type via
-/// [`hook_state!`](crate::hook_state)'s backward-compatible two-type form
+/// [`hook_state!`](crate::hook_state)'s two-type pairing form
 /// (both sides already declared) exactly like a `#[derive(HookKey)]`
 /// struct:
 ///
@@ -1094,7 +1094,7 @@ mod tests {
     // comments). So this pairing is exercised as a doctest instead — see
     // `state_keys!`'s doc comment's "Pairing with `hook_state!`" section,
     // which pairs a `state_keys!` enum (the same shape as `TestKey` above)
-    // with `hook_state!`'s backward-compatible two-type form and asserts
+    // with `hook_state!`'s two-type pairing form and asserts
     // the identical `NotImplemented`-on-host smoke behavior this test used
     // to check directly.
 }

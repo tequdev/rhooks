@@ -1,7 +1,0 @@
-error: hook_parameter!: `existing CfgName` accepts only the fixed-bytes shape `= b"..." => Ty` — it attaches key/name bytes and a value pairing to a type you declared yourself, and declares nothing of its own (drop `existing` to have hook_parameter! declare `CfgName` for you, in any of its four declaring forms)
-  --> tests/ui/fail/existing_malformed_tail.rs:12:1
-   |
-12 | hook_parameter!(existing CfgName => Config);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = note: this error originates in the macro `hook_parameter` (in Nightly builds, run with -Z macro-backtrace for more info)

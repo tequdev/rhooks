@@ -698,7 +698,7 @@ pub use hooks_macros::HookData;
 /// assert!(state_get_typed(&key).is_err());
 /// ```
 ///
-/// # Existing form (backward-compatible): two already-declared types
+/// # Pairing form: two already-declared types
 ///
 /// `hook_state!($Key => $Value)`, `$Key`/`$Value` both types the caller
 /// already declared (typically a `#[derive(HookKey)]`/`#[derive(HookData)]`
@@ -751,9 +751,7 @@ pub use hooks_macros::HookData;
 /// `existing` is a contextual keyword (a type of your own named `existing`
 /// still works in the two-type form), it accepts only the fixed-bytes shape
 /// above, and it is **module position only** — it emits impls for a type the
-/// module owns, so it cannot be combined with an instance binder. This form
-/// replaces the removed `hook_parameter!($Name, $bytes => $Ty)` comma-form
-/// one-for-one, and `hook_state!` gains the same capability with it.
+/// module owns, so it cannot be combined with an instance binder.
 ///
 /// One consequence of declaring the type yourself: since the generated
 /// accessors are `pub` methods on *your* type, a `pub` key type needs a
@@ -847,8 +845,8 @@ pub use hooks_macros::HookData;
 /// use hooks_lib::prelude::*;
 /// use hooks_lib::hook_state;
 ///
-/// // ERROR: an instance binder must be snake_case — `CounterKey, ..` is
-/// // read as the removed comma-form instead.
+/// // ERROR: an instance binder names a local variable, so it must be
+/// // snake_case; to declare a type, drop the comma.
 /// fn f() {
 ///     hook_state!(CounterKey, b"CTR" => u64);
 /// }
@@ -1046,25 +1044,7 @@ pub use hooks_macros::ParamName;
 /// | existing pair | two already-declared types, paired as-is | `hook_parameter!(SeatParamName => Vote);` |
 /// | binder | Form 1 or an initialized struct form, plus a local instance | `hook_parameter!(cfg, CfgName = b"CFG" => Config);` |
 ///
-/// # Removed: the `$Name, $bytes => $Ty` comma-form
-///
-/// The original comma-separated 3-argument form is **gone**. Its purpose —
-/// attaching fixed name bytes to a marker type the caller declares
-/// themselves, so it can carry its own visibility, derives and docs — is now
-/// the `existing` keyword form, which does the same job explicitly (and
-/// gives the name the generated accessors besides):
-///
-/// ```text
-/// hook_parameter!(CfgName, b"CFG" => Config);          // removed
-/// hook_parameter!(existing CfgName = b"CFG" => Config); // write this
-/// hook_parameter!(CfgName = b"CFG" => Config);          // or this, to have the macro declare `CfgName`
-/// ```
-///
-/// The comma is now the instance binder's separator, so an invocation
-/// leading with `$UpperCamelCase ,` gets a `compile_error!` naming both
-/// replacements.
-///
-/// # Form 1 and the `existing` form both keep the zero-copy fast path
+/// # Form 1 and the `existing` form both take the zero-copy fast path
 ///
 /// A **plain byte-string name** has nothing to compute: its wire encoding
 /// *is* its in-memory representation. Both Form 1 (which additionally
@@ -1174,7 +1154,7 @@ pub use hooks_macros::ParamName;
 /// assert!(hook_param_typed(&name).is_err());
 /// ```
 ///
-/// # Existing form (backward-compatible): two already-declared types
+/// # Pairing form: two already-declared types
 ///
 /// ```
 /// use hooks_lib::prelude::*;

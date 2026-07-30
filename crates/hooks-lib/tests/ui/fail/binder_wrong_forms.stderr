@@ -1,0 +1,31 @@
+error: hook_state!: give every field an initial value: `DepositKey { .. } = { field: value, .. }` — an instance binder never leaves key fields uninitialized (a half-built key would silently store under an all-zero ledger key)
+  --> tests/ui/fail/binder_wrong_forms.rs:26:5
+   |
+26 |     hook_state!(deposit, DepositKey {tag: u8, owner: [u8; 20]} => DepositValue {amount: u64});
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: hook_state!: an instance binder cannot be combined with `existing` — declare `existing OwnKey = ..` once at module scope, then bind locally with `let own = OwnKey;`
+  --> tests/ui/fail/binder_wrong_forms.rs:31:5
+   |
+31 |     hook_state!(own, existing OwnKey = b"OK" => u64);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: hook_state!: an instance binder cannot be combined with the newtype form — construct `AccountKey(..)` yourself (`let account = AccountKey(inner);`)
+  --> tests/ui/fail/binder_wrong_forms.rs:35:5
+   |
+35 |     hook_state!(account, AccountKey [u8; 20] => u64);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: hook_state!: an instance binder needs a form that declares the key/name — `PairedKey` is already declared elsewhere, so bind it with an ordinary `let paired = ..;` instead
+  --> tests/ui/fail/binder_wrong_forms.rs:39:5
+   |
+39 |     hook_state!(paired, PairedKey => PairedValue);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `hook_state` (in Nightly builds, run with -Z macro-backtrace for more info)
