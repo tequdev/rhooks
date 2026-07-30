@@ -10,6 +10,7 @@
 //   | 'seat vote: reaches threshold and actions'     | testVotableValue / seat-change voting cases    |
 //   | 'seat vote: below threshold just records'      | same, pre-threshold assertions                 |
 //   | 'reward vote: L1 table actions RR directly'    | RR/RD voting cases (genesis account only)      |
+//   | 'rejects a too-short IRR value...'             | none — pins a *deliberate* divergence, see below |
 //
 // Two deliberate scope reductions from XahauGenesis_test.cpp, both
 // documented here rather than silently skipped:
@@ -303,6 +304,55 @@ describe('govern: L1 table (real genesis account) reward-rate vote', () => {
     const hookExecutions = await ExecutionUtility.getHookExecutionsFromMeta(testContext.client, meta)
     expect(hookExecutions.executions[0].HookReturnString).toBe(
       'Governance: Reward rate change actioned!',
+    )
+  })
+})
+
+// `IMC`/`IRR`/`IRD` are read via `hook_parameter!`'s typed accessors
+// (`hook_param_typed`, routing through `hook_param_exact`/
+// `FixedRead::read_exact`), which enforce an *exact*-length read —
+// **a deliberate, documented divergence from govern.c**, not a bug: the
+// C source's own check for these three (`hook_param(...) < 0`) is
+// existence-only, so a parameter present but shorter than expected (e.g.
+// a 3-byte `IRR` instead of 8) is silently accepted by both govern.c and
+// `hook_param`'s host semantics (the unwritten remainder reads as zero,
+// via wasm's zero-initialized-locals guarantee — not a true
+// uninitialized-memory read, but the C source's own intent still reads
+// as an oversight, since `IS{seat}` — `hook_param`'s only other caller in
+// this file — already checks `!= 20`, an exact length). This suite
+// deliberately does *not* reproduce that leniency: see
+// `examples/81_govern/src/lib.rs`'s `setup`/
+// `setup_initial_reward_rate_and_delay` doc comments and the README's
+// "Parameter read semantics" section for the full argument.
+describe('govern: L1 table (real genesis account) — intentional IRR/IRD length-strictness divergence', () => {
+  let testContext: XrplIntegrationTestContext
+
+  beforeAll(async () => {
+    testContext = await setupClient(serverUrl)
+  })
+
+  afterAll(async () => {
+    await clearAllHooksV3({
+      client: testContext.client,
+      seed: testContext.master.seed,
+    } as unknown as SetHookParams)
+    await teardownClient(testContext)
+  })
+
+  it('rejects a too-short IRR value at setup instead of silently zero-padding it (govern.c would accept it)', async () => {
+    await installGovern(
+      testContext,
+      testContext.master,
+      [testContext.alice, testContext.bob, testContext.carol],
+      [
+        hookParam('IRR', '000000'), // 3 bytes, not the expected 8
+        hookParam('IRD', '0100000000000000'),
+      ],
+    )
+
+    const response = invoke(testContext, testContext.alice, testContext.master)
+    await expect(response).rejects.toThrow(
+      'Governance: Initial Reward Rate Parameter missing (IRR).',
     )
   })
 })

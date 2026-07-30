@@ -54,7 +54,7 @@
 //!   one call site, and only that one, has to avoid it.
 //!
 //! Measured (`hooks-build check examples/81_govern/out/govern.wasm`):
-//! worst-case instructions 44593, max nesting depth 22 (limit 32) — see
+//! worst-case instructions 44465, max nesting depth 22 (limit 32) — see
 //! the README's "Toolchain limitation" section for the fuller writeup,
 //! including the live `GUARD_VIOLATION` the guard-bound point above
 //! fixes.
@@ -128,6 +128,32 @@ use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, otxn_parameter
 // to both the raw baseline and govern.c.
 hook_parameter!(MemberParamName [u8; 3] => AccountId);
 
+// `IMC`/`IRR`/`IRD` — setup-only hook parameters (initial member count,
+// reward rate, reward delay). Migrated to `hook_parameter!`, **with an
+// intentional, documented behavior difference from govern.c** — see the
+// README's "Parameter read semantics" section and the doc comment on
+// `setup` (below) for the full writeup. Short version: govern.c's own
+// checks for these three are existence-only (`hook_param(...) < 0`), not
+// exact-length, so a parameter present but shorter than expected (e.g. an
+// explicit empty `IMC` value, or a 3-byte `IRR`) is accepted by govern.c —
+// with the *unwritten remainder* of its C stack-local landing as whatever
+// wasm's zero-initialized-locals guarantee leaves it (effectively "zero",
+// not truly uninitialized, since this runs in a wasm VM — but the C
+// source's own intent reads as accidental, not deliberate, given it
+// exists nowhere else in this same file: `IS{seat}` checks `!= 20`,
+// `hook_param`'s *only* other caller in this crate). `hook_param_typed`
+// (routing through `hook_param_exact`/`FixedRead::read_exact`) enforces
+// an exact-length read instead, rejecting a too-short value as
+// `HookError::TooSmall` rather than silently zero-padding it — a
+// deliberate choice to fix what reads as a latent govern.c bug rather
+// than reproduce it. `XFL` gained a `FixedRead` impl for this
+// (`crates/hooks-lib/src/convert.rs`) reusing `<[u8; 8]>::read_exact`'s
+// exact-length machinery, then decoding via the same little-endian raw
+// `i64` bit pattern `ToBytes`/`FromBytes` for `XFL` already use.
+hook_parameter!(InitialMemberCountParamName = b"IMC" => [u8; 1]);
+hook_parameter!(InitialRewardRateParamName = b"IRR" => XFL);
+hook_parameter!(InitialRewardDelayParamName = b"IRD" => XFL);
+
 // `T`/`L` — the topic-selector/layer-selector `Invoke` parameters `my_hook`
 // reads per vote (see below). Migrated to `otxn_parameter!` after
 // confirming, by reading xahaud's own host implementation
@@ -144,13 +170,12 @@ hook_parameter!(MemberParamName [u8; 3] => AccountId);
 // `otxn_param(&l, 1, "L", 1)` against `!= 1`) are therefore already exact-
 // length checks, identical in effect to what `FixedRead::read_exact`/
 // `otxn_param_exact`/`otxn_param_typed` enforce — this migration changes
-// nothing observable. (Contrast `IMC`/`IRR`/`IRD` below, read via
-// `hook_param`, whose govern.c checks are existence-only (`< 0`), *not*
-// exact-length — see the comment at that read site for why those are not
-// migrated.) `[u8; N]` already implements `FixedRead`/`ToBytes` via this
-// crate's blanket array impl (a bare `u8` does not itself implement
-// `FixedRead`, so `L`'s one-byte value is declared as `[u8; 1]`, not
-// `u8`), so Form 1 needs no new value struct for either.
+// nothing observable, unlike `IMC`/`IRR`/`IRD` above (whose migration is
+// an *intentional* behavior change, not a no-op one). `[u8; N]` already
+// implements `FixedRead`/`ToBytes` via this crate's blanket array impl (a
+// bare `u8` does not itself implement `FixedRead`, so `L`'s one-byte
+// value is declared as `[u8; 1]`, not `u8`), so Form 1 needs no new value
+// struct for either.
 otxn_parameter!(TopicParamName = b"T" => [u8; 2]);
 otxn_parameter!(LayerParamName = b"L" => [u8; 1]);
 
@@ -459,27 +484,71 @@ fn my_hook() -> i64 {
     }
 }
 
+/// Reads `IRR`/`IRD` (L1-table-only setup) and writes `"RR"`/`"RD"` state.
+/// Split out of `setup` into its own `#[inline(never)]` function — purely
+/// a structural measure (see `setup`'s doc comment on `IMC`/`IRR`/`IRD`'s
+/// typed migration): measured directly, keeping this logic inline inside
+/// `setup` pushed `setup`'s own compiled nesting depth to 56 (over the
+/// 32-level limit) once `IRR`/`IRD` were both read via `hook_param_typed`,
+/// even though the equivalent raw-`hook_param` code never came close to
+/// that depth — `hooks-build`'s unnest pass operates on the compiled
+/// wasm's actual block shape, not a semantics-preserving view of the
+/// source (the same lesson from `crates/hooks-lib`'s own `state_raw_code`
+/// doc comment), so two logically-equivalent call-graph shapes aren't
+/// guaranteed to compile to the same nesting. Isolating this block behind
+/// its own function boundary restores nesting to 22 (unchanged from
+/// before this migration) — see `setup`'s own measurements.
+#[inline(never)]
+fn setup_initial_reward_rate_and_delay() {
+    let irr: XFL = match hook_param_typed(&InitialRewardRateParamName) {
+        Ok(v) => v,
+        Err(_) => GovernError::BadParameter
+            .nope(b"Governance: Initial Reward Rate Parameter missing (IRR)."),
+    };
+    let ird: XFL = match hook_param_typed(&InitialRewardDelayParamName) {
+        Ok(v) => v,
+        Err(_) => GovernError::BadParameter
+            .nope(b"Governance: Initial Reward Delay Parameter miss (IRD)."),
+    };
+    if ird.raw_bits() == 0 {
+        GovernError::BadParameter.nope(b"Governance: Initial Reward Delay must be > 0.");
+    }
+    if state_set(&irr.raw_bits().to_le_bytes(), &keys::REWARD_RATE).is_err() {
+        GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
+    }
+    if state_set(&ird.raw_bits().to_le_bytes(), &keys::REWARD_DELAY).is_err() {
+        GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
+    }
+}
+
 /// First-ever `Invoke` on this table: reads `IMC` (+`IRR`/`IRD` on L1)
 /// and `IS0..IS{imc-1}` hook parameters and populates the initial seat
 /// table. Diverges (`accept!`/`rollback!`) — govern.c's setup path never
 /// falls through to normal voting.
 ///
-/// `IMC`/`IRR`/`IRD` are deliberately read via raw `hook_param` +
-/// `.is_err()`, not a `hook_parameter!` typed declaration (unlike
-/// `IS{seat}` just above, or `T`/`L` in `my_hook`) — see the "Parameter
-/// read semantics" table in the README, or, in short: govern.c's own
-/// checks for these three are existence-only (`< 0`), not the exact-
-/// length check it uses for `IS{seat}`/`T`/`L`, and `hook_param`'s host
-/// semantics silently accept a too-short (including empty) actual value
-/// rather than erroring — a real edge case a typed declaration's
-/// `read_exact`-backed exact-length check would reject differently.
+/// `IMC`/`IRR`/`IRD` read via `hook_parameter!`'s typed accessors
+/// (`InitialMemberCountParamName`/`InitialRewardRateParamName`/
+/// `InitialRewardDelayParamName`, declared above `GENESIS_ACCOUNT`) —
+/// **an intentional, documented behavior difference from govern.c**, not
+/// a byte-for-byte-equivalent port: govern.c checks these three for
+/// existence only (`hook_param(...) < 0`), so a parameter present but
+/// shorter than its expected length (e.g. an explicit empty `IMC` value)
+/// is silently accepted with its unwritten remainder reading as zero.
+/// `hook_param_typed` enforces an exact-length read instead
+/// (`HookError::TooSmall` on anything shorter), which is judged the
+/// better behavior to ship — not the C source's own inconsistency
+/// reproduced (`IS{seat}`, `hook_param`'s only *other* caller in this
+/// crate, already checks `!= 20`, an exact length) — see the README's
+/// "Parameter read semantics" section for the full argument and the
+/// e2e regression test (`govern.test.ts`, "rejects a too-short IRR
+/// value...") pinning this specific, deliberate divergence down.
 #[inline(never)]
 fn setup(is_l1_table: bool) -> ! {
-    let mut imc = [0u8; 1];
-    if hook_param(&mut imc, b"IMC").is_err() {
-        GovernError::BadParameter
-            .nope(b"Governance: Initial Member Count Parameter missing (IMC).");
-    }
+    let imc: [u8; 1] = match hook_param_typed(&InitialMemberCountParamName) {
+        Ok(v) => v,
+        Err(_) => GovernError::BadParameter
+            .nope(b"Governance: Initial Member Count Parameter missing (IMC)."),
+    };
     if state_set(&imc, &keys::MEMBER_COUNT).is_err() {
         GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
     }
@@ -493,25 +562,7 @@ fn setup(is_l1_table: bool) -> ! {
     }
 
     if is_l1_table {
-        let mut irr = [0u8; 8];
-        if hook_param(&mut irr, b"IRR").is_err() {
-            GovernError::BadParameter
-                .nope(b"Governance: Initial Reward Rate Parameter missing (IRR).");
-        }
-        let mut ird = [0u8; 8];
-        if hook_param(&mut ird, b"IRD").is_err() {
-            GovernError::BadParameter
-                .nope(b"Governance: Initial Reward Delay Parameter miss (IRD).");
-        }
-        if ird == [0u8; 8] {
-            GovernError::BadParameter.nope(b"Governance: Initial Reward Delay must be > 0.");
-        }
-        if state_set(&irr, &keys::REWARD_RATE).is_err() {
-            GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
-        }
-        if state_set(&ird, &keys::REWARD_DELAY).is_err() {
-            GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
-        }
+        setup_initial_reward_rate_and_delay();
     }
 
     let mut i = 0u8;

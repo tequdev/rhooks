@@ -210,6 +210,22 @@ impl FromBytes for crate::xfl::XFL {
     }
 }
 
+/// Reuses `<[u8; 8] as FixedRead>::read_exact`'s exact-length machinery,
+/// then decodes the 8 bytes as the same little-endian raw `i64` bit
+/// pattern [`ToBytes`]/[`FromBytes`] above already use — so an `XFL`
+/// parameter (e.g. `examples/81_govern`'s `IRR`/`IRD`) reads exactly the
+/// bytes a raw `hook_param_exact::<[u8; 8]>` + `i64::from_le_bytes` +
+/// `XFL::from_raw_bits` call chain would, with the identical "must be
+/// exactly 8 bytes or `TooSmall`" contract.
+impl FixedRead for crate::xfl::XFL {
+    #[inline(always)]
+    fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+        <[u8; 8]>::read_exact(read)
+            .map(i64::from_le_bytes)
+            .map(crate::xfl::XFL::from_raw_bits)
+    }
+}
+
 impl<const N: usize> ToBytes for [u8; N] {
     const MAX_LEN: usize = N;
 
@@ -589,5 +605,30 @@ mod tests {
             assert_eq!(buf.len(), 7);
             Ok(buf.len())
         });
+    }
+
+    #[test]
+    fn xfl_fixed_read_succeeds_on_exact_write() {
+        use crate::xfl::XFL;
+        let bits = 0x1234_5678_9ABC_DEF0i64;
+        let result: Result<XFL> = XFL::read_exact(|buf| {
+            buf.copy_from_slice(&bits.to_le_bytes());
+            Ok(8)
+        });
+        assert_eq!(result.map(XFL::raw_bits), Ok(bits));
+    }
+
+    #[test]
+    fn xfl_fixed_read_rejects_short_write() {
+        use crate::xfl::XFL;
+        let result: Result<XFL> = XFL::read_exact(|_buf| Ok(7));
+        assert_eq!(result, Err(HookError::TooSmall));
+    }
+
+    #[test]
+    fn xfl_fixed_read_propagates_read_error() {
+        use crate::xfl::XFL;
+        let result: Result<XFL> = XFL::read_exact(|_buf| Err(HookError::InternalError));
+        assert_eq!(result, Err(HookError::InternalError));
     }
 }
