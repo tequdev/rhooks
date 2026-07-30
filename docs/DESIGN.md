@@ -722,6 +722,46 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
   cannot do (there is no way to inspect an identifier's own spelling from
   inside a `macro_rules!` matcher).
 
+**Every composite name/key this grammar declares gets an exact-size
+encode buffer, not a generic worst-case-sized one.** `TypedParamName`'s
+one abstract method, `with_name_bytes<R>(&self, f: impl FnOnce(&[u8]) ->
+R) -> R`, hands the caller a closure instead of writing into (or
+returning a reference into) a caller-owned buffer — deliberately, so each
+concrete name type controls *where* its encoded bytes live: a `'static`
+literal for the zero-copy plain-byte-string forms (unchanged from
+before), or, for every composite form (2/3/4/existing-type),
+`hook_parameter!`/`otxn_parameter!`'s generated `impl` allocates a stack
+buffer sized to exactly that name's own `ToBytes::MAX_LEN` — not the full
+32-byte `PARAM_NAME_MAX_LEN` the trait's *generic* default body must fall
+back to (generic code can't spell `[0u8; Self::MAX_LEN]` on stable Rust;
+only a concrete, non-generic `impl` block can, the same restriction
+`FixedRead::read_exact`'s doc comment documents for the read side). This
+mattered in practice, not just in principle: before this fix, a
+composite/runtime-varying parameter name (`examples/81_govern`'s
+`IS{seat}`, one `hook_parameter!` Form-4 newtype indexed by a loop
+variable) cost **+607** worst-case instructions over the raw,
+un-abstracted `hook_param_exact` call it replaced — a 32-byte
+zero-initialized scratch buffer, allocated fresh per call, charged once
+per iteration of a `guard!`-bounded loop, dominated the delta far more
+than the 3 bytes actually being encoded. After this fix, the identical
+declaration costs **0** worst-case instructions over the raw baseline —
+see `examples/81_govern/src/lib.rs`'s `IS{seat}` doc comment for the full
+before/after (including a hand-rolled per-hook lookup-table workaround
+that was tried and discarded in favor of this general fix, since a
+one-off workaround doesn't help the *next* hook with a composite name).
+`examples/12_typed-data`'s composite `AdminName` parameter improved too
+(485 → 470 worst-case instructions), confirming the fix isn't
+`81_govern`-specific.
+`StateKeyEncode`/`EncodedStateKey` were checked for the
+identical asymmetry and found not to have it: a hook-state key's raw
+`[u8; N]` baseline *already* goes through `EncodedStateKey`'s own
+always-32-byte buffer (the Hook API left-pads a short key host-side, so
+every key — raw or composite — is carried in a fixed 32-byte struct
+field either way), so there is no zero-copy baseline being lost the way
+`hook_param_exact`'s direct pointer-passthrough was for names; measured,
+composite state keys (`examples/02_state-counter`'s `hook_state!` Form 2)
+show no cost change from this fix, consistent with that analysis.
+
 ### 5.5 Emitted-transaction templates: `txn_template!` (user-defined layouts)
 
 Modeled on xahaud's C "Tx Builder" split, where the template bytes and

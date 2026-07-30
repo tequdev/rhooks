@@ -13,9 +13,9 @@ table voting on an L1 topic, forwarded to L1 as an `Invoke`.
 Build: `hooks-build build --manifest-path examples/81_govern/Cargo.toml`
 (also wired into `mise run build-examples`).
 
-- Worst-case instructions: **44436** (`hook`), 0 (`cbak` — none declared)
+- Worst-case instructions: **44560** (`hook`), 0 (`cbak` — none declared)
 - Max block/loop/if nesting: **22** (limit: 32)
-- Binary size: **14426 bytes**
+- Binary size: **14373 bytes**
 
 ## Files
 

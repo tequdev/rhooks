@@ -909,12 +909,22 @@ pub use hooks_macros::ParamName;
 /// *is* its in-memory representation. Both Form 1 (which additionally
 /// declares `$Name` as a new unit struct) and the pre-existing legacy form
 /// (`$Name` declared separately by the caller) override
-/// [`convert::TypedParamName::name_bytes`] to return the literal directly —
-/// a `'static` reference, no copy, no buffer, nothing to encode — at the
-/// exact same cost as the loose [`api::hook_ctx::hook_param_exact`] this
-/// replaces (see [`convert::TypedParamName`]'s doc comment, "Zero-cost for
-/// the plain-byte-string case," and `examples/12_typed-data`'s README,
+/// [`convert::TypedParamName::with_name_bytes`] to hand the literal
+/// straight to the closure — no copy, no buffer, nothing to encode — at
+/// the exact same cost as the loose [`api::hook_ctx::hook_param_exact`]
+/// this replaces (see [`convert::TypedParamName`]'s doc comment, "Zero-cost
+/// for the plain-byte-string case," and `examples/12_typed-data`'s README,
 /// which measures this directly).
+///
+/// # Every composite form gets a right-sized buffer too
+///
+/// Forms 2–4 and the existing-type form can't skip encoding (a composite
+/// name genuinely has more than one field to lay out), but each still
+/// overrides `with_name_bytes` to encode into a buffer sized to exactly
+/// that name's own [`convert::ToBytes::MAX_LEN`] — not the full 32-byte
+/// [`convert::PARAM_NAME_MAX_LEN`] scratch the trait's generic default
+/// falls back to — see [`convert::TypedParamName`]'s doc comment,
+/// "Near-zero-cost for the composite case too."
 ///
 /// ```
 /// use hooks_lib::prelude::*;

@@ -54,7 +54,7 @@
 //!   one call site, and only that one, has to avoid it.
 //!
 //! Measured (`hooks-build check examples/81_govern/out/govern.wasm`):
-//! worst-case instructions 44436, max nesting depth 22 (limit 32) — see
+//! worst-case instructions 44560, max nesting depth 22 (limit 32) — see
 //! the README's "Toolchain limitation" section for the fuller writeup,
 //! including the live `GUARD_VIOLATION` the guard-bound point above
 //! fixes.
@@ -68,120 +68,65 @@ mod txn;
 
 use hooks_lib::prelude::*;
 use hooks_lib::static_cell::HookStatic;
-use hooks_lib::{accept, guard, hook, hook_errors, rollback};
+use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, rollback};
 
 // `IS{seat}` — the initial-member-account hook parameter name `setup`
 // reads per seat (`this_seat` runtime-varying, 0..SEAT_COUNT — see `setup`
-// below).
+// below). `hook_parameter!`'s Form 4 (a newtype wrapping `[u8; 3]`, the
+// same shape the raw array literal `setup` used to build inline already
+// was) ties the name to exactly one value type (`AccountId`) at the type
+// level, byte-for-byte identical to the raw `hook_param_exact(&member_pkey)`
+// call it replaces.
 //
-// A first attempt at typing this name used `hook_parameter!`'s Form 4 (a
-// newtype wrapping `[u8; 3]`, the same shape the raw array literal already
-// was): `hook_parameter!(MemberParamName [u8; 3] => AccountId);`, storing
-// the full 3-byte name and relying on `TypedParamName::name_bytes`'s
-// *default* body. That body is generic over any `ToBytes` name — it must
-// call `self.write(buf)` (a real per-call encode into a 32-byte stack
-// scratch buffer: a runtime-bounds-checked `buf.get_mut(..3)` slice, a
-// 3-byte `copy_from_slice`, then a second `buf.get(..3)` to hand the
-// written prefix back out) — where the raw `hook_param_exact(&member_pkey)`
-// this replaced just passed `member_pkey`'s own `&[u8; 3]` straight
-// through as a pointer+length, no copy, no bounds check, no buffer at
-// all. Measured: +607 worst-case instructions (44560 -> 45167) for that
-// copy-through-a-buffer indirection, paid once per seat in the setup
-// loop's worst case (`guard!(SEAT_COUNT)`, i.e. `hooks-build`'s
-// worst-case-instruction accounting charges the loop body's cost
-// `SEAT_COUNT` times over) — nesting depth was unaffected (22, unchanged;
-// `hook_param_typed`/`hook_param_exact` never match a specific `HookError`
-// variant, so none of Task A's fix was relevant here). Reverted (the raw
-// baseline, before either attempt: 44560 worst-case instructions, 14418
-// bytes, nesting 22).
+// This migration went through two other shapes before landing here, kept
+// in git history for the record:
 //
-// The actual fix needed a *zero-copy* `name_bytes` — the same "return a
-// `'static` slice directly, no buffer, nothing to encode" shape
-// `hook_parameter!`'s plain-byte-string forms already get (see
-// `hooks_lib::convert::TypedParamName`'s "Zero-cost" doc section) — but
-// for a name that is one of several fixed byte strings, runtime-selected,
-// not a single fixed one. Since there are only `SEAT_COUNT` (20) possible
-// names, `SEAT_PARAM_NAMES` below is a `const`-evaluated lookup table of
-// all 20 (`[b'I', b'S', 0]` .. `[b'I', b'S', 19]`, precisely the bytes
-// `setup` used to build inline), and `MemberParamName` is redefined here
-// (hand-written, not through `hook_parameter!` — no grammar form
-// generates this shape) to wrap just the seat number and override
-// `name_bytes` to index straight into the table, handing back a
-// `'static` reference with no buffer and no copy — via `.get(..)`, not a
-// literal/computed index (`SEAT_PARAM_NAMES[..]`), so no
-// `clippy::indexing_slicing`/`arithmetic_side_effects` allow is needed:
-// `self.0` is already always `< SEAT_COUNT` by construction (see `setup`'s
-// loop bound), so `FALLBACK_NAME` is never actually reached, but its
-// presence lets the lookup stay a safe, panic-free `Option` chain rather
-// than an indexing expression clippy can't itself prove in-bounds.
-// Measured: worst-case instructions 44436 — 124 *below* the pre-migration
-// raw baseline (44560): the LUT lookup (an `Option`-returning `.get(..)`
-// against a fixed, already-laid-out 60-byte const table) turned out
-// slightly cheaper than the raw path's per-iteration `[b'I', b'S',
-// this_seat]` array-literal construction, since there is no longer
-// anything to *build* per seat, only to index. Nesting depth unchanged
-// (22); size 14426 bytes (14418 raw baseline + 8, the const table minus
-// what the no-longer-built stack array cost). Byte-for-byte identical
-// parameter names to both the raw baseline and govern.c.
-#[allow(clippy::indexing_slicing)] // `i < names.len()` is the loop condition itself: every index here is proven in-bounds by construction; `slice::get_mut` isn't usable in a `const fn` at this crate's MSRV.
-const fn build_seat_param_names() -> [[u8; 3]; SEAT_COUNT as usize] {
-    let mut names = [[0u8; 3]; SEAT_COUNT as usize];
-    let mut i = 0usize;
-    while i < names.len() {
-        names[i] = [b'I', b'S', i as u8];
-        i = i.wrapping_add(1);
-    }
-    names
-}
-const SEAT_PARAM_NAMES: [[u8; 3]; SEAT_COUNT as usize] = build_seat_param_names();
-/// Never actually returned — every `self.0` this crate constructs is
-/// already `< SEAT_COUNT` (see `setup`'s loop bound) — but gives
-/// [`SEAT_PARAM_NAMES`]'s `.get(..).unwrap_or(..)` lookups below a
-/// `'static` fallback so they stay a safe `Option` chain instead of a
-/// literal/computed index.
-const FALLBACK_NAME: [u8; 3] = [0, 0, 0];
-
-/// Wraps a seat number (`0..SEAT_COUNT`), not the 3-byte name itself — see
-/// the doc comment above for why. `ToBytes` is still required
-/// ([`TypedParamName`]'s supertrait bound), and kept behaviorally
-/// consistent with the [`TypedParamName::name_bytes`] override below (same
-/// [`SEAT_PARAM_NAMES`] lookup), even though `hook_param_typed` never
-/// calls it — `name_bytes` is the only path actually exercised.
-struct MemberParamName(u8);
-
-#[automatically_derived]
-impl ::hooks_lib::convert::ToBytes for MemberParamName {
-    const MAX_LEN: usize = 3;
-
-    #[inline(always)]
-    fn write(&self, buf: &mut [u8]) -> usize {
-        match buf.get_mut(..3) {
-            Some(dst) => {
-                let name = SEAT_PARAM_NAMES
-                    .get(usize::from(self.0))
-                    .unwrap_or(&FALLBACK_NAME);
-                dst.copy_from_slice(name);
-                3
-            }
-            None => 0,
-        }
-    }
-}
-
-#[automatically_derived]
-impl ::hooks_lib::convert::TypedParamName for MemberParamName {
-    type Value = AccountId;
-
-    #[inline(always)]
-    fn name_bytes<'buf>(
-        &self,
-        _buf: &'buf mut [u8; ::hooks_lib::convert::PARAM_NAME_MAX_LEN],
-    ) -> &'buf [u8] {
-        SEAT_PARAM_NAMES
-            .get(usize::from(self.0))
-            .unwrap_or(&FALLBACK_NAME)
-    }
-}
+// - First, plain `hook_parameter!(MemberParamName [u8; 3] => AccountId)`
+//   relied on `TypedParamName::with_name_bytes`'s *generic* default body
+//   (as it existed at the time), which had to encode into a full 32-byte
+//   stack scratch buffer — zero-initialized fresh per call, then a
+//   bounds-checked 3-byte copy into it, then a second bounds-checked slice
+//   back out — because generic code can't use `Self::MAX_LEN` (3, here) as
+//   an array length on stable Rust. Measured: +607 worst-case instructions
+//   (44560 -> 45167), paid once per seat in `setup`'s `guard!(SEAT_COUNT)`
+//   loop (`hooks-build`'s worst-case accounting charges the loop body's
+//   cost `SEAT_COUNT` times over, so even a small per-call delta compounds
+//   fast). Reverted.
+// - Second, a hand-written per-hook workaround: a `const`-evaluated lookup
+//   table of all 20 possible `"IS{seat}"` names plus a hand-rolled
+//   `MemberParamName`/`with_name_bytes` override indexing straight into
+//   it (bypassing `hook_parameter!` entirely). Measured: 44436 worst-case
+//   instructions — better than the raw baseline, but judged not to be the
+//   real fix: every future hook with a composite/runtime-varying name or
+//   key would need to hand-roll the same workaround itself.
+//
+// The actual fix was at the source: `TypedParamName::with_name_bytes`
+// itself was redesigned to take a closure (`fn with_name_bytes<R>(&self, f:
+// impl FnOnce(&[u8]) -> R) -> R`) instead of writing into a caller-owned
+// `&mut [u8; PARAM_NAME_MAX_LEN]`, so each concrete implementation decides
+// where its encoded bytes live. `hook_parameter!`/`otxn_parameter!` now
+// generate a `with_name_bytes` override for *every* form they declare —
+// Form 1/legacy hand the closure the `'static` literal directly (as
+// before); every composite form (2/3/4/existing-type, `MemberParamName`
+// here included) allocates a buffer sized to exactly that name's own
+// `ToBytes::MAX_LEN` (3 bytes, not 32) — legal because that allocation now
+// happens inside the derive-generated `impl` block, a concrete,
+// non-generic context where `Self::MAX_LEN` is an ordinary compile-time
+// constant, not a generic type parameter's associated const (the same
+// distinction `FixedRead::read_exact`'s doc comment explains). See
+// `hooks_lib::convert::TypedParamName`'s doc comment ("Near-zero-cost for
+// the composite case too") for the general mechanism. No hook-specific
+// code needed here anymore — this is the plain declaration.
+//
+// Measured with this fix, plain declaration, no workaround: worst-case
+// instructions 44560 — an exact match for the raw `hook_param_exact(&
+// member_pkey)` baseline (down from the +607 the generic-default path
+// cost, and better than the +/-124-ish the hand-rolled LUT workaround
+// managed). Nesting depth unchanged (22). Size 14373 bytes — also an
+// exact match for the true raw baseline (this hook's size before `IS
+// {seat}` was ever typed at all). Byte-for-byte identical parameter names
+// to both the raw baseline and govern.c.
+hook_parameter!(MemberParamName [u8; 3] => AccountId);
 
 /// `genesis[20]` in govern.c: the network genesis account (see
 /// `examples/80_reward/src/mint_txn.rs::GENESIS_ACCOUNT`'s doc comment
@@ -538,7 +483,7 @@ fn setup(is_l1_table: bool) -> ! {
         guard!(u32::from(SEAT_COUNT));
         let this_seat = i;
         i = i.wrapping_add(1);
-        let member_pkey = MemberParamName(this_seat);
+        let member_pkey = MemberParamName([b'I', b'S', this_seat]);
         let member_acc: AccountId = match hook_param_typed(&member_pkey) {
             Ok(a) => a,
             Err(_) => GovernError::BadParameter

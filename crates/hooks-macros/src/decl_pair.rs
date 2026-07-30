@@ -548,11 +548,26 @@ fn value_struct_codegen(shape: &StructShape, role: Role) -> String {
 
 /// Generates the ordinary pairing impl — `impl TypedStateKey for {key} {
 /// type Value = {value}; }` (state) or `impl TypedParamName for {key} {
-/// type Value = {value}; }` (parameters), relying on
-/// [`TypedParamName::name_bytes`]'s default body for the parameter case.
-/// Identical to what this crate's *previous* `macro_rules!` two-type form
-/// generated — this is the form every backward-compatible/Form-2/3/4
-/// declaration uses.
+/// type Value = {value}; ..}` (parameters) — this is the form every
+/// backward-compatible/Form-2/3/4 declaration uses.
+///
+/// For the parameter case, also overrides
+/// [`TypedParamName::with_name_bytes`](::hooks_lib::convert::TypedParamName::with_name_bytes):
+/// rather than relying on the trait's generic default (which must use a
+/// full [`PARAM_NAME_MAX_LEN`](::hooks_lib::convert::PARAM_NAME_MAX_LEN)
+/// (32) byte scratch buffer, zero-initialized fresh per call, since
+/// generic code can't use an associated const as an array length — see
+/// [`TypedParamName::with_name_bytes`](::hooks_lib::convert::TypedParamName::with_name_bytes)'s
+/// doc comment), this override allocates exactly `<{key} as ToBytes>::
+/// MAX_LEN` bytes: a compile-time literal *at this concrete, non-generic
+/// `impl` block's own definition site* (no `generic_const_exprs` needed —
+/// `{key}` is a concrete type here, not a generic parameter), so every
+/// composite name this macro declares gets a right-sized buffer with no
+/// oversized zero-init and no bounds-checked slicing down to a shorter
+/// written prefix afterward. This is what fixed `examples/81_govern`'s
+/// `IS{seat}` parameter's +607-worst-case-instruction regression at the
+/// source, rather than needing a hand-written per-hook workaround — see
+/// that example's `src/lib.rs` doc comment for the measured before/after.
 fn pairing_impl(key: &str, value: &str, role: Role) -> String {
     match role {
         Role::State => format!(
@@ -568,6 +583,13 @@ impl ::hooks_lib::state::TypedStateKey for {key} {{
 #[automatically_derived]
 impl ::hooks_lib::convert::TypedParamName for {key} {{
     type Value = {value};
+
+    #[inline(always)]
+    fn with_name_bytes<__R>(&self, f: impl ::core::ops::FnOnce(&[u8]) -> __R) -> __R {{
+        let mut __buf = [0u8; <{key} as ::hooks_lib::convert::ToBytes>::MAX_LEN];
+        let _ = ::hooks_lib::convert::ToBytes::write(self, &mut __buf);
+        f(&__buf)
+    }}
 }}
 "
         ),
@@ -599,9 +621,9 @@ impl ::hooks_lib::convert::ToBytes for {name} {{
 
 /// Generates the parameter-role pairing for a fixed-byte-string name (Form
 /// 1 or the legacy comma-form): overrides
-/// [`TypedParamName::name_bytes`](::hooks_lib::convert::TypedParamName::name_bytes)
-/// to hand back `$bytes` directly — a `'static` reference, no copy, no
-/// per-call encode — the zero-copy fast path
+/// [`TypedParamName::with_name_bytes`](::hooks_lib::convert::TypedParamName::with_name_bytes)
+/// to hand `f` `$bytes` directly — a `'static` reference, no copy, no
+/// buffer, no per-call encode — the zero-copy fast path
 /// `hooks_lib::convert::TypedParamName`'s doc comment describes, preserved
 /// unchanged from this crate's previous `macro_rules!` 3-argument form.
 fn fixed_bytes_param_pairing(name: &str, bytes: &str, value: &str) -> String {
@@ -612,11 +634,8 @@ impl ::hooks_lib::convert::TypedParamName for {name} {{
     type Value = {value};
 
     #[inline(always)]
-    fn name_bytes<'buf>(
-        &self,
-        _buf: &'buf mut [u8; ::hooks_lib::convert::PARAM_NAME_MAX_LEN],
-    ) -> &'buf [u8] {{
-        {bytes}
+    fn with_name_bytes<__R>(&self, f: impl ::core::ops::FnOnce(&[u8]) -> __R) -> __R {{
+        f({bytes})
     }}
 }}
 "
