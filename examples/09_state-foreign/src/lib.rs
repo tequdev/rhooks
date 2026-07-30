@@ -15,7 +15,7 @@ use hooks_lib::{accept, hook, hook_errors, hook_parameter, pad, rollback};
 // — `hook_param_exact(ACCT_PARAM)` this replaces was already an exact-
 // length read, so this changes nothing observable (same argument as
 // `examples/05_firewall`'s `BlockedParamName`).
-hook_parameter!(AcctParamName = b"ACCT" => AccountId);
+hook_parameter!(AcctParam, AcctParamName = b"ACCT" => AccountId);
 
 /// The state key this hook looks for on the foreign account: the name
 /// `b"enabled"`, zero-padded at compile time to the full 32-byte state-key
@@ -84,7 +84,7 @@ hook_errors! {
 ///   different 32-byte state slot than this crate's README documents.
 #[hook]
 fn my_hook() -> i64 {
-    let target: AccountId = match hook_param_typed(&AcctParamName) {
+    let target: AccountId = match AcctParam.get_value() {
         Ok(t) => t,
         Err(_) => rollback!(
             b"state-foreign: ACCT parameter not configured",

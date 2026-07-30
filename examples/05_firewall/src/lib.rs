@@ -24,7 +24,7 @@ use hooks_lib::{accept, hook, hook_errors, hook_parameter, rollback};
 // the general argument), so this migration changes nothing observable:
 // missing, too-short, or too-long all still fall through to `accept!()`
 // exactly as before.
-hook_parameter!(BlockedParamName = b"BL" => AccountId);
+hook_parameter!(BlockedParam, BlockedParamName = b"BL" => AccountId);
 
 hook_errors! {
     /// `firewall` rollback codes.
@@ -51,7 +51,7 @@ fn my_hook() -> i64 {
     }
 
     // No (valid) blacklist parameter configured: nothing to block.
-    let blocked: AccountId = match hook_param_typed(&BlockedParamName) {
+    let blocked: AccountId = match BlockedParam.get_value() {
         Ok(v) => v,
         Err(_) => accept!(),
     };

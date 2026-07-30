@@ -1,9 +1,9 @@
-//! A type name this macro itself declares must be UpperCamelCase — the
-//! check that predates the instance binder, and that a lowercase leading
-//! identifier still reaches when no comma follows it.
+//! A key type this macro itself declares must be UpperCamelCase. The
+//! entity name is checked by the same rule (see `entity_names.rs`); this
+//! pins the key side, which is reached only after the entity parses.
 
 use hooks_lib::hook_state;
 
-hook_state!(my_key = b"MK" => u64);
+hook_state!(MyState, my_key = b"MK" => u64);
 
 fn main() {}

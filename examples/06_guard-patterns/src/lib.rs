@@ -16,7 +16,7 @@ use hooks_lib::{accept, guard, guard_m, hook, hook_errors, hook_parameter, rollb
 // `BlockedParamName` doc comment for the general argument for why this
 // migration from the raw `hook_param_exact(BL_PARAM)` this used to call
 // changes nothing observable).
-hook_parameter!(BlockedParamName = b"BL" => AccountId);
+hook_parameter!(BlockedParam, BlockedParamName = b"BL" => AccountId);
 
 hook_errors! {
     /// `guard-patterns` rollback codes.
@@ -101,7 +101,7 @@ fn my_hook() -> i64 {
     };
 
     // No (valid) blacklist parameter configured: nothing to block.
-    let Ok(blocked) = hook_param_typed(&BlockedParamName) else {
+    let Ok(blocked) = BlockedParam.get_value() else {
         accept!();
     };
 

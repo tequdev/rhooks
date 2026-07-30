@@ -53,31 +53,37 @@ deadline ledger sequence, and a flags byte. One `hook_state!` declaration
 **inline** value definition) covers both:
 
 ```rust
-hook_state!(DepositKey {tag: u8, owner: AccountId} => DepositValue {amount: u64, deadline: u32, flags: u8});
+hook_state!(DepositState, DepositKey {tag: u8, owner: AccountId} => DepositValue {amount: u64, deadline: u32, flags: u8});
 ```
 
-— equivalent to separately declaring `#[derive(HookKey)] struct
+`DepositState` is the **entity** — the thing this hook operates on, and what
+carries the accessors. `DepositKey` is the key component that addresses it,
+declared alongside so the identifier has a name of its own. The declaration
+is equivalent to separately declaring `#[derive(HookKey)] struct
 DepositKey { tag: u8, owner: AccountId }`, `#[derive(HookData)] struct
 DepositValue { amount: u64, deadline: u32, flags: u8 }`, and
-`hook_state!(DepositKey => DepositValue)` to pair them (see
-`hooks_lib::hook_state!`'s doc comment for that longhand two-type pairing
-form) — and used directly — no manual byte packing anywhere in
+`hook_state!(DepositState, DepositKey => DepositValue)` to pair them (see
+`hooks_lib::hook_state!`'s doc comment for that longhand pairing form) — and used directly — no manual byte packing anywhere in
 `src/lib.rs`:
 
 ```rust
-let key = DepositKey { tag: DEPOSIT_TAG, owner };
-let current = key.get_state()?.unwrap_or(EMPTY_DEPOSIT);
+let deposit = DepositState { tag: DEPOSIT_TAG, owner };
+let current = deposit.get_state()?.unwrap_or(EMPTY_DEPOSIT);
 // ...
-key.set_state(&next)?;
+deposit.set_state(&next)?;
 ```
 
-`get_state`/`set_state`/`delete_state` (and `update_state`, unused here)
-are inherent methods `hook_state!` puts on the key type of every form that
-declares one, each an `#[inline(always)]` forward to
-`state_get_typed(&key)`/`state_set_typed(&key, &value)` — the same code,
-written in the order it reads best. The parameter side has the same shape:
-`CfgName.get_value()` for `hook_param_typed(&CfgName)`, and
-`ins.get_value()` for `otxn_param_typed(&InsName)`.
+`get_state`/`set_state`/`delete_state` (and `update_state`, unused here) are
+inherent methods `hook_state!` puts on the **entity** of every form, each an
+`#[inline(always)]` forward to
+`state_get_typed(&deposit)`/`state_set_typed(&deposit, &value)` — the same
+code, written in the order it reads best. The parameter side has the same
+shape: `Cfg.get_value()` for `hook_param_typed(&CfgName)`, and
+`Ins.get_value()` for `otxn_param_typed(&InsName)`.
+
+The key type gets none of them: it is a trait carrier, still perfectly
+usable with the free functions (`state_get_typed(&DepositKey { .. })`) when
+the component rather than the entity is what you have.
 
 ## Pairing a key with its value type (and a param name with its value type)
 
@@ -98,45 +104,28 @@ inferred return type:
 ```rust
 // Ties DepositKey to exactly one value type (Form 3, shown above already
 // declares this pairing — repeated here only to name it explicitly).
-hook_state!(DepositKey {tag: u8, owner: AccountId} => DepositValue {amount: u64, deadline: u32, flags: u8});
+hook_state!(DepositState, DepositKey {tag: u8, owner: AccountId} => DepositValue {amount: u64, deadline: u32, flags: u8});
 
 // Ties CfgName/InsName to exactly one parameter value type each —
 // hook_parameter! for a hook's own installed parameter, otxn_parameter!
 // for one attached to the originating transaction (same grammar, same
-// TypedParamName impl). Form 1: `Name = bytes => Ty` declares `Name` as a
-// new zero-sized type *and* ties it to the fixed byte-string name and the
+// TypedParamName impl; the entity's `get_value` is what differs). Form 1,
+// `Entity, Name = bytes => Ty`, declares the entity and `Name` as two new
+// zero-sized types and ties both to the fixed byte-string name and the
 // value type, all in one line — no separate `struct CfgName;` needed.
-hook_parameter!(CfgName = b"CFG" => Config {min_amount: u64, lock_ledgers: u32});
+hook_parameter!(Cfg, CfgName = b"CFG" => Config {min_amount: u64, lock_ledgers: u32});
+otxn_parameter!(Ins, InsName = b"INS" => Instruction {action: u8, amount: u64});
 ```
 
-`InsName` is the one declaration nothing outside the hook function needs,
-so it uses an **instance binder** (`ins,`) and lives inside `my_hook`
-itself — the declaration and the one instance of it arrive in the same
-statement, and both are function-local. A binder invocation expands to
-items *plus a `let`*, which is why this excerpt is a function body and not
-more module scope:
-
-```rust
-fn my_hook() -> i64 {
-    // ...
-    otxn_parameter!(ins, InsName = b"INS" => Instruction {action: u8, amount: u64});
-    let instruction = match ins.get_value() {
-        Ok(v) => v,
-        Err(_) => rollback!(b"typed-data: INS parameter missing or malformed", /* .. */),
-    };
-    // ...
-}
-```
-
-`key.get_state()`/`key.set_state(&value)` (used above) resolve
-`DepositKey`'s value type from the key they are called on — there is no
-second, independently-chosen `T` left for a mismatch to hide in — and
-`CfgName.get_value()`/`ins.get_value()` resolve `Config`/
-`Instruction` from the *name*, the same way. `Config`/
+`deposit.get_state()`/`deposit.set_state(&value)` (used above) resolve
+`DepositState`'s value type from the entity they are called on — there is
+no second, independently-chosen `T` left for a mismatch to hide in — and
+`Cfg.get_value()`/`Ins.get_value()` resolve `Config`/`Instruction` the same
+way. `Config`/
 `Instruction`/`DepositValue` never need a type annotation anywhere in
 `src/lib.rs` (see `config()`/`my_hook()`) — the argument alone always picks
 the right type. Passing the wrong value type for `DepositKey` (e.g.
-`key.set_state(&some_other_struct)`) is now a compile error, not
+`deposit.set_state(&some_other_struct)`) is now a compile error, not
 a silent bug waiting to be discovered on a live node — see
 `hooks_lib::state::TypedStateKey`'s and `hooks_lib::convert::TypedParamName`'s
 doc comments for the full rationale, and `hooks_lib::HookKey`'s doc
@@ -175,11 +164,11 @@ no way to spell `Self::MAX_LEN` as an array length and falls back to a full
 32-byte `PARAM_NAME_MAX_LEN` scratch; what it cannot avoid is the encode
 itself, since Rust has no stable way to run a trait method at compile
 time. (Form 1 and the `existing` form additionally hand
-those literal bytes back as `CfgName.get_name() -> &'static [u8]`, a
+those literal bytes back as `Cfg.get_name() -> &'static [u8]`, a
 `const fn`; a composite name has no stored bytes to hand back and gets no
 such method.) When the name type has to be declared separately by the
 caller — to carry its own visibility, derives or docs — the `existing`
-keyword form does that: `hook_parameter!(existing CfgName = b"CFG" =>
+keyword form does that: `hook_parameter!(Cfg, existing CfgName = b"CFG" =>
 Config)`; see `hooks_lib::hook_parameter!`'s doc comment for a worked
 example. See
 `hooks_lib::convert::TypedParamName`'s doc comment for the full zero-cost
@@ -360,16 +349,27 @@ composite, struct-shaped value instead of a literal string. This hook's
 operator-controlled pause switch is named that way:
 
 ```rust
-hook_parameter!(AdminName {section: u8, field: u8} => PauseSwitch {paused: u8});
+#[derive(ParamName, Clone, Copy)]
+struct AdminName {
+    section: u8,
+    field: u8,
+}
 
-const ADMIN_PAUSE: AdminName = AdminName { section: 0, field: 0 };
+hook_parameter!(AdminPause, AdminName => PauseSwitch {paused: u8});
+
+const ADMIN_PAUSE: AdminPause = AdminPause(AdminName { section: 0, field: 0 });
 ```
 
-This is `hook_parameter!`'s **Form 3** — a struct-shaped name, constructed
-per call site — with an inline `PauseSwitch` value, the same shape
-`DepositKey`/`DepositValue` used above. Under the hood, `AdminName` still
-gets `ParamName`-equivalent codegen (`ToBytes` only — no `FromBytes`, no
-`FixedRead`, no inherent `LEN` const), never `HookData`-equivalent codegen:
+This is `hook_parameter!`'s **pairing form** — an entity wrapping a name
+type the caller already declared — with an inline `PauseSwitch` value. The
+one-line Form 3 (`hook_parameter!(AdminPause, AdminName {section: u8, field:
+u8} => PauseSwitch {paused: u8})`) would declare exactly the same thing and
+is what `CFG`/`INS` use; the longhand is spelled out here to show what the
+pairing form does, and to measure it (see below — it costs nothing).
+
+Under either spelling `AdminName` gets `ParamName`-equivalent codegen
+(`ToBytes` only — no `FromBytes`, no `FixedRead`, no inherent `LEN` const),
+never `HookData`-equivalent codegen:
 a Hook parameter *name* is a genuinely different concept from a hook-state
 key/value or a parameter *payload* (`PauseSwitch`, which — being something
 this hook actually reads back and decodes — gets `ParamValue`-equivalent
@@ -377,20 +377,27 @@ codegen instead, same as `Config`/`Instruction`): a name is only ever
 **written**, to locate a value, never read back and decoded as itself —
 see `hooks_lib::ParamName`'s doc comment for the full rationale, and its
 `compile_fail` examples pinning that a `ParamName`-shaped type can't be
-read back as a value. Because `AdminName` is Form 3 (not Form 1, the fully
-fixed form `CfgName`/`InsName` above use), the generated `TypedParamName`
-impl overrides `with_name_bytes` with a genuine encode into a
-`[u8; AdminName::MAX_LEN]` (2-byte) buffer, rather than with Form 1's
-zero-copy hand-off of a `'static` literal — see the "Measured cost of a
-composite name" section below for what that costs. (It is still an
-override: the trait's generic *default* body would use a full 32-byte
-scratch buffer, since generic code cannot spell `Self::MAX_LEN` as an array
-length.) The `const ADMIN_PAUSE` declared separately
-above (not part of `hook_state!`'s Form 2 fixed-instance mechanism, since
-this name scheme is meant to accommodate *multiple* future
-administrative parameters, not just one canonical instance) is what
-[`deposits_paused`] calls `get_value()` **on**, `PauseSwitch`'s type
-inferred from the name itself, no annotation.
+read back as a value. Because `AdminName` is composite (not a fixed byte
+string like `CfgName`/`InsName` above), its `TypedParamName` impl overrides
+`with_name_bytes` with a genuine encode into a `[u8; AdminName::MAX_LEN]`
+(2-byte) buffer, rather than with the fixed forms' zero-copy hand-off of a
+`'static` literal — see the "Measured cost of a composite name" section
+below for what that costs. (It is still an override: the trait's generic
+*default* body would use a full 32-byte scratch buffer, since generic code
+cannot spell `Self::MAX_LEN` as an array length.)
+
+The `AdminPause` **entity** does not re-derive that override — it forwards
+`with_name_bytes` straight to `AdminName`'s, so the 2-byte buffer that name
+already had is what the lookup uses. That is the whole point of the pairing
+form's delegation, and it is why wrapping costs nothing: the measured
+numbers below are unchanged by it.
+
+The `const ADMIN_PAUSE` declared separately above (not part of
+`hook_state!`'s Form 2 fixed-instance mechanism, since this name scheme is
+meant to accommodate *multiple* future administrative parameters, not just
+one canonical instance) is what [`deposits_paused`] calls `get_value()`
+**on**, `PauseSwitch`'s type inferred from the entity itself, no
+annotation.
 
 ### The 1–32-byte constraint
 
@@ -458,7 +465,7 @@ checking it).
 
 The third row is a **behavior** change, not an abstraction cost: the
 withdraw branch calls `key.delete_state()` and accepts from inside the
-branch instead of falling through to the shared `key.set_state(&next)`,
+branch instead of falling through to the shared `deposit.set_state(&next)`,
 so the hook now carries two distinct terminating state writes rather than
 one. +34 instructions, +74 bytes buys the reserve refund a deleted entry
 gets and an all-zero stored entry does not. (Both earlier rows were

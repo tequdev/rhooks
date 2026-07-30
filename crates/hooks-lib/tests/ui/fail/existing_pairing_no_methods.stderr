@@ -1,8 +1,0 @@
-error[E0599]: no method named `get_state` found for struct `MyKey` in the current scope
-  --> tests/ui/fail/existing_pairing_no_methods.rs:20:30
-   |
-8  | struct MyKey {
-   | ------------ method `get_state` not found for this struct
-...
-20 |     let _ = MyKey { tag: 0 }.get_state();
-   |                              ^^^^^^^^^ method not found in `MyKey`

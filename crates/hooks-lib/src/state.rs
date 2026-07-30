@@ -157,12 +157,14 @@
 //! value to type-check), and is the one operation the typed write path
 //! cannot express — see its own doc comment.
 //!
-//! A key declared through [`hook_state!`](crate::hook_state) additionally
-//! carries all four operations as **inherent methods** —
-//! `key.get_state()`/`set_state(&v)`/`update_state(f)`/`delete_state()` —
+//! A [`hook_state!`](crate::hook_state) declaration additionally gives its
+//! **entity** all four operations as inherent methods —
+//! `entity.get_state()`/`set_state(&v)`/`update_state(f)`/`delete_state()` —
 //! each one an `#[inline(always)]` forward to the free function of the same
 //! name below, so the two spellings compile identically and the choice is
-//! purely about which reads better at the call site.
+//! purely about which reads better at the call site. The entity also
+//! implements [`TypedStateKey`] itself, so it is accepted by every function
+//! here, `_foreign` twins included.
 //!
 //! # Relationship to the `hook_param`/`otxn_param` typed layer
 //!
@@ -172,9 +174,9 @@
 //!
 //! | | this module (hook state) | [`crate::convert::TypedParamName`] (params) |
 //! |---|---|---|
-//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(Name => Ty)` |
+//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Entity, Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(Entity, Name => Ty)` |
 //! | safe accessor(s) | `state_get_typed(&key)`/`state_set_typed`/`state_update_typed`/`state_delete` | `hook_param_typed(&name)`/`otxn_param_typed(&name)` |
-//! | method form (macro-declared types) | `key.get_state()`/`.set_state(&v)`/`.update_state(f)`/`.delete_state()` | `name.get_value()` (+ `name.get_name()` for a fixed-byte-string name) |
+//! | method form (on a declared entity) | `entity.get_state()`/`.set_state(&v)`/`.update_state(f)`/`.delete_state()` | `entity.get_value()` (+ `entity.get_name()` for a fixed-byte-string name) |
 //! | loose escape hatch | [`state_get`]/[`state_set_loose`]/[`state_update_loose`] (independent `T`) | `hook_param_exact`/`otxn_param_exact` (independent `T`) |
 //! | shared foundation | both built on [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`] — see [`crate::HookKey`]/[`crate::HookData`] (state key/value) and [`crate::ParamName`]/[`crate::ParamValue`] (param name/value) for the analogous but separate derives each side uses |
 //!
@@ -666,7 +668,7 @@ where
 ///
 /// A `state_keys!` enum implements [`StateKeyEncode`] but not
 /// [`TypedStateKey`] — pair it with a value type via
-/// [`hook_state!`](crate::hook_state)'s two-type pairing form
+/// [`hook_state!`](crate::hook_state)'s pairing form
 /// (both sides already declared) exactly like a `#[derive(HookKey)]`
 /// struct:
 ///
@@ -684,7 +686,16 @@ where
 ///     }
 /// }
 ///
-/// hook_state!(DataKey => u32);
+/// hook_state!(CounterState, DataKey => u32);
+///
+/// // The entity wraps the key it was paired with, and forwards
+/// // `StateKeyEncode::encode` straight through to it — so a `state_keys!`
+/// // enum pairs exactly as well as a `#[derive(HookKey)]` struct, without
+/// // needing `ToBytes` at all.
+/// assert_eq!(
+///     CounterState(DataKey::Counter).get_state(),
+///     Err(HookError::NotImplemented)
+/// );
 ///
 /// // `NotImplemented` here is the host stub every Hook API call returns on
 /// // a host build — this only proves the generated `TypedStateKey`/
@@ -1094,7 +1105,7 @@ mod tests {
     // comments). So this pairing is exercised as a doctest instead — see
     // `state_keys!`'s doc comment's "Pairing with `hook_state!`" section,
     // which pairs a `state_keys!` enum (the same shape as `TestKey` above)
-    // with `hook_state!`'s two-type pairing form and asserts
+    // with `hook_state!`'s pairing form and asserts
     // the identical `NotImplemented`-on-host smoke behavior this test used
     // to check directly.
 }

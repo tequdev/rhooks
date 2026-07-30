@@ -374,15 +374,16 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// in-memory representation. Both of
 /// [`hook_parameter!`](crate::hook_parameter)/
 /// [`otxn_parameter!`](crate::otxn_parameter)'s fixed-byte-string forms —
-/// Form 1, `hook_parameter!(CfgName = b"CFG" => Config)`, which declares
-/// `CfgName` itself, and the `existing` keyword form,
-/// `hook_parameter!(existing CfgName = b"CFG" => Config)`, which attaches
-/// the same impls to a marker type the caller declared — override
-/// `with_name_bytes` to hand the literal straight to the closure: no copy,
-/// no buffer, nothing to encode, skipping the default body entirely. (Those
-/// two forms additionally expose the bytes as
-/// `CfgName.get_name() -> &'static [u8]`, a `const fn` reading out of the
-/// same literal.)
+/// Form 1, `hook_parameter!(Cfg, CfgName = b"CFG" => Config)`, which
+/// declares `CfgName` itself, and the `existing` keyword form,
+/// `hook_parameter!(Cfg, existing CfgName = b"CFG" => Config)`, which
+/// attaches the name-side impls to a marker type the caller declared —
+/// override `with_name_bytes` to hand the literal straight to the closure:
+/// no copy, no buffer, nothing to encode, skipping the default body
+/// entirely. Both give the *entity* the identical impl, so the lookup costs
+/// the same whether it goes through `Cfg` or `CfgName`; and both expose the
+/// bytes as `Cfg.get_name() -> &'static [u8]`, a `const fn` reading out of
+/// the same literal.
 /// `examples/12_typed-data`'s README measures this directly: its plain
 /// `CFG`/`INS` names cost the identical worst-case instruction count as
 /// the loose `hook_param_exact`/`otxn_param_exact` this replaces.
@@ -390,7 +391,7 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// # Near-zero-cost for the composite (struct-shaped) case too
 ///
 /// A **composite** name (any [`hook_parameter!`](crate::hook_parameter)/
-/// [`otxn_parameter!`](crate::otxn_parameter) Form 2–4/existing-type
+/// [`otxn_parameter!`](crate::otxn_parameter) Form 2–4/pairing
 /// declaration — a struct with more than one field, or a newtype whose
 /// inner type isn't itself a plain byte string) can't skip encoding
 /// entirely: something has to lay its fields out into contiguous bytes.
@@ -459,11 +460,14 @@ pub trait TypedParamName: ToBytes {
     /// An override **replaces** that check along with the body, so every
     /// override the declaration macros generate carries its own
     /// monomorphized copy of the same assertion. This matters most for the
-    /// two-type pairing form (`hook_parameter!(MyName => MyValue)`), whose
+    /// pairing form (`hook_parameter!(MyThing, MyName => MyValue)`), whose
     /// `MyName` is a caller-authored [`ToBytes`] type the macro never
     /// declared and never length-checked: without the copy, a name encoding
     /// to 0 bytes (rejected by the host at runtime) or to a multi-kilobyte
-    /// scratch buffer would compile with no complaint at all.
+    /// scratch buffer would compile with no complaint at all. The entity a
+    /// pairing declares does not re-derive that override — it forwards
+    /// `with_name_bytes` to `MyName`'s, so the exact-size buffer this
+    /// invocation just generated for `MyName` is what both of them use.
     #[inline(always)]
     fn with_name_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         const {

@@ -38,8 +38,8 @@ account would need an actual `namespace` value too (out of scope for this
 minimal example).
 
 `target` itself comes from a Hook parameter (`ACCT`), declared via
-`hook_parameter!(AcctParamName = b"ACCT" => AccountId)` and read with
-`hook_param_typed(&AcctParamName)` — the same "config via `hook_param`"
+`hook_parameter!(AcctParam, AcctParamName = b"ACCT" => AccountId)` and read
+with `AcctParam.get_value()` — the same "config via `hook_param`"
 idiom as `examples/03_hook-params`, just requiring the result to be
 exactly `AccountId`'s length (20 bytes, enforced by `AccountId`'s
 `FixedRead` impl, no turbofish) instead of manually checking a buffer's

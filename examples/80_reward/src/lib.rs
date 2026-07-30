@@ -42,16 +42,16 @@ const DEFAULT_REWARD_DELAY_BITS: i64 = 6_199_553_087_261_802_496;
 
 // `"RR"`/`"RD"` — the same 2-byte real-length keys govern.c/govern.rs write
 // under (see `examples/81_govern/src/keys.rs::REWARD_RATE`/`REWARD_DELAY`)
-// — declared via `hook_state!`'s Form 1 (a fully fixed key), read through
-// the typed layer below. Safe under the 32-level guard-checker limit
+// — declared via `hook_state!`'s Form 1 (an entity plus a fully fixed
+// key), read through the entity's own accessor below. Safe under the 32-level guard-checker limit
 // because `crate::state::decode_read` compares the *raw* host-call code
 // against `hooks_core::DOESNT_EXIST` before ever constructing a
 // `HookError` (see DESIGN.md §5.1) — measured nesting depth here is 24/32.
 // `XFL`'s typed-layer decode is little-endian raw-bits, byte-for-byte
 // identical to the raw `state_xfl` this replaces (both require exactly 8
 // stored bytes, which every writer of these keys always provides).
-hook_state!(RewardRateKey = b"RR" => XFL);
-hook_state!(RewardDelayKey = b"RD" => XFL);
+hook_state!(RewardRate, RewardRateKey = b"RR" => XFL);
+hook_state!(RewardDelay, RewardDelayKey = b"RD" => XFL);
 
 /// `MAXUNL` in reward.c: `UNLReport`'s `ActiveValidators` array is assumed
 /// to hold at most this many entries.
@@ -155,10 +155,12 @@ fn my_hook() -> i64 {
         accept!(b"Reward: Passing outgoing txn", 0);
     }
 
-    let rr = state_get_typed(&RewardRateKey)
+    let rr = RewardRate
+        .get_state()
         .unwrap_or(None)
         .unwrap_or(XFL::from_raw_bits(DEFAULT_REWARD_RATE_BITS));
-    let rd = state_get_typed(&RewardDelayKey)
+    let rd = RewardDelay
+        .get_state()
         .unwrap_or(None)
         .unwrap_or(XFL::from_raw_bits(DEFAULT_REWARD_DELAY_BITS));
     let rewards_disabled = (rr.raw_bits() <= 0) | (rd.raw_bits() <= 0);

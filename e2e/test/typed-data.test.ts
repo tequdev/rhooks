@@ -1,14 +1,16 @@
 // e2e: examples/12_typed-data against a standalone Xahau node.
 //
-// `hook()` maintains a per-account deposit ledger keyed by a
-// `#[derive(HookKey)]` struct and valued by a `#[derive(HookData)]` struct
+// `hook()` maintains a per-account deposit ledger through the
+// `DepositState` entity, whose key component is a `#[derive(HookKey)]`-shaped
+// struct and whose value is a `#[derive(HookData)]`-shaped one
 // (`DepositKey`/`DepositValue` - see examples/12_typed-data/src/lib.rs and
 // its README). Every Invoke carries its own `Instruction` (action +
 // amount, `#[derive(ParamValue)]`) as an `INS` Hook parameter attached to
 // the transaction itself (read via `otxn_param`), separate from the
 // hook's installed `Config` (`CFG`, read via `hook_param`). An operator
 // can also pause new deposits via a **composite**, struct-shaped
-// `#[derive(ParamName)]` parameter name (`AdminName`) - see the last
+// `#[derive(ParamName)]` parameter name (`AdminName`, wrapped by the
+// `AdminPause` entity) - see the last
 // nested `describe` block below.
 //
 // Every `#[derive(HookData)]`/`#[derive(ParamValue)]` struct's wire layout
@@ -60,7 +62,7 @@ const WORST_CASE_INSTRUCTIONS = 504
 const ACTION_DEPOSIT = 1
 const ACTION_WITHDRAW = 2
 
-// `DepositKey { tag: u8, owner: AccountId }`'s constant discriminant
+// `DepositState { tag: u8, owner: AccountId }`'s constant discriminant
 // (`DEPOSIT_TAG` in src/lib.rs).
 const DEPOSIT_TAG = 1
 
@@ -97,7 +99,7 @@ function insHex(action: number, amount: bigint): string {
   return actionByte + u64LEHex(amount)
 }
 
-// The on-ledger HookState key for `DepositKey { tag, owner }`.
+// The on-ledger HookState key for `DepositState { tag, owner }`.
 //
 // The hook sends the key at its own real length - 1 tag byte + a 20-byte
 // AccountId = 21 bytes, never locally padded (see `hooks_lib::state`'s
@@ -217,7 +219,7 @@ describe('typed-data', () => {
   })
 
   it('rejects a withdraw when the account has no outstanding deposit', async () => {
-    // bob has never deposited, so `DepositKey { tag: 1, owner: bob }` has no
+    // bob has never deposited, so `DepositState { tag: 1, owner: bob }` has no
     // state entry - `state_get` returns `None`, decoded as `EMPTY_DEPOSIT`
     // (`flags == 0`).
     const response = invoke(

@@ -16,11 +16,18 @@ struct Config {
 struct CfgName;
 struct InsName;
 
-// No `= bytes` at all: the two-type pairing shape, which `existing` does not
-// accept.
-hook_parameter!(existing CfgName => Config);
+// No `= bytes` at all: the pairing shape, which `existing` does not accept.
+// The path grammar stops at the `=>` instead of swallowing `=> Config` into
+// the type name.
+hook_parameter!(Cfg, existing CfgName => Config);
 
 // The `=` is there, but the name bytes are not.
-hook_parameter!(existing InsName = => Config);
+hook_parameter!(Ins, existing InsName = => Config);
+
+// A literal where the caller's type name belongs.
+hook_parameter!(Lit, existing b"CFG" = b"CFG" => Config);
+
+// A path that stops mid-way.
+hook_parameter!(Partial, existing owned:: = b"CFG" => Config);
 
 fn main() {}

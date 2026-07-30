@@ -17,6 +17,11 @@ use proc_macro::{Delimiter, Spacing, Span, TokenStream, TokenTree};
 use std::iter::Peekable;
 
 /// One `name: Type` field, as captured from the input tokens.
+///
+/// `Clone` because [`crate::decl_pair`] generates the identical per-field
+/// codegen twice per struct-shaped invocation — once for the declared
+/// key/name type, once for the entity that mirrors its fields.
+#[derive(Clone)]
 pub struct FieldShape {
     /// The field's name, verbatim.
     pub name: String,

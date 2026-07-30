@@ -1,9 +1,9 @@
 //! Caller-authored `ToBytes` name types whose encoded length falls outside
 //! the Hook API's `1..=32` bound, paired through the two-type form.
 //!
-//! The concrete `with_name_bytes` override these declarations generate
-//! *replaces* the trait default's body — and with it the default's own
-//! length assertion — so each override carries a monomorphized copy. Without
+//! The concrete `with_name_bytes` override these declarations generate for
+//! the name *replaces* the trait default's body — and with it the default's
+//! own length assertion — so each override carries a monomorphized copy. Without
 //! that copy a 0-byte name (which the host rejects at runtime) or a
 //! multi-kilobyte stack buffer would compile with no complaint at all.
 
@@ -37,7 +37,7 @@ impl ToBytes for TooLongName {
     }
 }
 
-hook_parameter!(ZeroLenName => Value);
-hook_parameter!(TooLongName => Value);
+hook_parameter!(ZeroLen, ZeroLenName => Value);
+hook_parameter!(TooLong, TooLongName => Value);
 
 fn main() {}
