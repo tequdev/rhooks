@@ -222,7 +222,10 @@ fn config() -> Config {
 /// `AdminName` is a *composite* name, so this is the encode-into-an
 /// exact-size-buffer path, not the `'static`-literal one `CfgName` takes.
 fn deposits_paused() -> bool {
-    ADMIN_PAUSE.get_value().map(|s| s.paused != 0).unwrap_or(false)
+    ADMIN_PAUSE
+        .get_value()
+        .map(|s| s.paused != 0)
+        .unwrap_or(false)
 }
 
 /// An all-zero deposit record: what a *read* decodes to when the account
