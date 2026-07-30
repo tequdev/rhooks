@@ -43,3 +43,13 @@ scope for this repo (see `docs/DESIGN.md` §1 non-goals).
 |---|---|---|
 | `CouldNotReadSender` | 1 | `otxn_field(sfAccount)` did not return a 20-byte `AccountId` |
 | `BlockedAccount` | 2 | the sender matched the `BL`-configured blacklist account |
+
+## Interface spec sidecar & TypeScript bindings
+
+This example ships a hand-authored `hook-spec.toml` documenting its
+interface (the `BL` parameter, expected `TransactionType`s, invocation
+notes). `hooks-build build` merges it with the build output into
+`out/firewall.spec.json` automatically. `mise run spec-bindings` builds this
+example and generates a TypeScript module from that spec.json into
+`e2e/generated/firewall.ts` — see `docs/SPEC-SIDECAR.md` for the full
+schema and what the generated bindings look like.

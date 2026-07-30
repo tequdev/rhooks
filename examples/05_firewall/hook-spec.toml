@@ -1,0 +1,26 @@
+# Interface spec sidecar for `firewall` (docs/SPEC-SIDECAR.md).
+#
+# NOTE on TOML field order: bare `key = value` lines belong to whichever
+# table header preceded them, so root-level fields (`transaction_types`
+# below) must appear *before* the first `[hook]`/`[invoke]` table header —
+# otherwise they silently become ignored extra fields on that table instead
+# of landing on the document root.
+
+transaction_types = ["Payment"]
+
+[hook]
+name = "firewall"
+description = """
+Rolls the transaction back if its sender matches the 20-byte blocked \
+AccountId supplied via the `BL` Hook parameter; accepts otherwise \
+(including when `BL` is absent or malformed).\
+"""
+
+[invoke]
+hook_on = "Payment"
+notes = "No cbak; straight-line hook, no hook state used."
+
+[[params]]
+name = "BL"
+bytes = 20
+description = "20-byte blocked AccountId (raw bytes, not text)."
