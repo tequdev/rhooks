@@ -173,7 +173,7 @@ pub fn otxn_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 ///
 /// Costs nothing beyond [`otxn_param_exact`] for the common
 /// plain-byte-string-name case (e.g. via
-/// [`otxn_parameter!`](crate::otxn_parameter)'s two-argument form) — see
+/// [`otxn_parameter!`](crate::otxn_parameter)'s fixed-bytes forms) — see
 /// [`crate::convert::TypedParamName`]'s "Zero-cost" section. A
 /// **composite, struct-shaped** name costs a small, genuine runtime encode
 /// instead (unavoidable for an arbitrary type) — see the same doc comment.

@@ -1,22 +1,34 @@
 // e2e: examples/12_typed-data against a standalone Xahau node.
 //
-// `hook()` maintains a per-account deposit ledger keyed by a
-// `#[derive(HookKey)]` struct and valued by a `#[derive(HookData)]` struct
+// `hook()` maintains a per-account deposit ledger through the
+// `DepositState` entity, whose key component is a `#[derive(HookKey)]`-shaped
+// struct and whose value is a `#[derive(HookData)]`-shaped one
 // (`DepositKey`/`DepositValue` - see examples/12_typed-data/src/lib.rs and
 // its README). Every Invoke carries its own `Instruction` (action +
 // amount, `#[derive(ParamValue)]`) as an `INS` Hook parameter attached to
 // the transaction itself (read via `otxn_param`), separate from the
 // hook's installed `Config` (`CFG`, read via `hook_param`). An operator
 // can also pause new deposits via a **composite**, struct-shaped
-// `#[derive(ParamName)]` parameter name (`AdminName`) - see the last
+// `#[derive(ParamName)]` parameter name (`AdminName`, wrapped by the
+// `AdminPause` entity) - see the last
 // nested `describe` block below.
 //
 // Every `#[derive(HookData)]`/`#[derive(ParamValue)]` struct's wire layout
 // is "every field, in declaration order, little-endian, back-to-back" -
 // see the README's "Hook parameter hex encoding" section for the worked
 // byte layouts this suite's `cfgHex`/`insHex` helpers reproduce.
+//
+// A full withdrawal **deletes** the depositor's state entry (the hook
+// calls `key.delete_state()`, i.e. `hooks_lib::state::state_delete`, a
+// zero-length `state_set`) rather than storing an all-zero record. This
+// suite is the only place that distinction is observable: on a host build
+// every Hook API call is a stub, so the Rust-side tests can prove the call
+// is routed and typed but never that the host really removed the entry.
+// `depositEntryExists` below reads the account's namespace directory over
+// RPC to check presence/absence directly.
 import {
   ExecutionUtility,
+  StateUtility,
   Xrpld,
   clearAllHooksV3,
   hexNamespace,
@@ -29,7 +41,12 @@ import {
   type XrplIntegrationTestContext,
   type iHook,
 } from '@transia/hooks-toolkit'
-import { calculateHookOn, convertStringToHex, type TransactionMetadata } from 'xahau'
+import {
+  calculateHookOn,
+  convertStringToHex,
+  decodeAccountID,
+  type TransactionMetadata,
+} from 'xahau'
 // HookFlags isn't re-exported from the package root in xahau@4.x - only
 // reachable via this deep import (same path hooks-toolkit's own source
 // uses internally for the same enum).
@@ -40,10 +57,14 @@ const namespace = 'rhooks-e2e-typed-data'
 // at this workspace's opt-level = 3 default (docs/DESIGN.md's §2 C6) - includes
 // the composite `AdminName`/`PauseSwitch` pause-switch path (see the README's
 // "Measured cost of a composite name" section for the with/without comparison).
-const WORST_CASE_INSTRUCTIONS = 489
+const WORST_CASE_INSTRUCTIONS = 504
 
 const ACTION_DEPOSIT = 1
 const ACTION_WITHDRAW = 2
+
+// `DepositState { tag: u8, owner: AccountId }`'s constant discriminant
+// (`DEPOSIT_TAG` in src/lib.rs).
+const DEPOSIT_TAG = 1
 
 // `Config { min_amount: u64, lock_ledgers: u32 }` - 12 bytes, LE.
 const MIN_DROPS = 5_000_000n // 5 XAH
@@ -76,6 +97,57 @@ function cfgHex(minAmount: bigint, lockLedgers: number): string {
 function insHex(action: number, amount: bigint): string {
   const actionByte = Buffer.from([action]).toString('hex').toUpperCase()
   return actionByte + u64LEHex(amount)
+}
+
+// The on-ledger HookState key for `DepositState { tag, owner }`.
+//
+// The hook sends the key at its own real length - 1 tag byte + a 20-byte
+// AccountId = 21 bytes, never locally padded (see `hooks_lib::state`'s
+// module doc comment, "Key length and padding") - and the *host* left-pads
+// it to its fixed 32-byte storage width. So the stored key is 11 zero
+// bytes, then the tag, then the account.
+function depositStateKeyHex(address: string): string {
+  const owner = Buffer.from(decodeAccountID(address)).toString('hex')
+  const tag = DEPOSIT_TAG.toString(16).padStart(2, '0')
+  return (tag + owner).toUpperCase().padStart(64, '0')
+}
+
+// Whether `owner`'s deposit record currently exists on-ledger.
+//
+// Reads the namespace *directory* (`account_namespace`) rather than
+// `ledger_entry` for the one state key: listing the directory checks the
+// key we computed against the keys that actually exist, whereas an
+// assertion built on "`ledger_entry` threw `entryNotFound`" cannot
+// distinguish a deleted entry from a typo in the key.
+//
+// One wrinkle: when the *last* entry in a namespace is deleted, the
+// namespace directory itself leaves the ledger, and `account_namespace`
+// then reports that as an error rather than as an empty list. Since this
+// hook keeps exactly one entry per depositor, deleting alice's record
+// empties the namespace - so "Namespace not found" is the strongest
+// possible form of "absent," and is translated to `false` here. Only that
+// one error is: anything else (a dropped connection, a malformed request)
+// re-throws, so a broken query can never masquerade as a passing deletion
+// assertion.
+async function depositEntryExists(
+  testContext: XrplIntegrationTestContext,
+  address: string,
+): Promise<boolean> {
+  const wanted = depositStateKeyHex(address)
+  let entries
+  try {
+    entries = await StateUtility.getHookStateDir(
+      testContext.client,
+      testContext.hook1.classicAddress,
+      hexNamespace(namespace),
+    )
+  } catch (error) {
+    if (String((error as Error)?.message ?? '').includes('Namespace not found')) {
+      return false
+    }
+    throw error
+  }
+  return entries.some((e) => e.HookStateKey.toUpperCase() === wanted)
 }
 
 function hookParam(name: string, valueHex: string) {
@@ -147,7 +219,7 @@ describe('typed-data', () => {
   })
 
   it('rejects a withdraw when the account has no outstanding deposit', async () => {
-    // bob has never deposited, so `DepositKey { tag: 1, owner: bob }` has no
+    // bob has never deposited, so `DepositState { tag: 1, owner: bob }` has no
     // state entry - `state_get` returns `None`, decoded as `EMPTY_DEPOSIT`
     // (`flags == 0`).
     const response = invoke(
@@ -194,6 +266,15 @@ describe('typed-data', () => {
     )
   })
 
+  it('stores the deposit as a hook state entry', async () => {
+    // The positive half of the delete assertion below: without this, an
+    // "entry is absent after withdraw" test would also pass if the key were
+    // computed wrongly and never matched anything in the first place.
+    await expect(
+      depositEntryExists(testContext, testContext.alice.classicAddress),
+    ).resolves.toBe(true)
+  })
+
   it('rejects a withdraw before the lock window elapses', async () => {
     const response = invoke(
       testContext,
@@ -226,12 +307,24 @@ describe('typed-data', () => {
     )
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
-    // A withdrawal always zeroes the balance out.
+    // A withdrawal always empties the whole balance, so the accepted
+    // return code is the resulting balance: zero.
     expect(Number(execution.HookReturnCode)).toBe(0)
     expect(execution.HookReturnString).toBe('typed-data: ok')
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_INSTRUCTIONS,
     )
+  })
+
+  it('deletes the state entry on a full withdrawal', async () => {
+    // The live proof of `hooks_lib::state::state_delete` /
+    // `key.delete_state()`: the entry that the deposit test just observed
+    // is now **gone** from the namespace directory, not present-and-zeroed.
+    // Nothing on a host build can demonstrate this - every Hook API call
+    // there is a stub that returns `NotImplemented` without touching state.
+    await expect(
+      depositEntryExists(testContext, testContext.alice.classicAddress),
+    ).resolves.toBe(false)
   })
 
   it('rejects a second withdraw now that the deposit is gone', async () => {

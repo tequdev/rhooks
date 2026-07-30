@@ -72,15 +72,16 @@ use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, otxn_parameter
 
 // `IS{seat}` — the per-seat initial-member-account hook parameter `setup`
 // reads (`this_seat` runtime-varying, 0..SEAT_COUNT — see `setup` below).
-// `hook_parameter!`'s Form 4 ties the name to `AccountId` at the type
-// level, byte-for-byte identical to the raw `hook_param_exact(&member_pkey)`
+// `hook_parameter!`'s Form 4 ties the entity (and its `MemberParamName`
+// key component) to `AccountId` at the type level, byte-for-byte identical
+// to the raw `hook_param_exact(&member_pkey)`
 // call it replaces: `TypedParamName::with_name_bytes`'s composite-form
 // override allocates exactly `Self::MAX_LEN` (3) bytes, not a 32-byte
 // scratch buffer (see `hooks_lib::convert::TypedParamName`'s doc
 // comment) — measured zero-cost against the raw baseline: 44560
 // worst-case instructions / 14373 bytes, both exact matches, nesting
 // depth unchanged (22/32).
-hook_parameter!(MemberParamName [u8; 3] => AccountId);
+hook_parameter!(MemberParam, MemberParamName [u8; 3] => AccountId);
 
 // `IMC`/`IRR`/`IRD` — setup-only hook parameters (initial member count,
 // reward rate, reward delay). Migrated to `hook_parameter!` with an
@@ -99,9 +100,9 @@ hook_parameter!(MemberParamName [u8; 3] => AccountId);
 // (`crates/hooks-lib/src/convert.rs`), reusing `<[u8; 8]>::read_exact`'s
 // exact-length machinery and the same little-endian raw bit pattern
 // `ToBytes`/`FromBytes` for `XFL` already use.
-hook_parameter!(InitialMemberCountParamName = b"IMC" => [u8; 1]);
-hook_parameter!(InitialRewardRateParamName = b"IRR" => XFL);
-hook_parameter!(InitialRewardDelayParamName = b"IRD" => XFL);
+hook_parameter!(InitialMemberCount, InitialMemberCountParamName = b"IMC" => [u8; 1]);
+hook_parameter!(InitialRewardRate, InitialRewardRateParamName = b"IRR" => XFL);
+hook_parameter!(InitialRewardDelay, InitialRewardDelayParamName = b"IRD" => XFL);
 
 // `T`/`L` — the topic-selector/layer-selector `Invoke` parameters
 // `my_hook` reads per vote (see below). Migrated to `otxn_parameter!`:
@@ -118,8 +119,8 @@ hook_parameter!(InitialRewardDelayParamName = b"IRD" => XFL);
 // implements `FixedRead`/`ToBytes` via this crate's blanket array impl;
 // `L`'s value is `[u8; 1]`, not `u8`, since a bare `u8` doesn't
 // implement `FixedRead` itself.
-otxn_parameter!(TopicParamName = b"T" => [u8; 2]);
-otxn_parameter!(LayerParamName = b"L" => [u8; 1]);
+otxn_parameter!(TopicParam, TopicParamName = b"T" => [u8; 2]);
+otxn_parameter!(LayerParam, LayerParamName = b"L" => [u8; 1]);
 
 /// `genesis[20]` in govern.c: the network genesis account (see
 /// `examples/80_reward/src/mint_txn.rs::GENESIS_ACCOUNT`'s doc comment
@@ -260,7 +261,7 @@ fn my_hook() -> i64 {
             .nope(b"Governance: You are not currently a governance member at this table.");
     }
 
-    let topic_result: Result<[u8; 2]> = otxn_param_typed(&TopicParamName);
+    let topic_result: Result<[u8; 2]> = TopicParam.get_value();
     let topic_ok = topic_result.is_ok();
     let topic = topic_result.unwrap_or([0, 0]);
     let t = topic[0];
@@ -282,7 +283,7 @@ fn my_hook() -> i64 {
 
     let mut l = 1u8;
     if !is_l1_table {
-        l = match otxn_param_typed(&LayerParamName) {
+        l = match LayerParam.get_value() {
             Ok([v]) => v,
             Err(_) => GovernError::BadParameter
                 .nope(b"Governance: Missing L parameter. Which layer are you voting for?"),
@@ -434,12 +435,12 @@ fn my_hook() -> i64 {
 /// call site's isolated cost. This function boundary keeps nesting at 22.
 #[inline(never)]
 fn setup_initial_reward_rate_and_delay() {
-    let irr: XFL = match hook_param_typed(&InitialRewardRateParamName) {
+    let irr: XFL = match InitialRewardRate.get_value() {
         Ok(v) => v,
         Err(_) => GovernError::BadParameter
             .nope(b"Governance: Initial Reward Rate Parameter missing (IRR)."),
     };
-    let ird: XFL = match hook_param_typed(&InitialRewardDelayParamName) {
+    let ird: XFL = match InitialRewardDelay.get_value() {
         Ok(v) => v,
         Err(_) => GovernError::BadParameter
             .nope(b"Governance: Initial Reward Delay Parameter miss (IRD)."),
@@ -468,7 +469,7 @@ fn setup_initial_reward_rate_and_delay() {
 /// for the regression guard.
 #[inline(never)]
 fn setup(is_l1_table: bool) -> ! {
-    let imc: [u8; 1] = match hook_param_typed(&InitialMemberCountParamName) {
+    let imc: [u8; 1] = match InitialMemberCount.get_value() {
         Ok(v) => v,
         Err(_) => GovernError::BadParameter
             .nope(b"Governance: Initial Member Count Parameter missing (IMC)."),
@@ -494,8 +495,8 @@ fn setup(is_l1_table: bool) -> ! {
         guard!(u32::from(SEAT_COUNT));
         let this_seat = i;
         i = i.wrapping_add(1);
-        let member_pkey = MemberParamName([b'I', b'S', this_seat]);
-        let member_acc: AccountId = match hook_param_typed(&member_pkey) {
+        let member_pkey = MemberParam([b'I', b'S', this_seat]);
+        let member_acc: AccountId = match member_pkey.get_value() {
             Ok(a) => a,
             Err(_) => GovernError::BadParameter
                 .nope(b"Governance: One or more initial member account ID's is missing"),

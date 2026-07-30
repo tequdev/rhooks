@@ -6,27 +6,40 @@ writes it back, and accepts with the new count as the return-code
 payload.
 
 This is the minimal tutorial for `hooks_lib`'s **typed storage layer**
-(`crate::state`'s `state_get_typed`/`state_set_typed`, paired via
-`hook_state!`'s **Form 2** — a struct key with a fixed instance) — no
-hand-rolled `[0u8; 8]` buffer, no manual `from_le_bytes`/`to_le_bytes`, no
-length check, and (unlike the equivalent hand-written
-`#[derive(HookKey)]` + `hook_state!(Key => Value)` + a separate `const`)
-no repetition of the key's name three times over:
+(`crate::state`'s typed accessors, declared via `hook_state!`'s **Form 2** —
+a struct key with a fixed instance) — no hand-rolled `[0u8; 8]` buffer, no
+manual `from_le_bytes`/`to_le_bytes`, no length check, and (unlike the
+equivalent hand-written `#[derive(HookKey)]` + `hook_state!(Entity, Key =>
+Value)` pairing + a separate `const`) no repetition of the key's name three
+times over:
 
 ```rust
-hook_state!(CounterKey {name: [u8; 7]} = {name: *b"counter"} => u64);
+hook_state!(Counter, CounterKey {name: [u8; 7]} = {name: *b"counter"} => u64);
 
-let count = state_get_typed(&CounterKey).unwrap_or(None).unwrap_or(0);
+let count = Counter.get_state().unwrap_or(None).unwrap_or(0);
 let next = count.wrapping_add(1);
-state_set_typed(&CounterKey, &next);
+Counter.set_state(&next);
 ```
 
-`hook_state!`'s Form 2 declares, from that single line: the `CounterKey`
-struct, its `HookKey`-equivalent `ToBytes`/`StateKeyEncode` codegen, a
-`const CounterKey: CounterKey = CounterKey { .. };` holding the one fixed
-instance (legal because a type name and a value name live in separate
-namespaces — `&CounterKey` at the call site refers to the `const`), and
-the `TypedStateKey` pairing with `u64`. See `hooks_lib::hook_state!`'s doc
+`hook_state!`'s Form 2 declares, from that single line:
+
+- **`Counter`** — the *entity*, the thing this hook operates on. A struct
+  mirroring the key's fields, with the `HookKey`-equivalent
+  `ToBytes`/`StateKeyEncode` codegen, the `TypedStateKey` pairing with
+  `u64`, and the four accessors (`get_state`/`set_state`/`update_state`/
+  `delete_state`).
+- **`const Counter: Counter = Counter { .. };`** — the one fixed instance,
+  named after the entity. Legal because a type name and a value name live in
+  separate namespaces, which is why `Counter.get_state()` above reads as if
+  `Counter` were a value: it is one.
+- **`CounterKey`** — the *key component* that addresses the entry, with the
+  same `ToBytes`/`StateKeyEncode` codegen and the same `TypedStateKey`
+  pairing.
+
+Both types carry the role traits, so either can be handed to the free
+functions (`state_get_typed(&CounterKey { name: *b"counter" })` reaches the
+identical entry). Only the **entity** carries the accessors — the key is the
+address of the thing, not the thing. See `hooks_lib::hook_state!`'s doc
 comment for the full grammar staircase this is one step of.
 
 ## Why a struct key, not a bare `[u8; 7]` key
@@ -34,8 +47,9 @@ comment for the full grammar staircase this is one step of.
 `CounterKey { name: *b"counter" }` encodes to exactly the same 7 bytes a
 bare `*b"counter"` array key would — see "Same slot as before" below — so
 this isn't about the bytes on the wire. It's required by Rust's **orphan
-rule**: `hook_state!`'s expansion includes `impl TypedStateKey for
-CounterKey`, and implementing a `hooks_lib` trait for a bare `[u8; 7]` (a
+rule**: `hook_state!`'s expansion includes `impl TypedStateKey for Counter`
+(and one for `CounterKey`), and implementing a `hooks_lib` trait for a bare
+`[u8; 7]` (a
 `core` type, foreign to this hook crate) from outside `hooks_lib` itself is
 not allowed — only implementing it for a type *this crate defines* is. See
 `hooks_lib::hook_state!`'s doc comment for the full explanation and a

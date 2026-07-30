@@ -204,8 +204,9 @@ pub fn derive_param_value(input: TokenStream) -> TokenStream {
 
 /// Declares a hook-state key/value pairing — see `hooks_lib::hook_state!`'s
 /// doc comment (the public-facing re-export site) for the full grammar
-/// staircase (Forms 1–4 plus the backward-compatible existing-types form)
-/// and worked examples. Implemented in [`decl_pair`]; kept as a thin
+/// staircase (Forms 1–4, the `existing` keyword form and the pairing form),
+/// the entity every form declares and the accessors it carries, and worked
+/// examples. Implemented in [`decl_pair`]; kept as a thin
 /// `#[proc_macro]` entry point here, mirroring [`hook`]/[`cbak`]'s split
 /// between the `#[proc_macro...]` entry point and its implementation.
 #[proc_macro]

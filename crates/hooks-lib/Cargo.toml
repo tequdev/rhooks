@@ -12,6 +12,13 @@ doctest = true
 hooks-core = { path = "../hooks-core" }
 hooks-macros = { path = "../hooks-macros" }
 
+# Host-only, test-only: compiles the `tests/ui/*.rs` fixtures and diffs the
+# resulting rustc output against the committed `.stderr` files, so the
+# declaration macros' `compile_error!` diagnostics (which no ordinary test
+# can observe — a failed compile has no test to run) stay pinned.
+[dev-dependencies]
+trybuild = "1"
+
 [features]
 default = ["panic-handler"]
 panic-handler = []

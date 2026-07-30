@@ -1,5 +1,6 @@
 //! Typed hook state: [`state_get`]/[`state_set_loose`]/[`state_update_loose`]
-//! (and their `_foreign` twins), built over [`mod@crate::api::state`]'s raw
+//! (and their `_foreign` twins) plus [`state_delete`], built over
+//! [`mod@crate::api::state`]'s raw
 //! caller-buffer functions and the [`crate::convert::ToBytes`]/
 //! [`crate::convert::FromBytes`] traits, plus the
 //! [`state_keys!`](crate::state_keys) macro for declaring a state-key enum.
@@ -152,6 +153,18 @@
 //! mismatched value type has no generic parameter left to hide in; it's a
 //! compile error instead of a latent bug. Prefer these whenever a key type
 //! only ever pairs with one value type (every `HookKey` key in practice).
+//! [`state_delete`] completes the set: it takes only a key (there is no
+//! value to type-check), and is the one operation the typed write path
+//! cannot express — see its own doc comment.
+//!
+//! A [`hook_state!`](crate::hook_state) declaration additionally gives its
+//! **entity** all four operations as inherent methods —
+//! `entity.get_state()`/`set_state(&v)`/`update_state(f)`/`delete_state()` —
+//! each one an `#[inline(always)]` forward to the free function of the same
+//! name below, so the two spellings compile identically and the choice is
+//! purely about which reads better at the call site. The entity also
+//! implements [`TypedStateKey`] itself, so it is accepted by every function
+//! here, `_foreign` twins included.
 //!
 //! # Relationship to the `hook_param`/`otxn_param` typed layer
 //!
@@ -161,8 +174,9 @@
 //!
 //! | | this module (hook state) | [`crate::convert::TypedParamName`] (params) |
 //! |---|---|---|
-//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(Name => Ty)` |
-//! | safe accessor(s) | `state_get_typed(&key)`/`state_set_typed`/`state_update_typed` | `hook_param_typed(&name)`/`otxn_param_typed(&name)` |
+//! | declare the pairing | [`hook_state!`](crate::hook_state)`(Entity, Key => Value)` | [`hook_parameter!`](crate::hook_parameter)/[`otxn_parameter!`](crate::otxn_parameter)`(Entity, Name => Ty)` |
+//! | safe accessor(s) | `state_get_typed(&key)`/`state_set_typed`/`state_update_typed`/`state_delete` | `hook_param_typed(&name)`/`otxn_param_typed(&name)` |
+//! | method form (on a declared entity) | `entity.get_state()`/`.set_state(&v)`/`.update_state(f)`/`.delete_state()` | `entity.get_value()` (+ `entity.get_name()` for a fixed-byte-string name) |
 //! | loose escape hatch | [`state_get`]/[`state_set_loose`]/[`state_update_loose`] (independent `T`) | `hook_param_exact`/`otxn_param_exact` (independent `T`) |
 //! | shared foundation | both built on [`crate::convert::ToBytes`]/[`crate::convert::FromBytes`] — see [`crate::HookKey`]/[`crate::HookData`] (state key/value) and [`crate::ParamName`]/[`crate::ParamValue`] (param name/value) for the analogous but separate derives each side uses |
 //!
@@ -175,7 +189,7 @@
 //! perspective (`hook_param_set` writes a *different* hook's parameter, not
 //! this one) — so `TypedParamName`'s accessors are `_typed`-suffixed like
 //! this module's, but there is only ever a "get" shape, never a
-//! "set"/"update" one.
+//! "set"/"update"/"delete" one.
 //!
 //! Also see [`crate::HookKey`]/[`crate::HookData`]'s doc comments for the
 //! composite-struct story this module's side shares with
@@ -496,6 +510,42 @@ where
     state_update_loose(key, f)
 }
 
+/// Delete this hook's own state entry for `key`.
+///
+/// # Why deletion needs its own function
+///
+/// The Hook API has no "delete" call: an entry is deleted by **writing zero
+/// bytes to it** (`state` with an empty value), which also refunds the
+/// owner reserve that entry was holding. Nothing in the typed write path
+/// *names* that operation — [`state_set_typed`] takes a `&K::Value`, so
+/// reaching a zero-length write through it would mean pairing the key with
+/// a value type that happens to encode to nothing (`[u8; 0]` does; the
+/// encode-side check in [`encode_write`] only bounds the maximum), which
+/// spells "delete this entry" as an accident of the value type rather than
+/// as an intent at the call site.
+///
+/// This function is the explicit spelling instead: deletion stated as
+/// itself, independent of any value type — which also makes it available
+/// to a key that has no [`TypedStateKey`] pairing at all.
+///
+/// Deleting an entry that does not exist has no distinct "not found"
+/// failure — the host accepts a delete of an absent entry like any other
+/// empty write (xahaud's `set_state_cache` returns `DOESNT_EXIST` only for
+/// a missing *account*, never for a missing state entry; the write still
+/// goes through the state cache, so other state errors such as
+/// reserve-related ones can surface as usual). Hence `Result<()>` rather
+/// than "was there anything to delete" — read first with
+/// [`state_get`]/[`state_get_typed`] if that distinction matters.
+///
+/// Note that unlike every other function in this module, no value type is
+/// involved at all: any [`StateKeyEncode`] key works, whether or not it has
+/// a [`TypedStateKey`] pairing.
+#[inline(always)]
+pub fn state_delete(key: &impl StateKeyEncode) -> Result<()> {
+    let encoded = key.encode();
+    crate::api::state::state_set(&[], &encoded).map(|_| ())
+}
+
 /// Read a state entry belonging to another namespace/account, decoded as
 /// `T`. `namespace`/`account` follow
 /// [`crate::api::state::state_foreign`]'s `Option` convention. `Ok(None)`
@@ -618,7 +668,7 @@ where
 ///
 /// A `state_keys!` enum implements [`StateKeyEncode`] but not
 /// [`TypedStateKey`] — pair it with a value type via
-/// [`hook_state!`](crate::hook_state)'s backward-compatible two-type form
+/// [`hook_state!`](crate::hook_state)'s pairing form
 /// (both sides already declared) exactly like a `#[derive(HookKey)]`
 /// struct:
 ///
@@ -636,7 +686,16 @@ where
 ///     }
 /// }
 ///
-/// hook_state!(DataKey => u32);
+/// hook_state!(CounterState, DataKey => u32);
+///
+/// // The entity wraps the key it was paired with, and forwards
+/// // `StateKeyEncode::encode` straight through to it — so a `state_keys!`
+/// // enum pairs exactly as well as a `#[derive(HookKey)]` struct, without
+/// // needing `ToBytes` at all.
+/// assert_eq!(
+///     CounterState(DataKey::Counter).get_state(),
+///     Err(HookError::NotImplemented)
+/// );
 ///
 /// // `NotImplemented` here is the host stub every Hook API call returns on
 /// // a host build — this only proves the generated `TypedStateKey`/
@@ -1046,7 +1105,7 @@ mod tests {
     // comments). So this pairing is exercised as a doctest instead — see
     // `state_keys!`'s doc comment's "Pairing with `hook_state!`" section,
     // which pairs a `state_keys!` enum (the same shape as `TestKey` above)
-    // with `hook_state!`'s backward-compatible two-type form and asserts
+    // with `hook_state!`'s pairing form and asserts
     // the identical `NotImplemented`-on-host smoke behavior this test used
     // to check directly.
 }

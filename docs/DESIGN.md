@@ -687,14 +687,63 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
   `rollback(b"panic", ...)` then `unreachable` — examples just work; users
   embedding differently can disable it.
 - `hook_state!`/`hook_parameter!`/`otxn_parameter!` — a declaration-macro
-  **grammar staircase** of five forms (from a fully-fixed zero-sized
-  key/name down to a fully composite, runtime-constructed one, plus a
-  backward-compatible "pair two already-declared types" form; parameters
-  keep one more backward-compatible comma-form besides), each declaring in
-  one line what previously took a separate `#[derive(HookKey)]`/
-  `#[derive(HookData)]`/`#[derive(ParamName)]`/`#[derive(ParamValue)]`
-  struct plus a `Key => Value` pairing. See `hooks_lib::hook_state!`'s doc
-  comment for the full grammar and worked examples.
+  **grammar staircase** of six forms (from a fully-fixed zero-sized
+  key/name down to a fully composite, runtime-constructed one, plus an
+  `Entity, existing Name = bytes => Ty` form that attaches the key/name
+  impls to a type the *caller* declared, plus an `Entity, Key => Value`
+  pairing form that wraps a key/name the caller declared **and** already
+  gave an encoding to — local, encodable, and not already paired, since a
+  second pairing for the same key is rustc's `E0119`), each declaring in one
+  line what
+  previously took a separate `#[derive(HookKey)]`/`#[derive(HookData)]`/
+  `#[derive(ParamName)]`/`#[derive(ParamValue)]` struct plus a
+  `Key => Value` pairing. See `hooks_lib::hook_state!`'s doc comment for the
+  full grammar and worked examples.
+  **Every invocation names an entity first**, and the entity — not the
+  key/name — is the primary surface: `hook_state!(DepositState, DepositKey
+  {tag: u8, owner: AccountId} => Deposit {amount: u64})` declares both, and
+  `DepositState { tag: 1, owner }` is what carries
+  `get_state`/`set_state`/`update_state`/`delete_state` (a parameter entity
+  carries `get_value`, plus a `const fn get_name` on the two
+  fixed-byte-string forms). Each accessor is an `#[inline(always)]` forward
+  to the free function of the same name, so `entity.get_state()` and
+  `state_get_typed(&entity)` are the same code and the choice is purely one
+  of reading order. `delete_state` is backed by a free function,
+  `state::state_delete` — the explicit, value-type-independent deletion API
+  (deletion is a zero-length `state_set`, which `state_set_typed(&key,
+  &Value)` can only reach by way of a `Value` that happens to encode to
+  nothing, so spelling it as a call that takes only a key is both clearer
+  and available to keys with no pairing at all).
+  **The entity is a real key/name, not a method holder.** It implements the
+  role traits itself, so it works with every free, loose and `_foreign`
+  function — `state_foreign_get_typed(&entity, ..)` and the rest. How it
+  encodes depends on the form and never involves building a key value: a
+  fixed form encodes its declared literal, a struct/newtype form mirrors the
+  key's fields and runs the *identical* per-field codegen against its own,
+  and the pairing form forwards through `&self.0` (state:
+  `StateKeyEncode::encode`, which is why a `state_keys!` enum with no
+  `ToBytes` pairs fine; parameters: `ToBytes::write` plus
+  `TypedParamName::with_name_bytes` delegated to the name's own override, so
+  its exact-size buffer or `'static` literal survives). **Generated code
+  never constructs a caller-owned type** — that is what lets `existing` and
+  pairing work with a key that is non-`Copy`, privately built, or not
+  constructible from the invocation site at all.
+  The key/name type stays declared as a trait carrier with **no** inherent
+  accessors: putting them there would claim method names on a type the
+  caller may own, and would make the address of the thing look like the
+  thing. `existing` and pairing are **module-position only** (they emit
+  impls for a type the surrounding module owns; inside a fn they trip
+  rustc's `non_local_definitions`) — a supported-position policy, not a
+  parser rule, since a proc macro cannot see its own position.
+  **Optional leading visibility.** `pub`/`pub(crate)`/... before the entity
+  applies to every item the invocation declares — entity, key/name, inline
+  value, their fields, and a Form 2 `const` — all-or-nothing, private by
+  default. Making the generated items public does not make a caller-owned
+  type public: every such type reaching a public generated field or
+  associated type must be at least as visible, or rustc reports its own
+  `E0446`/`E0445`. Generated items carry doc comments for the same reason
+  they carry `#[allow(dead_code)]`: they land in the caller's crate, where
+  `missing_docs` may well be denied.
   **Function-like `#[proc_macro]`s in `hooks-macros`, not `macro_rules!`**
   (a change from the crate's original design): the grammar needs real
   lookahead disambiguation between forms (a `{`/bare `=`/`,`/second bare
@@ -706,12 +755,13 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
   macro-by-example. Still hand-rolled `proc_macro::TokenStream` parsing, no
   `syn`/`quote` (same reasoning as `#[hook]`/`#[cbak]` above): a flat,
   randomly-indexable token buffer with 2–3-token bounded lookahead is
-  enough to disambiguate every form. Every declared type name (a key/name
-  struct, or an inline value definition) must be `UpperCamelCase`, checked
-  at the macro invocation with a `compile_error!` naming the offending
-  identifier — the one piece of validation `macro_rules!` categorically
-  cannot do (there is no way to inspect an identifier's own spelling from
-  inside a `macro_rules!` matcher).
+  enough to disambiguate every form. Every declared type name — the entity,
+  a key/name struct, an inline value definition — must be `UpperCamelCase`,
+  and the three must be spelled differently from each other, both checked at
+  the macro invocation with a `compile_error!` naming the offending
+  identifier. That is the one piece of validation `macro_rules!`
+  categorically cannot do: there is no way to inspect an identifier's own
+  spelling from inside a `macro_rules!` matcher.
 
 **Every composite name/key this grammar declares gets an exact-size
 encode buffer, not a generic worst-case-sized one.** `TypedParamName`'s
@@ -720,10 +770,13 @@ R) -> R`, hands the caller a closure instead of writing into (or
 returning a reference into) a caller-owned buffer, so each concrete name
 type controls *where* its encoded bytes live: a `'static` literal for the
 zero-copy plain-byte-string forms, or, for every composite form
-(2/3/4/existing-type), a stack buffer sized to exactly that name's own
+(2/3/4), a stack buffer sized to exactly that name's own
 `ToBytes::MAX_LEN` — not the full 32-byte `PARAM_NAME_MAX_LEN` the
-trait's *generic* default body must fall back to (generic code can't
-spell `[0u8; Self::MAX_LEN]` on stable Rust; only a concrete, non-generic
+trait's *generic* default body must fall back to. A pairing entity adds no
+buffer of its own: it forwards `with_name_bytes` to the name's override,
+which this same invocation just generated at exactly that name's size.
+(Generic code can't spell `[0u8; Self::MAX_LEN]` on stable Rust; only a
+concrete, non-generic
 `impl` block can, the same restriction `FixedRead::read_exact`'s doc
 comment documents for the read side). Measured impact:
 `examples/81_govern`'s `IS{seat}` (a composite, runtime-varying name)
@@ -731,6 +784,15 @@ went from **+607** worst-case instructions over the raw baseline to
 **0** — see `examples/81_govern/src/lib.rs`'s `IS{seat}` doc comment.
 `examples/12_typed-data`'s composite `AdminName` parameter improved too
 (485 → 470 worst-case instructions), confirming the fix generalizes.
+Overriding `with_name_bytes` also *replaces* the trait default's own
+`1..=PARAM_NAME_MAX_LEN` length assertion, so every generated override
+carries a monomorphized copy of it. That matters most for the "pair two
+already-declared types" form, whose name type is caller-authored and never
+saw the derive-time check: without the copy, a `ToBytes` name encoding to
+0 bytes (which the host rejects at runtime) or to several kilobytes (a
+stack buffer well past the memset-inlining threshold) compiled with no
+complaint at all.
+
 `StateKeyEncode`/`EncodedStateKey` were checked for the identical
 asymmetry and found not to have it: a hook-state key's raw `[u8; N]`
 baseline *already* goes through `EncodedStateKey`'s own always-32-byte

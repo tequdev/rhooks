@@ -12,7 +12,9 @@
 //!   deposited amount and (re)starts a lock window ending `lock_ledgers`
 //!   ledgers from now.
 //! - `withdraw`: rejects if there is nothing deposited, or if the lock
-//!   window hasn't elapsed yet; otherwise zeroes the entry out.
+//!   window hasn't elapsed yet; otherwise **deletes** the entry, which
+//!   refunds the owner reserve it was holding (an all-zero entry left in
+//!   place would keep both the ledger object and the reserve).
 //!
 //! The minimum amount and lock window are themselves a `Config` struct,
 //! configurable at install time via the `CFG` Hook parameter (`hook_param`),
@@ -31,22 +33,34 @@
 //! [`hook_state!`]/[`hook_parameter!`]/[`otxn_parameter!`] in one line each
 //! — the key/name struct, its value struct (declared *inline*, right in the
 //! same declaration — `=> Name { field: Type, .. }`), and the pairing that
-//! lets `state_get_typed`/`state_set_typed`/`hook_param_typed`/
-//! `otxn_param_typed` be called with no turbofish and no chance of a
-//! key/value or name/value mismatch. See the README for the hand-packed
-//! byte layout this replaces and the measured worst-case-instruction-count
-//! comparison proving it zero-cost, and `hooks_lib::hook_state!`'s doc
-//! comment for the full grammar staircase (Forms 1–4 plus the
-//! backward-compatible existing-types form) this example exercises three
-//! steps of: Form 1 (`CfgName`/`InsName`, fully fixed names), Form 3
-//! (`DepositKey`/`AdminName`, struct-shaped, constructed per call site).
+//! lets each access be written with no turbofish and no chance of a
+//! key/value or name/value mismatch.
+//!
+//! Those declared types also carry their own accessors, which is how this
+//! hook reads and writes: `deposit.get_state()`/`deposit.set_state(&v)` for
+//! state, `Cfg.get_value()` for a parameter. Each is the method form of
+//! `state_get_typed(&deposit)`/`state_set_typed(&deposit, &v)`/
+//! `hook_param_typed(&CfgName)`/`otxn_param_typed(&InsName)`,
+//! `#[inline(always)]` onto the identical code — the README's measured
+//! instruction counts did not move when this hook switched to them.
+//!
+//! See the README for the hand-packed byte layout this replaces and the
+//! measured worst-case-instruction-count comparison proving it zero-cost,
+//! and `hooks_lib::hook_state!`'s doc comment for the full grammar
+//! staircase this example exercises three steps of: **Form 1**
+//! (`Cfg`/`Ins`, fully fixed names), **Form 3** (`DepositState`,
+//! struct-shaped, constructed per call site), and the **pairing form**
+//! (`AdminPause` wrapping the separately-derived `AdminName`, whose
+//! `with_name_bytes` the entity forwards to rather than re-deriving).
 //!
 //! Build: `hooks-build build --manifest-path examples/12_typed-data/Cargo.toml`
 
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, hook_parameter, hook_state, otxn_parameter, rollback};
+use hooks_lib::{
+    ParamName, accept, hook, hook_errors, hook_parameter, hook_state, otxn_parameter, rollback,
+};
 
 /// The one key "kind" this hook stores (reserved for future expansion —
 /// see `DepositKey`'s doc comment).
@@ -69,7 +83,8 @@ const DEFAULT_LOCK_LEDGERS: u32 = 10;
 // with an **inline** value definition, declaring in one line what a
 // `#[derive(HookKey)] struct DepositKey`, a
 // `#[derive(HookData)] struct DepositValue`, and a separate
-// `hook_state!(DepositKey => DepositValue)` pairing would otherwise take.
+// `hook_state!(DepositState, DepositKey => DepositValue)` pairing would
+// otherwise take.
 //
 // `tag` is a constant discriminant (always [`DEPOSIT_TAG`] in this hook) —
 // reserved so a future second record kind could share the same key space
@@ -83,50 +98,69 @@ const DEFAULT_LOCK_LEDGERS: u32 = 10;
 // allowed (meaningless while `amount` is `0`); `flags` — bit 0 is `1`
 // while a nonzero deposit is outstanding, `0` once withdrawn (or before
 // any deposit has ever been made).
-hook_state!(DepositKey {tag: u8, owner: AccountId} => DepositValue {amount: u64, deadline: u32, flags: u8});
+hook_state!(DepositState, DepositKey {tag: u8, owner: AccountId} => DepositValue {amount: u64, deadline: u32, flags: u8});
 
 // This hook's configuration, installed via the `CFG` Hook parameter — see
-// [`config`]. `hook_parameter!`'s **Form 1** (a fully fixed name — a new
-// zero-sized `CfgName` type, declared by this one line) with an **inline**
-// value definition (`Config`'s two fields).
+// [`config`]. `hook_parameter!`'s **Form 1** (a fully fixed name): one line
+// declares the `Cfg` entity, the zero-sized `CfgName` key component, and —
+// **inline** — the `Config` value with its two fields.
 //
 // `min_amount` — minimum drops a single `deposit` instruction must carry;
 // `lock_ledgers` — how many ledgers a deposit stays locked for, from the
 // ledger it was (re)deposited in.
-hook_parameter!(CfgName = b"CFG" => Config {min_amount: u64, lock_ledgers: u32});
+hook_parameter!(Cfg, CfgName = b"CFG" => Config {min_amount: u64, lock_ledgers: u32});
 
-// Per-invocation instruction, read from the *originating transaction's
-// own* `HookParameters` (via `otxn_param`, not `hook_param`) — every
-// Invoke that calls this hook attaches its own `INS` parameter, distinct
-// from the hook's installed `CFG` configuration. `otxn_parameter!`'s
-// **Form 1**, exactly like [`Config`] above but read via
-// `otxn_param_typed` instead of `hook_param_typed`.
+// Per-invocation instruction, read from the *originating transaction's own*
+// `HookParameters` (via `otxn_param`, not `hook_param`) — every Invoke that
+// calls this hook attaches its own `INS` parameter, distinct from the hook's
+// installed `CFG` configuration. `otxn_parameter!`'s **Form 1**, exactly
+// like [`Cfg`] above but read via `otxn_param` instead of `hook_param`:
+// which of the two an entity reads is fixed by the macro that declared it.
 //
-// `action` — [`ACTION_DEPOSIT`] or [`ACTION_WITHDRAW`]; `amount` — drops
-// to deposit (ignored for a withdrawal, which always empties the whole
+// `action` — [`ACTION_DEPOSIT`] or [`ACTION_WITHDRAW`]; `amount` — drops to
+// deposit (ignored for a withdrawal, which always empties the whole
 // balance).
-otxn_parameter!(InsName = b"INS" => Instruction {action: u8, amount: u64});
+otxn_parameter!(Ins, InsName = b"INS" => Instruction {action: u8, amount: u64});
 
-// A **composite, struct-shaped** Hook parameter *name* — `{section,
-// field}` — as opposed to `CFG`/`INS`'s plain byte-string tags.
-// `hook_parameter!`'s **Form 3** (struct-shaped name, constructed per call
-// site — see [`ADMIN_PAUSE`] below) with an inline `PauseSwitch` value:
-// `paused` nonzero means new deposits are rejected; zero (or the
-// parameter absent entirely) means deposits proceed normally.
+/// A **composite, struct-shaped** Hook parameter *name* — `{section,
+/// field}` — as opposed to `CFG`/`INS`'s plain byte-string tags.
+///
+/// `section`/`field` are reserved so future administrative parameters could
+/// share this same structured "Admin" name scheme without a naming
+/// collision — the same role `DepositKey`'s `tag` plays for state keys,
+/// applied to a Hook parameter name instead.
+///
+/// Declared with `#[derive(ParamName)]` and paired below, rather than
+/// inline like `CfgName`, to show the **pairing form**: a name type the
+/// caller already owns, wrapped by an entity that forwards to it. See the
+/// declaration below for what that forwarding costs (nothing).
+#[derive(ParamName, Clone, Copy)]
+struct AdminName {
+    section: u8,
+    field: u8,
+}
+
+// `hook_parameter!`'s **pairing form** (`Entity, Key => Value`): `AdminName`
+// is already a `ToBytes`/`TypedParamName`-capable name above, so this line
+// declares only the `AdminPause` entity — `struct AdminPause(AdminName);` —
+// plus an inline `PauseSwitch` value (`paused` nonzero means new deposits
+// are rejected; zero, or the parameter absent entirely, means deposits
+// proceed normally).
 //
-// `section`/`field` are reserved so future administrative parameters
-// could share this same structured "Admin" name scheme without a naming
-// collision — the same role `DepositKey`'s `tag` plays for state keys,
-// applied to a Hook parameter name instead.
-hook_parameter!(AdminName {section: u8, field: u8} => PauseSwitch {paused: u8});
+// The entity forwards `TypedParamName::with_name_bytes` straight to
+// `AdminName`'s own implementation rather than re-deriving one, so the
+// exact-size (2-byte) scratch buffer that name already had is what the
+// lookup uses — measured identical to naming it inline (see the README's
+// "Measured cost of a composite name" section).
+hook_parameter!(AdminPause, AdminName => PauseSwitch {paused: u8});
 
-/// The one [`AdminName`] value naming the "pause switch" parameter above —
+/// The one [`AdminPause`] value naming the "pause switch" parameter above —
 /// `section = 0` reserved for hook-wide administrative controls, `field =
 /// 0` the first (and, so far, only) control in that section.
-const ADMIN_PAUSE: AdminName = AdminName {
+const ADMIN_PAUSE: AdminPause = AdminPause(AdminName {
     section: 0,
     field: 0,
-};
+});
 
 hook_errors! {
     /// `typed-data` rollback codes.
@@ -151,7 +185,8 @@ hook_errors! {
         /// Reading this account's `DepositValue` failed with something
         /// other than "no entry" (`state`'s `DOESNT_EXIST`).
         StateReadFailed = 7,
-        /// Writing the updated `DepositValue` back failed.
+        /// Writing the updated `DepositValue` back — or, on a full
+        /// withdrawal, deleting it — failed.
         StateSetFailed = 8,
         /// A `deposit` instruction, but the [`AdminName`] pause switch is
         /// currently set. Withdrawals are never rejected for this reason.
@@ -162,13 +197,16 @@ hook_errors! {
 /// Reads this hook's [`Config`] from the `CFG` Hook parameter (named by
 /// [`CfgName`]), falling back to [`DEFAULT_MIN_AMOUNT`]/
 /// [`DEFAULT_LOCK_LEDGERS`] if it isn't set (or is the wrong size to be a
-/// valid `Config`) — the same `hook_param_typed` + `.unwrap_or(..)` pattern
-/// `examples/03_hook-params`'s `min_drops` uses for a single `u64` (there,
-/// `hook_param_exact`), here reading a whole struct in one call: passing
-/// `&CfgName` picks `Config` as the result type (see the `hook_parameter!`
-/// declaration above `Config`) — no turbofish, no return-type annotation.
+/// valid `Config`) — the same "read the parameter, `.unwrap_or(..)` a
+/// default" pattern `examples/03_hook-params`'s `min_drops` uses for a
+/// single `u64` (there, `hook_param_exact`), here reading a whole struct in
+/// one call: `Cfg.get_value()` resolves `Config` from the entity it is
+/// called on (see the `hook_parameter!` declaration above `Config`) — no
+/// turbofish, no return-type annotation. The method is
+/// `hook_param_typed(&CfgName)` inlined; either spelling compiles to the
+/// same thing.
 fn config() -> Config {
-    hook_param_typed(&CfgName).unwrap_or(Config {
+    Cfg.get_value().unwrap_or(Config {
         min_amount: DEFAULT_MIN_AMOUNT,
         lock_ledgers: DEFAULT_LOCK_LEDGERS,
     })
@@ -176,19 +214,24 @@ fn config() -> Config {
 
 /// Reads the [`AdminName`]-named [`PauseSwitch`] Hook parameter, returning
 /// whether new deposits are currently paused. Absent (never configured, or
-/// the wrong size) is treated as "not paused" — the same
-/// `hook_param_typed` + fallback pattern [`config`] uses, here collapsing the
-/// result down to a plain `bool` since the caller only needs the one bit.
-/// `PauseSwitch` (the closure's inferred parameter type) again comes from
-/// the `&ADMIN_PAUSE` argument, not an annotation.
+/// the wrong size) is treated as "not paused" — the same read-plus-fallback
+/// pattern [`config`] uses, here collapsing the result down to a plain
+/// `bool` since the caller only needs the one bit. `PauseSwitch` (the
+/// closure's inferred parameter type) again comes from the name
+/// `get_value` was called on, not an annotation — and note that
+/// `AdminName` is a *composite* name, so this is the encode-into-an
+/// exact-size-buffer path, not the `'static`-literal one `CfgName` takes.
 fn deposits_paused() -> bool {
-    hook_param_typed(&ADMIN_PAUSE)
+    ADMIN_PAUSE
+        .get_value()
         .map(|s| s.paused != 0)
         .unwrap_or(false)
 }
 
-/// An all-zero deposit record: no deposit ever made (or one already fully
-/// withdrawn).
+/// An all-zero deposit record: what a *read* decodes to when the account
+/// has no entry at all — either because it never deposited, or because a
+/// full withdrawal deleted the entry (see [`my_hook`]'s withdraw branch;
+/// this value is never stored).
 const EMPTY_DEPOSIT: DepositValue = DepositValue {
     amount: 0,
     deadline: 0,
@@ -206,9 +249,9 @@ fn my_hook() -> i64 {
         ),
     };
 
-    // `Instruction` (the binding's inferred type) comes from the `&InsName`
-    // argument, not an annotation.
-    let instruction = match otxn_param_typed(&InsName) {
+    // `Instruction` (the binding's inferred type) comes from the entity
+    // `get_value` is called on, not an annotation.
+    let instruction = match Ins.get_value() {
         Ok(v) => v,
         Err(_) => rollback!(
             b"typed-data: INS parameter missing or malformed",
@@ -216,12 +259,12 @@ fn my_hook() -> i64 {
         ),
     };
 
-    let key = DepositKey {
+    let deposit = DepositState {
         tag: DEPOSIT_TAG,
         owner,
     };
 
-    let current = match state_get_typed(&key) {
+    let current = match deposit.get_state() {
         Ok(existing) => existing.unwrap_or(EMPTY_DEPOSIT),
         Err(_) => rollback!(
             b"typed-data: state read failed",
@@ -264,7 +307,24 @@ fn my_hook() -> i64 {
                     TypedDataError::StillLocked
                 );
             }
-            EMPTY_DEPOSIT
+            // A withdrawal always empties the whole balance, so the record
+            // is **deleted**, not overwritten with [`EMPTY_DEPOSIT`]: an
+            // all-zero entry still occupies a ledger object and still holds
+            // the owner reserve it was created with, while a deletion (a
+            // zero-length `state_set`, which `delete_state` is the typed
+            // spelling of) frees both. `EMPTY_DEPOSIT` remains the value a
+            // *read* of a now-absent entry decodes to, above.
+            //
+            // This is the one path that cannot go through `set_state`: no
+            // `DepositValue` means "remove this" — see
+            // `hooks_lib::state::state_delete`'s doc comment.
+            if deposit.delete_state().is_err() {
+                rollback!(
+                    b"typed-data: state_set failed",
+                    TypedDataError::StateSetFailed
+                );
+            }
+            accept!(b"typed-data: ok", 0)
         }
         _ => rollback!(
             b"typed-data: unknown INS action",
@@ -272,7 +332,7 @@ fn my_hook() -> i64 {
         ),
     };
 
-    if state_set_typed(&key, &next).is_err() {
+    if deposit.set_state(&next).is_err() {
         rollback!(
             b"typed-data: state_set failed",
             TypedDataError::StateSetFailed

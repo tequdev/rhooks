@@ -16,8 +16,11 @@ XAHAUD_VERSION = "2026.6.21-release+3350"
 path = ["{{env.HOME}}/.local/share/mise/installs/rust/1.89.0"]
 
 [tasks.fmt]
-description = "Format the whole workspace"
-run = "cargo fmt --all"
+description = "Format the root workspace and the separate examples workspace"
+run = """
+cargo fmt --all
+cargo fmt --all --manifest-path examples/Cargo.toml
+"""
 
 [tasks.lint]
 description = "Lint the whole workspace (deny warnings)"
