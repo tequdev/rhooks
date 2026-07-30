@@ -178,7 +178,10 @@ pub fn parse_struct(input: TokenStream, derive_name: &str) -> Result<StructShape
 /// up to the next top-level comma, so a bracketed array type (`[u8; 20]`)
 /// or a multi-segment path (`crate::types::AccountId`) both work — nothing
 /// deeper than one field-list nesting level is inspected.
-fn parse_fields(stream: TokenStream, derive_name: &str) -> Result<Vec<FieldShape>, TokenStream> {
+pub(crate) fn parse_fields(
+    stream: TokenStream,
+    derive_name: &str,
+) -> Result<Vec<FieldShape>, TokenStream> {
     let mut iter = stream.into_iter().peekable();
     let mut fields = Vec::new();
 

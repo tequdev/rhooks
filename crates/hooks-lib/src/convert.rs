@@ -210,6 +210,22 @@ impl FromBytes for crate::xfl::XFL {
     }
 }
 
+/// Reuses `<[u8; 8] as FixedRead>::read_exact`'s exact-length machinery,
+/// then decodes the 8 bytes as the same little-endian raw `i64` bit
+/// pattern [`ToBytes`]/[`FromBytes`] above already use — so an `XFL`
+/// parameter (e.g. `examples/81_govern`'s `IRR`/`IRD`) reads exactly the
+/// bytes a raw `hook_param_exact::<[u8; 8]>` + `i64::from_le_bytes` +
+/// `XFL::from_raw_bits` call chain would, with the identical "must be
+/// exactly 8 bytes or `TooSmall`" contract.
+impl FixedRead for crate::xfl::XFL {
+    #[inline(always)]
+    fn read_exact(read: impl FnOnce(&mut [u8]) -> Result<usize>) -> Result<Self> {
+        <[u8; 8]>::read_exact(read)
+            .map(i64::from_le_bytes)
+            .map(crate::xfl::XFL::from_raw_bits)
+    }
+}
+
 impl<const N: usize> ToBytes for [u8; N] {
     const MAX_LEN: usize = N;
 
@@ -351,19 +367,42 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// # Zero-cost for the (overwhelmingly common) plain-byte-string case
 ///
 /// Encoding an arbitrary `ToBytes` value into bytes is, in general, a real
-/// (if small) runtime computation — [`name_bytes`](Self::name_bytes)'s
+/// (if small) runtime computation — [`with_name_bytes`](Self::with_name_bytes)'s
 /// default body runs `self.write(..)` once per call (Rust has no stable
 /// way to run a trait method at compile time yet). But a **plain
 /// byte-string name** has nothing to compute: its wire encoding *is* its
 /// in-memory representation. [`hook_parameter!`](crate::hook_parameter)/
 /// [`otxn_parameter!`](crate::otxn_parameter)'s two-argument form (a
 /// declared marker type plus the literal, e.g.
-/// `hook_parameter!(CfgName, b"CFG" => Config)`) overrides `name_bytes` to
-/// return the literal directly — a `'static` reference, no copy, no
-/// buffer, nothing to encode — skipping the default body entirely.
+/// `hook_parameter!(CfgName, b"CFG" => Config)`) overrides `with_name_bytes`
+/// to hand the literal straight to the closure — no copy, no buffer,
+/// nothing to encode — skipping the default body entirely.
 /// `examples/12_typed-data`'s README measures this directly: its plain
 /// `CFG`/`INS` names cost the identical worst-case instruction count as
 /// the loose `hook_param_exact`/`otxn_param_exact` this replaces.
+///
+/// # Near-zero-cost for the composite (struct-shaped) case too
+///
+/// A **composite** name (any [`hook_parameter!`](crate::hook_parameter)/
+/// [`otxn_parameter!`](crate::otxn_parameter) Form 2–4/existing-type
+/// declaration — a struct with more than one field, or a newtype whose
+/// inner type isn't itself a plain byte string) can't skip encoding
+/// entirely: something has to lay its fields out into contiguous bytes.
+/// But it doesn't need [`PARAM_NAME_MAX_LEN`] (32) bytes of stack scratch
+/// to do it, zero-initialized fresh on every call, only to use the first
+/// handful — every [`hook_parameter!`](crate::hook_parameter)/
+/// [`otxn_parameter!`](crate::otxn_parameter)-declared composite name
+/// overrides `with_name_bytes` to allocate exactly
+/// [`Self::MAX_LEN`](ToBytes::MAX_LEN) bytes instead: a compile-time
+/// literal at that impl's own (concrete, non-generic) definition site, so
+/// `[0u8; Self::MAX_LEN]` is ordinary stable Rust there, even though the
+/// *default* implementation below (generic over any `Self: ToBytes`, with
+/// no way to use an associated const as an array length in generic code —
+/// the same restriction [`FixedRead::read_exact`]'s doc comment describes)
+/// cannot do the same and falls back to the full [`PARAM_NAME_MAX_LEN`]
+/// scratch buffer. See `examples/12_typed-data`'s README for a measured
+/// example — a right-sized buffer compiles to the same cost as the raw,
+/// un-abstracted host call this typed layer replaces.
 ///
 /// # Relationship to the hook-state typed layer
 ///
@@ -382,22 +421,36 @@ pub trait TypedParamName: ToBytes {
     /// The one value type this name is paired with.
     type Value: FixedRead;
 
-    /// Encodes `self`'s parameter-name bytes into `buf`, returning the
-    /// encoded slice. `buf` must be at least [`PARAM_NAME_MAX_LEN`] bytes.
+    /// Encodes `self`'s parameter-name bytes and hands the result to `f`,
+    /// returning whatever `f` returns.
     ///
-    /// The default implementation runs `self.write(buf)` (the only option
-    /// for an arbitrary [`ToBytes`] type) and returns the written prefix —
-    /// correct for any composite, struct-shaped name, but a small, genuine
-    /// runtime encode. [`hook_parameter!`](crate::hook_parameter)/
-    /// [`otxn_parameter!`](crate::otxn_parameter)'s plain-byte-string form
-    /// overrides this to return the literal directly, ignoring `buf` and
-    /// `self` both — see this trait's "Zero-cost" section.
+    /// A closure, not a returned `&[u8]`/an out-buffer parameter, so each
+    /// implementation is free to choose *where* the encoded bytes live —
+    /// a `'static` literal (the zero-copy plain-byte-string case), or a
+    /// stack buffer sized exactly to `Self`'s own encoded length (the
+    /// composite case) — without the trait method's signature pinning
+    /// that choice to one fixed-size buffer shape. See this trait's
+    /// "Zero-cost"/"Near-zero-cost" doc sections for both cases in detail.
+    ///
+    /// The default implementation runs `self.write(..)` into a
+    /// [`PARAM_NAME_MAX_LEN`]-byte scratch buffer (the only option
+    /// available to code that is generic over an arbitrary [`ToBytes`]
+    /// `Self` — using [`Self::MAX_LEN`](ToBytes::MAX_LEN) as an array
+    /// length isn't legal in a *generic* default trait method on stable
+    /// Rust, only inside a concrete, non-generic `impl` — see
+    /// [`FixedRead::read_exact`]'s doc comment for the identical
+    /// restriction). [`hook_parameter!`](crate::hook_parameter)/
+    /// [`otxn_parameter!`](crate::otxn_parameter) override this default
+    /// for every form they declare: the plain-byte-string forms hand `f`
+    /// the `'static` literal directly (no buffer at all); every composite
+    /// form allocates a `[u8; Self::MAX_LEN]` buffer sized exactly to
+    /// itself, in its own concrete `impl` — see this trait's doc comment.
     ///
     /// A compile-time check (monomorphized per `Self`) rejects a `Self`
     /// whose [`ToBytes::MAX_LEN`] falls outside `1..=`[`PARAM_NAME_MAX_LEN`]
     /// — the Hook API's own bound on a parameter name's length.
     #[inline(always)]
-    fn name_bytes<'buf>(&self, buf: &'buf mut [u8; PARAM_NAME_MAX_LEN]) -> &'buf [u8] {
+    fn with_name_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         const {
             assert!(
                 <Self as ToBytes>::MAX_LEN >= 1,
@@ -410,208 +463,18 @@ pub trait TypedParamName: ToBytes {
                  32-byte parameter-name upper bound"
             );
         }
-        let n = self.write(buf);
-        buf.get(..n).unwrap_or(&[])
+        let mut buf = [0u8; PARAM_NAME_MAX_LEN];
+        let n = self.write(&mut buf);
+        f(buf.get(..n).unwrap_or(&[]))
     }
 }
 
-/// Implements [`TypedParamName`] for a **name** type, pairing it with
-/// `$Ty` — the one-line way to opt a name into
-/// [`crate::api::hook_ctx::hook_param_typed`] (this hook's own installed
-/// parameters). Two forms, both spelled `.. => $Ty`, mirroring
-/// [`crate::hook_state!`]'s `Key => Value` — the name (the part that
-/// *locates* the parameter) comes first, the type it names (what gets
-/// *retrieved*) comes last:
-///
-/// - `hook_parameter!($Name, $bytes => $Ty)` — `$Name` a marker type
-///   *already declared* by the caller (typically a unit struct, e.g.
-///   `struct CfgName;`); `$bytes` a byte-string literal (or any
-///   `&'static [u8; N]` expression) naming the parameter. Generates a
-///   trivial [`ToBytes`] impl for `$Name` (to satisfy
-///   [`TypedParamName`]'s supertrait bound) and overrides
-///   [`TypedParamName::name_bytes`] to return `$bytes` directly, at zero
-///   runtime cost (see [`TypedParamName`]'s "Zero-cost" section). Covers
-///   the common case, a plain short tag like `b"CFG"`.
-/// - `hook_parameter!($Name => $Ty)` — `$Name` any [`ToBytes`] type
-///   (typically a [`crate::ParamName`]-derived struct) — for a
-///   **composite** parameter name, the same idea as
-///   [`crate::hook_state!`]'s composite state key, just encoded at its own
-///   natural length instead of zero-padded. Uses
-///   [`TypedParamName::name_bytes`]'s default body (a small, genuine
-///   runtime encode — unavoidable for an arbitrary type). `$Ty` itself is
-///   typically [`crate::ParamValue`]-derived.
-///
-/// Either way, call [`crate::api::hook_ctx::hook_param_typed`] with **a
-/// reference to a name value** (`&CfgName` for the marker case, an
-/// ordinary struct literal like `&AdminName { section: 0, field: 0 }` for
-/// the composite case) — `$Ty` is inferred from the name argument, never a
-/// turbofish.
-///
-/// Identical grammar and expansion to
-/// [`otxn_parameter!`](crate::otxn_parameter) — the two are kept as
-/// **separate** macros (rather than one macro shared by both) purely for
-/// readability at the declaration site: `hook_parameter!` documents that a
-/// name is meant to be read via [`crate::api::hook_ctx::hook_param_typed`]
-/// (this hook's own installed parameters), [`otxn_parameter!`](crate::otxn_parameter)
-/// that it's meant for [`crate::api::otxn::otxn_param_typed`] (a parameter
-/// attached to the *originating transaction*) — both implement the exact
-/// same [`TypedParamName`] trait.
-///
-/// ```
-/// use hooks_lib::prelude::*;
-/// use hooks_lib::{ParamValue, hook_parameter};
-///
-/// #[derive(ParamValue)]
-/// struct Config {
-///     min_amount: u64,
-/// }
-///
-/// struct CfgName;
-/// hook_parameter!(CfgName, b"CFG" => Config);
-///
-/// let cfg = hook_param_typed(&CfgName);
-/// assert_eq!(cfg.err(), Some(HookError::NotImplemented));
-/// ```
-///
-/// A composite (struct-shaped) parameter name — the value type is
-/// inferred from the name argument, no annotation needed even inside
-/// `.is_err()`:
-///
-/// ```
-/// use hooks_lib::prelude::*;
-/// use hooks_lib::{ParamName, ParamValue, hook_parameter};
-///
-/// #[derive(ParamName, Clone, Copy)]
-/// struct SeatParamName {
-///     topic: u8,
-///     seat: u8,
-/// }
-///
-/// #[derive(ParamValue)]
-/// struct Vote {
-///     value: u8,
-/// }
-///
-/// hook_parameter!(SeatParamName => Vote);
-///
-/// let name = SeatParamName { topic: b'S', seat: 0 };
-/// assert!(hook_param_typed(&name).is_err());
-/// ```
-#[macro_export]
-macro_rules! hook_parameter {
-    ($Name:ty, $bytes:expr => $Ty:ty) => {
-        #[automatically_derived]
-        impl $crate::convert::ToBytes for $Name {
-            const MAX_LEN: usize = { $bytes.len() };
-
-            #[inline(always)]
-            fn write(&self, buf: &mut [u8]) -> usize {
-                $crate::convert::ToBytes::write($bytes, buf)
-            }
-        }
-
-        #[automatically_derived]
-        impl $crate::convert::TypedParamName for $Name {
-            type Value = $Ty;
-
-            #[inline(always)]
-            fn name_bytes<'buf>(
-                &self,
-                _buf: &'buf mut [u8; $crate::convert::PARAM_NAME_MAX_LEN],
-            ) -> &'buf [u8] {
-                $bytes
-            }
-        }
-    };
-    ($Name:ty => $Ty:ty) => {
-        #[automatically_derived]
-        impl $crate::convert::TypedParamName for $Name {
-            type Value = $Ty;
-        }
-    };
-}
-
-/// Implements [`TypedParamName`] for a **name** type, pairing it with
-/// `$Ty` — the one-line way to opt a name into
-/// [`crate::api::otxn::otxn_param_typed`] (a parameter attached to the
-/// *originating transaction*). Identical grammar and expansion to
-/// [`hook_parameter!`](crate::hook_parameter) — see that macro's doc
-/// comment for the full writeup (both forms, the "why two separate
-/// macros" rationale, why the name comes first, and the `hook_state!`
-/// parallel); kept as a separate macro purely so the declaration site
-/// documents which of `hook_param`/`otxn_param` a name is meant for.
-///
-/// ```
-/// use hooks_lib::prelude::*;
-/// use hooks_lib::{ParamValue, otxn_parameter};
-///
-/// #[derive(ParamValue)]
-/// struct Instruction {
-///     action: u8,
-/// }
-///
-/// struct InsName;
-/// otxn_parameter!(InsName, b"INS" => Instruction);
-///
-/// let ins = otxn_param_typed(&InsName);
-/// assert_eq!(ins.err(), Some(HookError::NotImplemented));
-/// ```
-///
-/// A composite (struct-shaped) parameter name:
-///
-/// ```
-/// use hooks_lib::prelude::*;
-/// use hooks_lib::{ParamName, ParamValue, otxn_parameter};
-///
-/// #[derive(ParamName, Clone, Copy)]
-/// struct SeatParamName {
-///     topic: u8,
-///     seat: u8,
-/// }
-///
-/// #[derive(ParamValue)]
-/// struct Vote {
-///     value: u8,
-/// }
-///
-/// otxn_parameter!(SeatParamName => Vote);
-///
-/// let name = SeatParamName { topic: b'S', seat: 0 };
-/// assert!(otxn_param_typed(&name).is_err());
-/// ```
-#[macro_export]
-macro_rules! otxn_parameter {
-    ($Name:ty, $bytes:expr => $Ty:ty) => {
-        #[automatically_derived]
-        impl $crate::convert::ToBytes for $Name {
-            const MAX_LEN: usize = { $bytes.len() };
-
-            #[inline(always)]
-            fn write(&self, buf: &mut [u8]) -> usize {
-                $crate::convert::ToBytes::write($bytes, buf)
-            }
-        }
-
-        #[automatically_derived]
-        impl $crate::convert::TypedParamName for $Name {
-            type Value = $Ty;
-
-            #[inline(always)]
-            fn name_bytes<'buf>(
-                &self,
-                _buf: &'buf mut [u8; $crate::convert::PARAM_NAME_MAX_LEN],
-            ) -> &'buf [u8] {
-                $bytes
-            }
-        }
-    };
-    ($Name:ty => $Ty:ty) => {
-        #[automatically_derived]
-        impl $crate::convert::TypedParamName for $Name {
-            type Value = $Ty;
-        }
-    };
-}
+// `hook_parameter!`/`otxn_parameter!`'s doc comments and re-exports live in
+// `lib.rs`, not here — see `hook_state!`'s identical note in `state.rs` for
+// why a plain `pub use` of a proc-macro must live at the crate root
+// directly, unlike the `#[macro_export]` `macro_rules!` these two used to
+// be (which hoisted to the crate root regardless of where they were
+// textually defined).
 
 #[cfg(test)]
 mod tests {
@@ -739,5 +602,30 @@ mod tests {
             assert_eq!(buf.len(), 7);
             Ok(buf.len())
         });
+    }
+
+    #[test]
+    fn xfl_fixed_read_succeeds_on_exact_write() {
+        use crate::xfl::XFL;
+        let bits = 0x1234_5678_9ABC_DEF0i64;
+        let result: Result<XFL> = XFL::read_exact(|buf| {
+            buf.copy_from_slice(&bits.to_le_bytes());
+            Ok(8)
+        });
+        assert_eq!(result.map(XFL::raw_bits), Ok(bits));
+    }
+
+    #[test]
+    fn xfl_fixed_read_rejects_short_write() {
+        use crate::xfl::XFL;
+        let result: Result<XFL> = XFL::read_exact(|_buf| Ok(7));
+        assert_eq!(result, Err(HookError::TooSmall));
+    }
+
+    #[test]
+    fn xfl_fixed_read_propagates_read_error() {
+        use crate::xfl::XFL;
+        let result: Result<XFL> = XFL::read_exact(|_buf| Err(HookError::InternalError));
+        assert_eq!(result, Err(HookError::InternalError));
     }
 }

@@ -13,9 +13,9 @@ table voting on an L1 topic, forwarded to L1 as an `Invoke`.
 Build: `hooks-build build --manifest-path examples/81_govern/Cargo.toml`
 (also wired into `mise run build-examples`).
 
-- Worst-case instructions: **44560** (`hook`), 0 (`cbak` — none declared)
+- Worst-case instructions: **44465** (`hook`), 0 (`cbak` — none declared)
 - Max block/loop/if nesting: **22** (limit: 32)
-- Binary size: **14373 bytes**
+- Binary size: **14521 bytes**
 
 ## Files
 
@@ -63,6 +63,36 @@ hook slot (`'H'`), or `'R'`/`'D'` (`'R'`); `layer` is `1` or `2` (always
 | `V` (1 byte) | The vote's data: 8 bytes (`'R'`), 20 bytes (`'S'`), or 32 bytes (`'H'`) |
 | `L` (1 byte) | 1-byte value: `1` or `2` — which layer this vote targets (L2 tables only; an L1 table's own votes are always layer 1) |
 
+## Parameter read semantics, and which ones migrated to `hook_parameter!`/`otxn_parameter!`
+
+`IMC`/`IS{seat}`/`IRR`/`IRD` are read via `hook_param` (hook-configuration
+parameters, set at `SetHook` time); `T`/`L`/`V` are read via `otxn_param`
+(parameters attached to the *voting* `Invoke` transaction itself). These
+two host functions have a real, load-bearing difference once the
+requested read is a fixed-size buffer, confirmed by reading xahaud's own
+implementation (`src/xrpld/app/hook/detail/HookAPI.cpp`/`applyHook.cpp`):
+
+- **`otxn_param`** explicitly checks `if (val.size() > write_len) return TOO_SMALL;` *before* writing — an actual value longer than the destination buffer is a hard error, never a silent truncation. A buffer-mode read into an exactly-`N`-byte buffer can therefore only ever return exactly `N` (success) or fail — identical to `FixedRead::read_exact`'s own contract (`written == N` or `TooSmall`).
+- **`hook_param`** has no such check — it always falls through to the generic `WRITE_WASM_MEMORY_AND_RETURN` path, which writes `min(actual_len, write_len)` bytes and returns that count. An actual value *longer* than the buffer is silently truncated and still reported as a full, successful `N`-byte read (matching `read_exact`'s check by coincidence, since `written` is always `N` when `actual >= N`) — but an actual value *shorter* than the buffer (including a valid, explicit **empty** parameter value — `hook_param_set`'s own documented range is 0–256 bytes, so this is a real, constructible state) is *also* reported as success (`written < N`, no error at all), which `read_exact`/a typed declaration would instead reject as `HookError::TooSmall`.
+
+| Param | Read via | govern.c check | Exact-length semantics? | Migrated? |
+|---|---|---|---|---|
+| `T` | `otxn_param` | `otxn_param(SBUF(topic), "T", 1)` against `!= 2` | Yes — `otxn_param` errors on oversized, partial-writes-on-undersized are caught by the same `!= 2` | **Yes** — `otxn_parameter!(TopicParamName = b"T" => [u8; 2])`; byte-for-byte equivalent |
+| `L` | `otxn_param` | `otxn_param(&l, 1, "L", 1)` against `!= 1` | Yes, same reasoning | **Yes** — `otxn_parameter!(LayerParamName = b"L" => [u8; 1])`; byte-for-byte equivalent |
+| `V` | `otxn_param` | `otxn_param(topic_data + padding, topic_size, "V", 1)` against `!= topic_size` | Yes, same reasoning, but `topic_size` is **runtime-varying** (8/20/32 depending on `t`) | **No** — variable length, not a length-semantics concern (see below) |
+| `IMC` | `hook_param` | `hook_param(SVAR(imc), "IMC", 3) < 0` — existence-only, **not** exact-length | No — an explicit empty `IMC` value silently succeeds as `imc = 0` in govern.c, then falls through to the *separate* `imc == 0` check | **Yes, with an intentional divergence** — `hook_parameter!(InitialMemberCountParamName = b"IMC" => [u8; 1])`; see below |
+| `IS{seat}` | `hook_param` | `hook_param(SBUF(member_acc), member_pkey, 3) != 20` — **exact-length** | Yes — govern.c itself checks `!= 20`, not `< 0`, for this one parameter | **Yes** (already migrated in an earlier commit — see `src/lib.rs`'s `MemberParamName` doc comment); byte-for-byte equivalent |
+| `IRR` | `hook_param` | `hook_param(SVAR(irr), "IRR", 3) < 0` — existence-only | No — a 1–7-byte partial `IRR` value silently succeeds (zero-padded tail, from wasm's zero-initialized locals) in govern.c, never rejected as too short | **Yes, with an intentional divergence** — `hook_parameter!(InitialRewardRateParamName = b"IRR" => XFL)`; see below |
+| `IRD` | `hook_param` | `hook_param(SVAR(ird), "IRD", 3) < 0` — existence-only | No, same reasoning as `IRR` | **Yes, with an intentional divergence** — `hook_parameter!(InitialRewardDelayParamName = b"IRD" => XFL)`; see below |
+
+**`T`/`L` migrated, byte-for-byte equivalent.** Both are read via `otxn_param`, and govern.c's own check for each is already an exact-length comparison, so `otxn_param_typed` (routing through `otxn_param_exact`/`FixedRead::read_exact`) reproduces the existing behavior exactly for every reachable input.
+
+**`V` left raw — variable length, unrelated to the length-strictness question below.** The expected length (`topic_size`) is chosen at runtime from `t`, not fixed. Splitting into three typed declarations (one per topic type) was considered but rejected: the read value is used as **opaque bytes** for the rest of the function (front-padded into a shared scratch buffer, then written to state/emitted-transaction bytes verbatim, never decoded into a semantic value anywhere in this crate) — decoding it into a typed value only to immediately re-encode it back into the same buffer would add real complexity for no type-safety benefit.
+
+**`IMC`/`IRR`/`IRD` migrated, *with* an intentional behavior difference from govern.c** — see the "Differences from govern.c" table below (#6) for the full argument. `XFL` gained a `FixedRead` impl for this migration (`crates/hooks-lib/src/convert.rs`), reusing `<[u8; 8]>::read_exact`'s exact-length machinery and the same little-endian raw `i64` bit pattern `ToBytes`/`FromBytes` for `XFL` already use.
+
+Reading `IRR`/`IRD` via `hook_param_typed` inline inside `setup` pushes its compiled nesting to 56 (over the 32-level limit) — `hooks-build`'s unnest pass is sensitive to a function's overall compiled shape, not just each call site's isolated cost. `setup_initial_reward_rate_and_delay`, a separate `#[inline(never)]` function, keeps nesting at 22.
+
 ## Behavior-equivalence table
 
 Each row is an input case and the govern.c branch it corresponds to
@@ -99,12 +129,13 @@ Each row is an input case and the govern.c branch it corresponds to
 | 3 | `q80`/`q51` computed via `member_count * 0.8`/`* 0.51` (hardware `double` multiplication, truncated) | Computed via exact integer arithmetic (`* 4 / 5`, `* 51 / 100`) | The Hook API's guard checker **rejects wasm floating-point opcodes outright** for a Guard-type hook — `f64.mul` et al. are not in the allowed instruction set. For every `member_count` this hook ever sees (`0..=20`), the two give identical truncated results (`0.8`'s `double` representation is exact enough that no value in range is within rounding distance of an integer boundary) — see the source comment in `lib.rs` for the full argument. |
 | 4 | `state()` returning `DOESNT_EXIST` specifically (vs. any other failure) selects the setup path | `state_i64(...)`'s `Result` is matched as `Err(_)` (any failure), not the specific `HookError::DoesntExist` variant | See "Toolchain limitation" below — a build constraint, not a behavior change. On the fixed 2-byte `"MC"` key, a well-formed table can only ever fail this read with "value not yet written"; no other `HookError` is reachable in practice. |
 | 5 | `n > HOOK_MAX` (`HOOK_MAX = 10`) lets hook topic `n == 10` through, even though only hook slots `0..=9` exist on a 10-element `Hooks` array | Preserved exactly (`HOOK_MAX: u8 = 10`, same `>` comparison) | Matches govern.c's own off-by-one; a vote for topic `H10` records/threshold-checks normally but its *actioning* (`action_hook`) would address a nonexistent 11th slot. Not independently verified against a live node (see "Testing" below) — flagged here rather than silently "fixed." |
+| 6 | `hook_param(...) < 0` (existence-only) selects whether `IMC`/`IRR`/`IRD` were provided at all — a parameter present but *shorter than expected* (e.g. a 3-byte `IRR`, or an explicit empty `IMC`) is accepted, with the unwritten remainder reading as zero | `hook_parameter!`'s typed accessors enforce an *exact*-length read (`HookError::TooSmall` on anything shorter), reusing the *same* rollback message govern.c uses for "missing entirely" | `IS{seat}` (`hook_param`'s only *other* caller in this file) already checks `!= 20`, an exact length, so treating `IMC`/`IRR`/`IRD` as existence-only reads more like a govern.c oversight than intended leniency — fixed here rather than reproduced. Pinned down by `e2e/test/govern.test.ts`'s "rejects a too-short IRR value..." regression test. |
 
-No other intentional behavioral differences. The setup sequence, the vote
-key/vote-count key overlap-clobber quirk (see `keys.rs`'s doc comments),
-the 8-case seat-change logic table, the vote garbage-collection double
-loop bounds, and the L1/L2 threshold formulas (`q80`/`q51`, floor `<2`
-clamped to `2`) are all transcribed exactly.
+Otherwise, no other intentional behavioral differences: the setup
+sequence, the vote key/vote-count key overlap-clobber quirk (see
+`keys.rs`'s doc comments), the 8-case seat-change logic table, the vote
+garbage-collection double loop bounds, and the L1/L2 threshold formulas
+(`q80`/`q51`, floor `<2` clamped to `2`) are all transcribed exactly.
 
 ## Emitted transactions
 

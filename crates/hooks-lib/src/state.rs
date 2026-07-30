@@ -194,7 +194,7 @@
 //! module's typed layer deliberately does not use.
 
 use crate::convert::{FromBytes, ToBytes};
-use crate::error::{HookError, Result};
+use crate::error::{HookError, Result, res};
 use crate::types::{STATE_KEY_LEN, StateKey};
 
 /// Maximum byte length of any value [`state_get`]/[`state_set_loose`]/
@@ -375,25 +375,36 @@ pub trait TypedStateKey: StateKeyEncode {
     type Value: ToBytes + FromBytes;
 }
 
-/// Shared read path for [`state_get`]/[`state_foreign_get`]: turns a raw
-/// `state`/`state_foreign` `Result<usize>` (bytes written into `raw`) into a
-/// decoded `Result<Option<T>>`, mapping
-/// [`crate::error::HookError::DoesntExist`] to `Ok(None)` (see the module
-/// doc comment). Factored out of the two public functions so the mapping
-/// logic has one, directly testable, definition.
+/// Shared read path for [`state_get`]/[`state_foreign_get`]: turns a
+/// **raw, undecoded** `state`/`state_foreign` host-call `i64` result
+/// (`code`; bytes written land in `raw`) into a decoded `Result<Option<T>>`,
+/// mapping "doesn't exist" to `Ok(None)` (see the module doc comment).
+///
+/// Takes the raw `code` directly — compared against
+/// [`hooks_core::DOESNT_EXIST`] *before* any [`HookError`] is ever
+/// constructed — rather than an already-decoded `Result<usize>`: matching
+/// one specific [`HookError`] variant out of an already-decoded value
+/// forces the compiler to keep the full ~44-arm [`HookError::from`] decode
+/// resolvable at this call site, and to fold that decode's own block
+/// nesting into the caller's once inlined into a large hook (measured: a
+/// 24→70 nesting-depth blowup, over the Hook API's 32-level guard-checker
+/// limit, when tried the other way). See DESIGN.md §5.1's "no
+/// specific-variant decode inside hooks-lib" principle. `res(code)` is
+/// still called on the one path that needs a full [`HookError`] (a real,
+/// non-"doesn't exist" error) — its caller only ever propagates that
+/// error onward via `?`, so [`HookError::from`]'s decode optimizes away
+/// there too.
+///
+/// Factored out of the two public functions so the mapping logic has one,
+/// directly testable, definition.
 #[inline(always)]
-fn decode_read<T: FromBytes>(
-    result: Result<usize>,
-    raw: &[u8; MAX_TYPED_STATE_LEN],
-) -> Result<Option<T>> {
-    match result {
-        Ok(n) => {
-            let src = raw.get(..n).ok_or(HookError::TooSmall)?;
-            T::read(src).map(Some)
-        }
-        Err(HookError::DoesntExist) => Ok(None),
-        Err(e) => Err(e),
+fn decode_read<T: FromBytes>(code: i64, raw: &[u8; MAX_TYPED_STATE_LEN]) -> Result<Option<T>> {
+    if code == hooks_core::DOESNT_EXIST {
+        return Ok(None);
     }
+    let n = res(code)? as usize;
+    let src = raw.get(..n).ok_or(HookError::TooSmall)?;
+    T::read(src).map(Some)
 }
 
 /// Shared write path for [`state_set_loose`]/[`state_foreign_set_loose`]:
@@ -425,8 +436,8 @@ fn encode_write<T: ToBytes>(value: &T) -> [u8; MAX_TYPED_STATE_LEN] {
 pub fn state_get<T: FromBytes>(key: &impl StateKeyEncode) -> Result<Option<T>> {
     let encoded = key.encode();
     let mut raw = [0u8; MAX_TYPED_STATE_LEN];
-    let result = crate::api::state::state(&mut raw, &encoded);
-    decode_read(result, &raw)
+    let code = crate::api::state::state_raw_code(&mut raw, &encoded);
+    decode_read(code, &raw)
 }
 
 /// Read this hook's own state entry for `key`, decoded as `key`'s own
@@ -497,8 +508,8 @@ pub fn state_foreign_get<T: FromBytes>(
 ) -> Result<Option<T>> {
     let encoded = key.encode();
     let mut raw = [0u8; MAX_TYPED_STATE_LEN];
-    let result = crate::api::state::state_foreign(&mut raw, &encoded, namespace, account);
-    decode_read(result, &raw)
+    let code = crate::api::state::state_foreign_raw_code(&mut raw, &encoded, namespace, account);
+    decode_read(code, &raw)
 }
 
 /// Write a state entry belonging to another namespace/account, encoding
@@ -602,6 +613,59 @@ where
 /// Rust discriminants, since a data-carrying variant cannot have one on
 /// stable Rust) — declaration order is significant, and inserting or
 /// reordering a variant changes every later variant's encoded key.
+///
+/// # Pairing with `hook_state!`
+///
+/// A `state_keys!` enum implements [`StateKeyEncode`] but not
+/// [`TypedStateKey`] — pair it with a value type via
+/// [`hook_state!`](crate::hook_state)'s backward-compatible two-type form
+/// (both sides already declared) exactly like a `#[derive(HookKey)]`
+/// struct:
+///
+/// ```
+/// use hooks_lib::prelude::*;
+/// use hooks_lib::{hook_state, state_keys};
+///
+/// state_keys! {
+///     /// This hook's persistent data.
+///     enum DataKey {
+///         /// A running counter.
+///         Counter,
+///         /// A per-owner balance, keyed by the owner's account.
+///         Balance(AccountId),
+///     }
+/// }
+///
+/// hook_state!(DataKey => u32);
+///
+/// // `NotImplemented` here is the host stub every Hook API call returns on
+/// // a host build — this only proves the generated `TypedStateKey`/
+/// // `state_get_typed` call chain compiles and runs.
+/// assert_eq!(
+///     state_get_typed(&DataKey::Counter),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_set_typed(&DataKey::Counter, &1u32),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_update_typed(&DataKey::Counter, |_| 1u32),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_foreign_get_typed(&DataKey::Counter, None, None),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_foreign_set_typed(&DataKey::Counter, &1u32, None, None),
+///     Err(HookError::NotImplemented)
+/// );
+/// assert_eq!(
+///     state_foreign_update_typed(&DataKey::Counter, None, None, |_| 1u32),
+///     Err(HookError::NotImplemented)
+/// );
+/// ```
 #[macro_export]
 macro_rules! state_keys {
     (
@@ -799,69 +863,13 @@ macro_rules! __state_keys_step {
     };
 }
 
-/// Implements [`TypedStateKey`] for `$Key`, pairing it with `$Value` — the
-/// one-line way to opt a key type into [`state_get_typed`]/
-/// [`state_set_typed`]/[`state_update_typed`] (+ `_foreign` twins).
-/// See [`TypedStateKey`]'s doc comment for why these are safer than the
-/// loose `state_get`/`state_set_loose`/`state_update_loose`.
-///
-/// ```
-/// use hooks_lib::prelude::*;
-/// use hooks_lib::{hook_state, HookData, HookKey};
-///
-/// #[derive(HookKey, Clone, Copy)]
-/// struct MyKey {
-///     tag: u8,
-/// }
-///
-/// #[derive(HookData, Clone, Copy, Debug, PartialEq)]
-/// struct MyValue {
-///     count: u32,
-/// }
-///
-/// hook_state!(MyKey => MyValue);
-///
-/// // `NotImplemented` here is the host stub every Hook API call returns on
-/// // a host build — this only proves the generated `TypedStateKey`/
-/// // `state_get_typed` call chain compiles and runs.
-/// assert_eq!(
-///     state_get_typed(&MyKey { tag: 0 }),
-///     Err(HookError::NotImplemented)
-/// );
-/// ```
-///
-/// # `$Key` must be a *local* type — a bare `[u8; N]` does not work here
-///
-/// `hook_state!` expands to `impl TypedStateKey for $Key { .. }`, and Rust's
-/// orphan rule requires either the trait or the type being implemented to
-/// be local to the current crate. From a hook crate (which is never
-/// `hooks_lib` itself), [`TypedStateKey`] is a foreign trait, so `$Key`
-/// must be a type the hook crate itself defines — in practice, a
-/// `#[derive(HookKey)]` struct (see [`crate::HookKey`]), even a
-/// single-field one wrapping a plain `[u8; N]`. A bare `[u8; N]` (a `core`
-/// type, not local to the hook crate either) fails to compile with rustc's
-/// own orphan-rule diagnostic (`E0117`) — [`crate::state::state_get`]/
-/// [`crate::state::state_set_loose`] (the *loose*, independently-typed
-/// accessors) remain the right choice for a bare array key that has no
-/// business being paired with exactly one value type:
-///
-/// ```compile_fail
-/// use hooks_lib::prelude::*;
-/// use hooks_lib::hook_state;
-///
-/// // ERROR (E0117): neither `TypedStateKey` nor `[u8; 7]` is local to
-/// // this crate — wrap the key in a local `#[derive(HookKey)]` struct
-/// // instead (see the example above).
-/// hook_state!([u8; 7] => u64);
-/// ```
-#[macro_export]
-macro_rules! hook_state {
-    ($Key:ty => $Value:ty) => {
-        impl $crate::state::TypedStateKey for $Key {
-            type Value = $Value;
-        }
-    };
-}
+// `hook_state!`'s doc comment and re-export live in `lib.rs`, not here:
+// `#[macro_export]`-style hoisting to the crate root (what the old
+// `macro_rules!` version of this macro relied on) doesn't apply to a plain
+// `pub use` of a proc-macro — it re-exports at wherever the `pub use`
+// itself is written, so it has to be at the crate root directly (matching
+// where every other proc-macro re-export — `HookKey`, `HookData`, `hook`,
+// `cbak`, ... — already lives).
 
 #[cfg(test)]
 mod tests {
@@ -877,17 +885,14 @@ mod tests {
     #[test]
     fn state_get_maps_doesnt_exist_to_none() {
         let raw = [0u8; MAX_TYPED_STATE_LEN];
-        assert_eq!(
-            decode_read::<u32>(Err(HookError::DoesntExist), &raw),
-            Ok(None)
-        );
+        assert_eq!(decode_read::<u32>(hooks_core::DOESNT_EXIST, &raw), Ok(None));
     }
 
     #[test]
     fn state_get_propagates_other_errors() {
         let raw = [0u8; MAX_TYPED_STATE_LEN];
         assert_eq!(
-            decode_read::<u32>(Err(HookError::InternalError), &raw),
+            decode_read::<u32>(hooks_core::INTERNAL_ERROR, &raw),
             Err(HookError::InternalError)
         );
     }
@@ -896,7 +901,7 @@ mod tests {
     fn state_get_decodes_present_value() {
         let mut raw = [0u8; MAX_TYPED_STATE_LEN];
         raw[0] = 42;
-        assert_eq!(decode_read::<u32>(Ok(4), &raw), Ok(Some(42u32)));
+        assert_eq!(decode_read::<u32>(4, &raw), Ok(Some(42u32)));
     }
 
     #[test]
@@ -904,7 +909,7 @@ mod tests {
         // 3 bytes written is not enough for a `u32` (needs 4): this must
         // surface as an `Err`, never be confused with "absent."
         let raw = [0u8; MAX_TYPED_STATE_LEN];
-        assert_eq!(decode_read::<u32>(Ok(3), &raw), Err(HookError::TooSmall));
+        assert_eq!(decode_read::<u32>(3, &raw), Err(HookError::TooSmall));
     }
 
     #[test]
@@ -1030,33 +1035,18 @@ mod tests {
     // `TypedStateKey`/`hook_state!`: a key type paired with exactly one
     // value type, via the paired `_typed`-suffixed functions (see their
     // doc comments).
-    hook_state!(TestKey => u32);
-
-    #[test]
-    fn typed_pair_smoke_not_implemented_on_host() {
-        assert_eq!(
-            state_get_typed(&TestKey::Counter),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_set_typed(&TestKey::Counter, &1u32),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_update_typed(&TestKey::Counter, |_| 1u32),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_foreign_get_typed(&TestKey::Counter, None, None),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_foreign_set_typed(&TestKey::Counter, &1u32, None, None),
-            Err(HookError::NotImplemented)
-        );
-        assert_eq!(
-            state_foreign_update_typed(&TestKey::Counter, None, None, |_| 1u32),
-            Err(HookError::NotImplemented)
-        );
-    }
+    //
+    // `hook_state!` is a proc-macro (see `hooks_lib::hook_state!`'s doc
+    // comment) whose expansion hardcodes `::hooks_lib::...` paths — correct
+    // when invoked from an external hook crate (where `hooks_lib` is a
+    // real, named dependency), but not resolvable from *inside* this crate's
+    // own `#[cfg(test)]` module (the same reason `#[derive(HookKey)]`/
+    // `#[derive(HookData)]`/etc. are only ever exercised via doctests here,
+    // never in-crate — see e.g. `lib.rs`'s `HookData`/`HookKey` doc
+    // comments). So this pairing is exercised as a doctest instead — see
+    // `state_keys!`'s doc comment's "Pairing with `hook_state!`" section,
+    // which pairs a `state_keys!` enum (the same shape as `TestKey` above)
+    // with `hook_state!`'s backward-compatible two-type form and asserts
+    // the identical `NotImplemented`-on-host smoke behavior this test used
+    // to check directly.
 }

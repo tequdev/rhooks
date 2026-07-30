@@ -108,7 +108,7 @@ fn layout_table_doc(shape: &StructShape) -> String {
 
 /// Generates the `ToBytes`/`FromBytes`/`FixedRead` impls plus the inherent
 /// `LEN` const, for an already-validated [`StructShape`].
-fn generate(shape: &StructShape) -> TokenStream {
+pub(crate) fn generate(shape: &StructShape) -> TokenStream {
     let name = &shape.name;
 
     let mut max_len_expr = String::from("0usize");

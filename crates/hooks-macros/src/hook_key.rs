@@ -64,7 +64,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 /// [`StructShape`]. Deliberately does *not* generate `FromBytes`/
 /// `FixedRead`/an inherent `LEN` const — see this module's doc comment for
 /// why.
-fn generate(shape: &StructShape) -> TokenStream {
+pub(crate) fn generate(shape: &StructShape) -> TokenStream {
     let name = &shape.name;
 
     let mut max_len_expr = String::from("0usize");
@@ -115,14 +115,53 @@ impl ::hooks_lib::convert::ToBytes for {name} {{
     }}
 }}
 
+{state_key_encode}
+",
+        name = name,
+        max_len_expr = max_len_expr,
+        offset_consts = offset_consts,
+        write_body = write_body,
+        state_key_encode = state_key_encode_impl(name),
+    );
+
+    match src.parse::<TokenStream>() {
+        Ok(ts) => ts,
+        Err(_) => err(
+            shape.name_span,
+            "hooks-macros: internal HookKey codegen failed to parse",
+        ),
+    }
+}
+
+/// Generates the `StateKeyEncode` impl for `name` (which must already have
+/// a `ToBytes` impl in scope): a compile-time (monomorphized) assert that
+/// `<name as ToBytes>::MAX_LEN` is `1..=STATE_KEY_LEN` — the Hook API's own
+/// key-length bound — followed by `encode()`'s body, writing `self` into a
+/// 32-byte scratch buffer via its own `ToBytes::write` and wrapping the
+/// result in an [`EncodedStateKey`](::hooks_lib::state::EncodedStateKey) at
+/// its real length (never locally zero-padded — see `hooks_lib::state`'s
+/// module doc comment, "Key length and padding").
+///
+/// Factored out so [`crate::decl_pair`]'s `hook_state!` declaration-macro
+/// grammar (whose Form 1 — a fixed-byte-string ZST key — has no struct
+/// fields for this module's normal per-field codegen to walk) can reuse the
+/// exact same encode-from-`ToBytes` logic this derive uses for a
+/// field-based struct, rather than a second, potentially-drifting copy.
+pub(crate) fn state_key_encode_impl(name: &str) -> String {
+    format!(
+        "
 #[automatically_derived]
 impl ::hooks_lib::state::StateKeyEncode for {name} {{
     #[inline(always)]
     fn encode(&self) -> ::hooks_lib::state::EncodedStateKey {{
         const {{
             assert!(
+                <{name} as ::hooks_lib::convert::ToBytes>::MAX_LEN >= 1,
+                \"hooks-macros: a hook-state key must encode to at least 1 byte (the Hook API's own key-length lower bound)\"
+            );
+            assert!(
                 <{name} as ::hooks_lib::convert::ToBytes>::MAX_LEN <= ::hooks_lib::types::STATE_KEY_LEN,
-                \"hooks-macros: #[derive(HookKey)] struct would need more than 32 bytes to encode (the state key space)\"
+                \"hooks-macros: a hook-state key would need more than 32 bytes to encode (the state key space)\"
             );
         }}
         let mut __raw = [0u8; ::hooks_lib::types::STATE_KEY_LEN];
@@ -135,16 +174,5 @@ impl ::hooks_lib::state::StateKeyEncode for {name} {{
 }}
 ",
         name = name,
-        max_len_expr = max_len_expr,
-        offset_consts = offset_consts,
-        write_body = write_body,
-    );
-
-    match src.parse::<TokenStream>() {
-        Ok(ts) => ts,
-        Err(_) => err(
-            shape.name_span,
-            "hooks-macros: internal HookKey codegen failed to parse",
-        ),
-    }
+    )
 }

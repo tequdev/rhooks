@@ -132,9 +132,7 @@ pub fn hook_param_exact<T: FixedRead>(name: &[u8]) -> Result<T> {
 /// ```
 #[inline(always)]
 pub fn hook_param_typed<N: TypedParamName>(name: &N) -> Result<N::Value> {
-    let mut name_buf = [0u8; crate::convert::PARAM_NAME_MAX_LEN];
-    let name = name.name_bytes(&mut name_buf);
-    hook_param_exact::<N::Value>(name)
+    name.with_name_bytes(hook_param_exact::<N::Value>)
 }
 
 /// Set a parameter named `name` to `value` on the hook identified by
@@ -185,8 +183,8 @@ mod tests {
         );
     }
 
-    // Simple/static form: `Name` is a marker type, `name_bytes` overridden
-    // to skip the default (encoding) body entirely.
+    // Simple/static form: `Name` is a marker type, `with_name_bytes`
+    // overridden to skip the default (encoding) body entirely.
     #[derive(Debug, PartialEq)]
     struct TestParam([u8; 4]);
 
@@ -209,17 +207,14 @@ mod tests {
     impl crate::convert::TypedParamName for TestParamName {
         type Value = TestParam;
 
-        fn name_bytes<'buf>(
-            &self,
-            _buf: &'buf mut [u8; crate::convert::PARAM_NAME_MAX_LEN],
-        ) -> &'buf [u8] {
-            b"x"
+        fn with_name_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+            f(b"x")
         }
     }
 
-    // Composite form: relies on `TypedParamName::name_bytes`'s default
-    // body (the genuine runtime encode, exercised here with a trivial
-    // one-field name).
+    // Composite form: relies on `TypedParamName::with_name_bytes`'s
+    // default body (the genuine runtime encode, exercised here with a
+    // trivial one-field name).
     #[derive(Debug, PartialEq)]
     struct TestKeyParam([u8; 4]);
 

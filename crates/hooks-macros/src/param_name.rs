@@ -65,7 +65,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 /// assert, for an already-validated [`StructShape`]. Deliberately does
 /// *not* generate `FromBytes`/`FixedRead`/an inherent `LEN` const — see
 /// this module's doc comment for why.
-fn generate(shape: &StructShape) -> TokenStream {
+pub(crate) fn generate(shape: &StructShape) -> TokenStream {
     let name = &shape.name;
 
     let mut max_len_expr = String::from("0usize");
@@ -116,22 +116,13 @@ impl ::hooks_lib::convert::ToBytes for {name} {{
     }}
 }}
 
-#[automatically_derived]
-const _: () = {{
-    assert!(
-        <{name} as ::hooks_lib::convert::ToBytes>::MAX_LEN >= 1,
-        \"hooks-macros: #[derive(ParamName)] struct must encode to at least 1 byte (the Hook API's parameter-name lower bound)\"
-    );
-    assert!(
-        <{name} as ::hooks_lib::convert::ToBytes>::MAX_LEN <= ::hooks_lib::convert::PARAM_NAME_MAX_LEN,
-        \"hooks-macros: #[derive(ParamName)] struct exceeds the Hook API's 32-byte parameter-name upper bound\"
-    );
-}};
+{length_assert}
 ",
         name = name,
         max_len_expr = max_len_expr,
         offset_consts = offset_consts,
         write_body = write_body,
+        length_assert = param_name_length_assert(name),
     );
 
     match src.parse::<TokenStream>() {
@@ -141,4 +132,34 @@ const _: () = {{
             "hooks-macros: internal ParamName codegen failed to parse",
         ),
     }
+}
+
+/// Generates the compile-time (monomorphized) assert that `<name as
+/// ToBytes>::MAX_LEN` is `1..=PARAM_NAME_MAX_LEN` — the Hook API's own
+/// parameter-name length bound (`name` must already have a `ToBytes` impl
+/// in scope).
+///
+/// Factored out so [`crate::decl_pair`]'s `hook_parameter!`/
+/// `otxn_parameter!` declaration-macro grammar (whose fixed-byte-string ZST
+/// name form has no struct fields for this module's normal per-field
+/// codegen to walk) can reuse the exact same bound check this derive uses
+/// for a field-based struct, rather than a second, potentially-drifting
+/// copy.
+pub(crate) fn param_name_length_assert(name: &str) -> String {
+    format!(
+        "
+#[automatically_derived]
+const _: () = {{
+    assert!(
+        <{name} as ::hooks_lib::convert::ToBytes>::MAX_LEN >= 1,
+        \"hooks-macros: a Hook API parameter name must encode to at least 1 byte (the Hook API's parameter-name lower bound)\"
+    );
+    assert!(
+        <{name} as ::hooks_lib::convert::ToBytes>::MAX_LEN <= ::hooks_lib::convert::PARAM_NAME_MAX_LEN,
+        \"hooks-macros: a Hook API parameter name would exceed the Hook API's 32-byte parameter-name upper bound\"
+    );
+}};
+",
+        name = name,
+    )
 }

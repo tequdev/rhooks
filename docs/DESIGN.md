@@ -364,6 +364,37 @@ whatever `HookError`-specific handling each already had), but a crate
 piling up several specific-variant comparisons against *either* enum adds
 up against the same 32-level ceiling.
 
+**hooks-lib's own internal paths must not use this pattern at all.** The
+budget above ("at most one specific-variant match site per crate") is a
+concession for *hook authors*, who have no cheaper alternative once they
+need to branch on a particular `HookError`. `hooks-lib` itself is not in
+that position: every one of its host-call wrappers already has the raw,
+undecoded `i64` return code in hand *before* it ever calls `res`/
+`HookError::from`, so comparing that code directly against a raw constant
+(`hooks_core::DOESNT_EXIST`, `hooks_core::NOT_IMPLEMENTED`, …) needs no
+enum-decode machinery at all — zero specific-variant-match sites, not one.
+`crate::state::decode_read` (shared by `state_get`/`state_foreign_get`)
+and `crate::api::state::value_or_absent` (shared by every
+`state_update_*`) both compare the raw `code` against `hooks_core::
+DOESNT_EXIST` before any `HookError` is decoded, for exactly this reason —
+the `Err(HookError::from(code))` fallback path is unaffected, since every
+call site still only matches it as a bare `Err(_)`. Concretely: migrating
+`examples/80_reward`'s `"RR"`/`"RD"` state reads to `hook_state!` +
+`state_get_typed` needs this — without it, that migration pushes nesting
+from 24 to 70 (over the limit); with it, nesting stays at 24 — see
+`examples/80_reward/src/lib.rs` for the migrated call site. (One further
+wrinkle: the raw-code helpers this needs — `state_raw_code`,
+`state_u64_raw_code`, `state_foreign_raw_code` in
+`crates/hooks-lib/src/api/state.rs` — are
+*not* called by the existing `state`/`state_u64`/`state_foreign` public
+wrappers, even though the logic is identical; routing those wrappers
+through the new helpers, even with both sides `#[inline(always)]`,
+measurably changed `hooks-build`'s unnest-pass output for an unrelated
+hook that never touches the new path at all. Each raw-code helper is
+instead an independent duplicate of its wrapper's body — a small amount of
+source duplication traded for a call-graph shape provably identical to
+before the helper existed. See the doc comments on those functions.)
+
 ### 5.2 API wrapper conventions
 
 - Caller-provided buffers, length returned — zero-copy and panic-free:
@@ -655,6 +686,60 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
 - Panic handler behind default feature `panic-handler`:
   `rollback(b"panic", ...)` then `unreachable` — examples just work; users
   embedding differently can disable it.
+- `hook_state!`/`hook_parameter!`/`otxn_parameter!` — a declaration-macro
+  **grammar staircase** of five forms (from a fully-fixed zero-sized
+  key/name down to a fully composite, runtime-constructed one, plus a
+  backward-compatible "pair two already-declared types" form; parameters
+  keep one more backward-compatible comma-form besides), each declaring in
+  one line what previously took a separate `#[derive(HookKey)]`/
+  `#[derive(HookData)]`/`#[derive(ParamName)]`/`#[derive(ParamValue)]`
+  struct plus a `Key => Value` pairing. See `hooks_lib::hook_state!`'s doc
+  comment for the full grammar and worked examples.
+  **Function-like `#[proc_macro]`s in `hooks-macros`, not `macro_rules!`**
+  (a change from the crate's original design): the grammar needs real
+  lookahead disambiguation between forms (a `{`/bare `=`/`,`/second bare
+  identifier immediately after the declared name) that `macro_rules!`
+  transcribers can't express directly, and reuses the same struct-shape
+  parsing/codegen `#[derive(HookKey)]`/`#[derive(HookData)]`/
+  `#[derive(ParamName)]`/`#[derive(ParamValue)]` already provide (see
+  `hooks-macros`'s `decl_pair` module) rather than duplicating it in a
+  macro-by-example. Still hand-rolled `proc_macro::TokenStream` parsing, no
+  `syn`/`quote` (same reasoning as `#[hook]`/`#[cbak]` above): a flat,
+  randomly-indexable token buffer with 2–3-token bounded lookahead is
+  enough to disambiguate every form. Every declared type name (a key/name
+  struct, or an inline value definition) must be `UpperCamelCase`, checked
+  at the macro invocation with a `compile_error!` naming the offending
+  identifier — the one piece of validation `macro_rules!` categorically
+  cannot do (there is no way to inspect an identifier's own spelling from
+  inside a `macro_rules!` matcher).
+
+**Every composite name/key this grammar declares gets an exact-size
+encode buffer, not a generic worst-case-sized one.** `TypedParamName`'s
+one abstract method, `with_name_bytes<R>(&self, f: impl FnOnce(&[u8]) ->
+R) -> R`, hands the caller a closure instead of writing into (or
+returning a reference into) a caller-owned buffer, so each concrete name
+type controls *where* its encoded bytes live: a `'static` literal for the
+zero-copy plain-byte-string forms, or, for every composite form
+(2/3/4/existing-type), a stack buffer sized to exactly that name's own
+`ToBytes::MAX_LEN` — not the full 32-byte `PARAM_NAME_MAX_LEN` the
+trait's *generic* default body must fall back to (generic code can't
+spell `[0u8; Self::MAX_LEN]` on stable Rust; only a concrete, non-generic
+`impl` block can, the same restriction `FixedRead::read_exact`'s doc
+comment documents for the read side). Measured impact:
+`examples/81_govern`'s `IS{seat}` (a composite, runtime-varying name)
+went from **+607** worst-case instructions over the raw baseline to
+**0** — see `examples/81_govern/src/lib.rs`'s `IS{seat}` doc comment.
+`examples/12_typed-data`'s composite `AdminName` parameter improved too
+(485 → 470 worst-case instructions), confirming the fix generalizes.
+`StateKeyEncode`/`EncodedStateKey` were checked for the identical
+asymmetry and found not to have it: a hook-state key's raw `[u8; N]`
+baseline *already* goes through `EncodedStateKey`'s own always-32-byte
+buffer (the Hook API left-pads a short key host-side, so every key is
+carried in a fixed 32-byte struct field either way), so there is no
+zero-copy baseline being lost the way `hook_param_exact`'s direct
+pointer-passthrough was for names — confirmed by measuring composite
+state keys (`examples/02_state-counter`'s `hook_state!` Form 2), which
+show no cost change.
 
 ### 5.5 Emitted-transaction templates: `txn_template!` (user-defined layouts)
 
