@@ -364,6 +364,46 @@ whatever `HookError`-specific handling each already had), but a crate
 piling up several specific-variant comparisons against *either* enum adds
 up against the same 32-level ceiling.
 
+**hooks-lib's own internal paths must not use this pattern at all.** The
+budget above ("at most one specific-variant match site per crate") is a
+concession for *hook authors*, who have no cheaper alternative once they
+need to branch on a particular `HookError`. `hooks-lib` itself is not in
+that position: every one of its host-call wrappers already has the raw,
+undecoded `i64` return code in hand *before* it ever calls `res`/
+`HookError::from`. Comparing that raw code directly against a raw constant
+(`hooks_core::DOESNT_EXIST`, `hooks_core::NOT_IMPLEMENTED`, …) is a single
+scalar `i64` comparison with no enum-decode machinery involved at all — not
+"one specific-variant match site" that still has to be paid for once, but
+*zero* sites, because no `HookError` is ever constructed on that path.
+`crate::state::decode_read` (shared by `state_get`/`state_foreign_get`) and
+`crate::api::state::value_or_absent` (shared by every `state_update_*`) are
+the two places this previously mapped "doesn't exist" by decoding the
+result first and matching `Err(HookError::DoesntExist)` — a pattern that
+is indistinguishable, from the compiler's point of view, from a hook
+author's own specific-variant match, and so paid the same nesting cost
+*inside hooks-lib*, compounding whatever budget the calling hook had left.
+Both were rewritten to compare the raw `code` against `hooks_core::
+DOESNT_EXIST` before any `HookError` is decoded; the `Err(HookError::
+from(code))` fallback path (reached only once the raw-code check has
+already ruled out "doesn't exist") is unaffected, since it is still a bare
+`Err(_)` at every one of its own call sites. This is what made re-migrating
+`examples/80_reward`'s `"RR"`/`"RD"` state reads to `hook_state!` +
+`state_get_typed` safe: before this fix that migration pushed nesting from
+24 to 70 (over the limit) purely from `decode_read`'s internal
+specific-variant match being inlined alongside the hook's own; after it,
+nesting stays at 24 — see `examples/80_reward/src/lib.rs` for the migrated
+call site. (One further, empirically-discovered wrinkle: the raw-code
+helpers this required — `state_raw_code`, `state_u64_raw_code`,
+`state_foreign_raw_code` in `crates/hooks-lib/src/api/state.rs` — are
+*not* called by the existing `state`/`state_u64`/`state_foreign` public
+wrappers, even though the logic is identical; routing those wrappers
+through the new helpers, even with both sides `#[inline(always)]`,
+measurably changed `hooks-build`'s unnest-pass output for an unrelated
+hook that never touches the new path at all. Each raw-code helper is
+instead an independent duplicate of its wrapper's body — a small amount of
+source duplication traded for a call-graph shape provably identical to
+before the helper existed. See the doc comments on those functions.)
+
 ### 5.2 API wrapper conventions
 
 - Caller-provided buffers, length returned — zero-copy and panic-free:

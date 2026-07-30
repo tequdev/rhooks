@@ -144,6 +144,47 @@ pub fn state<B: AsMut<[u8]> + ?Sized, K: AsRef<[u8]> + ?Sized>(
     .map(|v| v as usize)
 }
 
+/// Calls the host `state` function directly and returns its **undecoded**
+/// `i64` result — no [`res`] applied, so no [`HookError`] is ever
+/// constructed here. `#[inline(always)]` and `pub(crate)`: an internal
+/// fast path for callers that need to compare the raw code against a
+/// specific constant (e.g. [`hooks_core::DOESNT_EXIST`]) *before* deciding
+/// whether to decode at all — see DESIGN.md §5.1's "no specific-variant
+/// decode inside hooks-lib" principle for why this matters: pattern-matching
+/// one specific [`HookError`] variant out of an *already-decoded* value
+/// forces the compiler to keep the full ~44-arm [`HookError::from`] decode
+/// resolvable at that call site (and, once inlined into a large hook, to
+/// fold that decode's own block nesting into the caller's) — a raw `i64`
+/// comparison needs none of that.
+///
+/// Deliberately **not** implemented by having [`state`] call this (or vice
+/// versa): even with both `#[inline(always)]`, measured directly, routing
+/// [`state`] *through* a second, separately-defined function changed
+/// `hooks-build`'s own unnest pass's output for an unrelated hook
+/// (`examples/81_govern`, which never touches this function's raw-code
+/// path at all) enough to push its nesting depth from 22 to 55 — the
+/// pass's heuristics operate on the compiled wasm's actual block shape,
+/// not a purely semantics-preserving view of the source, so two
+/// call-graph shapes that "should" compile identically are not guaranteed
+/// to. Duplicating this one small function body instead keeps [`state`]'s
+/// own compiled output provably identical to before this existed.
+#[inline(always)]
+pub(crate) fn state_raw_code<B: AsMut<[u8]> + ?Sized, K: AsRef<[u8]> + ?Sized>(
+    out: &mut B,
+    key: &K,
+) -> i64 {
+    let out = out.as_mut();
+    let key = key.as_ref();
+    unsafe {
+        hooks_core::state(
+            out.as_mut_ptr() as u32,
+            out.len() as u32,
+            key.as_ptr() as u32,
+            key.len() as u32,
+        )
+    }
+}
+
 /// Read this hook's own state entry for `key` as a big-endian `u64`
 /// ("as-int64" mode: the host is passed `write_ptr = 0, write_len = 0` and
 /// returns the entry's bytes packed big-endian instead of a length).
@@ -170,6 +211,19 @@ pub fn state<B: AsMut<[u8]> + ?Sized, K: AsRef<[u8]> + ?Sized>(
 pub fn state_u64<K: AsRef<[u8]> + ?Sized>(key: &K) -> Result<u64> {
     let key = key.as_ref();
     res(unsafe { hooks_core::state(0, 0, key.as_ptr() as u32, key.len() as u32) }).map(|v| v as u64)
+}
+
+/// As-int64-mode counterpart to [`state_raw_code`]: calls the host `state`
+/// function with `write_ptr = 0, write_len = 0` and returns its
+/// **undecoded** `i64` result. See [`state_raw_code`]'s doc comment for
+/// why this exists (an internal fast path for raw-code comparisons before
+/// ever constructing a [`HookError`]) and for why it deliberately
+/// duplicates [`state_u64`]'s own call instead of [`state_u64`] routing
+/// through it — [`state_u64`] itself is unaffected either way.
+#[inline(always)]
+pub(crate) fn state_u64_raw_code<K: AsRef<[u8]> + ?Sized>(key: &K) -> i64 {
+    let key = key.as_ref();
+    unsafe { hooks_core::state(0, 0, key.as_ptr() as u32, key.len() as u32) }
 }
 
 /// Read this hook's own state entry for `key` as a plain little-endian
@@ -285,20 +339,40 @@ pub fn state_set_xfl<K: AsRef<[u8]> + ?Sized>(value: XFL, key: &K) -> Result<usi
     state_set(&value.raw_bits().to_le_bytes(), key)
 }
 
-/// Collapse a state-read [`Result`] into "value present" (`Ok(Some(v))`),
-/// "no entry yet" (`Ok(None)`, from
-/// [`HookError::DoesntExist`](crate::error::HookError::DoesntExist)), or "a
-/// real error" (`Err(e)`, everything else — including
-/// [`HookError::NotImplemented`](crate::error::HookError::NotImplemented) on
-/// host builds). Pure function, no host call — kept separate from the
-/// `state_update_*` functions so it has a standalone unit test.
+/// Collapses a **raw, undecoded** host-call `i64` result (`code`) into
+/// "value present" (`Ok(Some(v))`, via `decode`), "no entry yet"
+/// (`Ok(None)`, from comparing `code` directly against
+/// [`hooks_core::DOESNT_EXIST`] — see [`state_raw_code`]'s doc comment for
+/// why this must happen *before* any [`HookError`] is constructed), or "a
+/// real error" (`Err(e)`, from `decode`'s own `res(code)` call on that rare
+/// path — every caller here only ever propagates `e` onward via `?`,
+/// never matching a further specific variant, so [`HookError::from`]'s
+/// decode still optimizes away there too, per the same principle). Pure
+/// function, no host call — kept separate from the `state_update_*`
+/// functions so it has a standalone unit test.
 #[inline(always)]
-fn absent_as_none<T>(result: Result<T>) -> Result<Option<T>> {
-    match result {
-        Ok(v) => Ok(Some(v)),
-        Err(HookError::DoesntExist) => Ok(None),
-        Err(e) => Err(e),
+fn value_or_absent<T>(code: i64, decode: impl FnOnce(i64) -> Result<T>) -> Result<Option<T>> {
+    if code == hooks_core::DOESNT_EXIST {
+        return Ok(None);
     }
+    decode(code).map(Some)
+}
+
+/// Reads this hook's own state entry for `key` into a fixed `N`-byte
+/// buffer via the raw host call, returning the **undecoded** `i64` result
+/// alongside the buffer — the buffer-mode counterpart to
+/// [`state_u64_raw_code`], backing [`state_update_u32`]/
+/// [`state_update_i64`]/[`state_update_xfl`]. See [`state_raw_code`]'s doc
+/// comment for why this exists; the exact-length check
+/// [`state_exact`]/[`FixedRead::read_exact`] normally performs is each
+/// caller's own responsibility here (via [`value_or_absent`]'s `decode`
+/// closure), since this function only makes the raw code available before
+/// any [`HookError`] is constructed.
+#[inline(always)]
+fn state_raw_code_buf<const N: usize, K: AsRef<[u8]> + ?Sized>(key: &K) -> (i64, [u8; N]) {
+    let mut buf = [0u8; N];
+    let code = state_raw_code(&mut buf, key);
+    (code, buf)
 }
 
 /// Read-modify-write this hook's own state entry for `key` as a `u64`
@@ -312,7 +386,8 @@ pub fn state_update_u64<K: AsRef<[u8]> + ?Sized>(
     key: &K,
     f: impl FnOnce(Option<u64>) -> u64,
 ) -> Result<u64> {
-    let current = absent_as_none(state_u64(key))?;
+    let code = state_u64_raw_code(key);
+    let current = value_or_absent(code, |c| res(c).map(|v| v as u64))?;
     let next = f(current);
     let _ = state_set(&next.to_be_bytes(), key)?;
     Ok(next)
@@ -326,7 +401,15 @@ pub fn state_update_u32<K: AsRef<[u8]> + ?Sized>(
     key: &K,
     f: impl FnOnce(Option<u32>) -> u32,
 ) -> Result<u32> {
-    let current = absent_as_none(state_u32(key))?;
+    let (code, buf) = state_raw_code_buf::<4, _>(key);
+    let current = value_or_absent(code, |c| {
+        let written = res(c)? as usize;
+        if written == 4 {
+            Ok(u32::from_le_bytes(buf))
+        } else {
+            Err(HookError::TooSmall)
+        }
+    })?;
     let next = f(current);
     let _ = state_set_u32(next, key)?;
     Ok(next)
@@ -340,7 +423,15 @@ pub fn state_update_i64<K: AsRef<[u8]> + ?Sized>(
     key: &K,
     f: impl FnOnce(Option<i64>) -> i64,
 ) -> Result<i64> {
-    let current = absent_as_none(state_i64(key))?;
+    let (code, buf) = state_raw_code_buf::<8, _>(key);
+    let current = value_or_absent(code, |c| {
+        let written = res(c)? as usize;
+        if written == 8 {
+            Ok(i64::from_le_bytes(buf))
+        } else {
+            Err(HookError::TooSmall)
+        }
+    })?;
     let next = f(current);
     let _ = state_set_i64(next, key)?;
     Ok(next)
@@ -354,7 +445,15 @@ pub fn state_update_xfl<K: AsRef<[u8]> + ?Sized>(
     key: &K,
     f: impl FnOnce(Option<XFL>) -> XFL,
 ) -> Result<XFL> {
-    let current = absent_as_none(state_xfl(key))?;
+    let (code, buf) = state_raw_code_buf::<8, _>(key);
+    let current = value_or_absent(code, |c| {
+        let written = res(c)? as usize;
+        if written == 8 {
+            Ok(XFL::from_raw_bits(i64::from_le_bytes(buf)))
+        } else {
+            Err(HookError::TooSmall)
+        }
+    })?;
     let next = f(current);
     let _ = state_set_xfl(next, key)?;
     Ok(next)
@@ -410,6 +509,43 @@ where
         )
     })
     .map(|v| v as usize)
+}
+
+/// `state_foreign` counterpart to [`state_raw_code`]: calls the host
+/// `state_foreign` function directly and returns its **undecoded** `i64`
+/// result. See [`state_raw_code`]'s doc comment for why this exists (and
+/// for why it deliberately duplicates [`state_foreign`]'s own call instead
+/// of [`state_foreign`] routing through it) — [`state_foreign`] itself is
+/// unaffected either way.
+#[inline(always)]
+pub(crate) fn state_foreign_raw_code<'ns, 'ac, B, K, N, A>(
+    out: &mut B,
+    key: &K,
+    namespace: N,
+    account: A,
+) -> i64
+where
+    B: AsMut<[u8]> + ?Sized,
+    K: AsRef<[u8]> + ?Sized,
+    N: ForeignRef<'ns>,
+    A: ForeignRef<'ac>,
+{
+    let out = out.as_mut();
+    let key = key.as_ref();
+    let (nptr, nlen) = opt_in(namespace.foreign_ref());
+    let (aptr, alen) = opt_in(account.foreign_ref());
+    unsafe {
+        hooks_core::state_foreign(
+            out.as_mut_ptr() as u32,
+            out.len() as u32,
+            key.as_ptr() as u32,
+            key.len() as u32,
+            nptr,
+            nlen,
+            aptr,
+            alen,
+        )
+    }
 }
 
 /// Read a foreign state entry as a big-endian `u64` ("as-int64" mode; see
@@ -617,15 +753,19 @@ mod tests {
     // nothing left for a standalone, non-host-call test to exercise here.
 
     #[test]
-    fn absent_as_none_distinguishes_doesnt_exist_from_real_errors() {
-        assert_eq!(absent_as_none(Ok(7u64)), Ok(Some(7u64)));
-        assert_eq!(absent_as_none::<u64>(Err(HookError::DoesntExist)), Ok(None));
+    fn value_or_absent_distinguishes_doesnt_exist_from_real_errors() {
+        // `decode`'s own body always runs through `res` (never inspects a
+        // specific `HookError` variant) — mirroring the real
+        // `state_update_*` callers exactly.
+        let decode = |code: i64| res(code).map(|v| v as u64);
+        assert_eq!(value_or_absent(7, decode), Ok(Some(7u64)));
+        assert_eq!(value_or_absent(hooks_core::DOESNT_EXIST, decode), Ok(None));
         assert_eq!(
-            absent_as_none::<u64>(Err(HookError::NotImplemented)),
+            value_or_absent(hooks_core::NOT_IMPLEMENTED, decode),
             Err(HookError::NotImplemented)
         );
         assert_eq!(
-            absent_as_none::<u64>(Err(HookError::TooBig)),
+            value_or_absent(hooks_core::TOO_BIG, decode),
             Err(HookError::TooBig)
         );
     }

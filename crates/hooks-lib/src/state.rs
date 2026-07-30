@@ -194,7 +194,7 @@
 //! module's typed layer deliberately does not use.
 
 use crate::convert::{FromBytes, ToBytes};
-use crate::error::{HookError, Result};
+use crate::error::{HookError, Result, res};
 use crate::types::{STATE_KEY_LEN, StateKey};
 
 /// Maximum byte length of any value [`state_get`]/[`state_set_loose`]/
@@ -375,25 +375,37 @@ pub trait TypedStateKey: StateKeyEncode {
     type Value: ToBytes + FromBytes;
 }
 
-/// Shared read path for [`state_get`]/[`state_foreign_get`]: turns a raw
-/// `state`/`state_foreign` `Result<usize>` (bytes written into `raw`) into a
-/// decoded `Result<Option<T>>`, mapping
-/// [`crate::error::HookError::DoesntExist`] to `Ok(None)` (see the module
-/// doc comment). Factored out of the two public functions so the mapping
-/// logic has one, directly testable, definition.
+/// Shared read path for [`state_get`]/[`state_foreign_get`]: turns a
+/// **raw, undecoded** `state`/`state_foreign` host-call `i64` result
+/// (`code`; bytes written land in `raw`) into a decoded `Result<Option<T>>`,
+/// mapping "doesn't exist" to `Ok(None)` (see the module doc comment).
+///
+/// Takes the raw `code` directly — compared against
+/// [`hooks_core::DOESNT_EXIST`] *before* any [`HookError`] is ever
+/// constructed — rather than an already-decoded `Result<usize>`: matching
+/// one specific [`HookError`] variant out of an already-decoded value
+/// forces the compiler to keep the full ~44-arm [`HookError::from`] decode
+/// resolvable at this call site (and, once `state_get`/`state_get_typed`
+/// are inlined into a large hook, to fold that decode's own block nesting
+/// into the caller's — confirmed empirically: this was the exact cause of
+/// a 24→70 nesting-depth blowup when first tried the other way, well past
+/// the Hook API's 32-level guard-checker limit). See DESIGN.md §5.1's "no
+/// specific-variant decode inside hooks-lib" principle. `res(code)` is
+/// still called on the one path that actually needs a full [`HookError`]
+/// (a real, non-"doesn't exist" error) — its caller only ever propagates
+/// that error onward via `?`, never matching a further specific variant,
+/// so [`HookError::from`]'s decode still optimizes away there too.
+///
+/// Factored out of the two public functions so the mapping logic has one,
+/// directly testable, definition.
 #[inline(always)]
-fn decode_read<T: FromBytes>(
-    result: Result<usize>,
-    raw: &[u8; MAX_TYPED_STATE_LEN],
-) -> Result<Option<T>> {
-    match result {
-        Ok(n) => {
-            let src = raw.get(..n).ok_or(HookError::TooSmall)?;
-            T::read(src).map(Some)
-        }
-        Err(HookError::DoesntExist) => Ok(None),
-        Err(e) => Err(e),
+fn decode_read<T: FromBytes>(code: i64, raw: &[u8; MAX_TYPED_STATE_LEN]) -> Result<Option<T>> {
+    if code == hooks_core::DOESNT_EXIST {
+        return Ok(None);
     }
+    let n = res(code)? as usize;
+    let src = raw.get(..n).ok_or(HookError::TooSmall)?;
+    T::read(src).map(Some)
 }
 
 /// Shared write path for [`state_set_loose`]/[`state_foreign_set_loose`]:
@@ -425,8 +437,8 @@ fn encode_write<T: ToBytes>(value: &T) -> [u8; MAX_TYPED_STATE_LEN] {
 pub fn state_get<T: FromBytes>(key: &impl StateKeyEncode) -> Result<Option<T>> {
     let encoded = key.encode();
     let mut raw = [0u8; MAX_TYPED_STATE_LEN];
-    let result = crate::api::state::state(&mut raw, &encoded);
-    decode_read(result, &raw)
+    let code = crate::api::state::state_raw_code(&mut raw, &encoded);
+    decode_read(code, &raw)
 }
 
 /// Read this hook's own state entry for `key`, decoded as `key`'s own
@@ -497,8 +509,8 @@ pub fn state_foreign_get<T: FromBytes>(
 ) -> Result<Option<T>> {
     let encoded = key.encode();
     let mut raw = [0u8; MAX_TYPED_STATE_LEN];
-    let result = crate::api::state::state_foreign(&mut raw, &encoded, namespace, account);
-    decode_read(result, &raw)
+    let code = crate::api::state::state_foreign_raw_code(&mut raw, &encoded, namespace, account);
+    decode_read(code, &raw)
 }
 
 /// Write a state entry belonging to another namespace/account, encoding
@@ -874,17 +886,14 @@ mod tests {
     #[test]
     fn state_get_maps_doesnt_exist_to_none() {
         let raw = [0u8; MAX_TYPED_STATE_LEN];
-        assert_eq!(
-            decode_read::<u32>(Err(HookError::DoesntExist), &raw),
-            Ok(None)
-        );
+        assert_eq!(decode_read::<u32>(hooks_core::DOESNT_EXIST, &raw), Ok(None));
     }
 
     #[test]
     fn state_get_propagates_other_errors() {
         let raw = [0u8; MAX_TYPED_STATE_LEN];
         assert_eq!(
-            decode_read::<u32>(Err(HookError::InternalError), &raw),
+            decode_read::<u32>(hooks_core::INTERNAL_ERROR, &raw),
             Err(HookError::InternalError)
         );
     }
@@ -893,7 +902,7 @@ mod tests {
     fn state_get_decodes_present_value() {
         let mut raw = [0u8; MAX_TYPED_STATE_LEN];
         raw[0] = 42;
-        assert_eq!(decode_read::<u32>(Ok(4), &raw), Ok(Some(42u32)));
+        assert_eq!(decode_read::<u32>(4, &raw), Ok(Some(42u32)));
     }
 
     #[test]
@@ -901,7 +910,7 @@ mod tests {
         // 3 bytes written is not enough for a `u32` (needs 4): this must
         // surface as an `Err`, never be confused with "absent."
         let raw = [0u8; MAX_TYPED_STATE_LEN];
-        assert_eq!(decode_read::<u32>(Ok(3), &raw), Err(HookError::TooSmall));
+        assert_eq!(decode_read::<u32>(3, &raw), Err(HookError::TooSmall));
     }
 
     #[test]
