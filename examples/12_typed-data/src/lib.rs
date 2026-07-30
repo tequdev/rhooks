@@ -66,10 +66,10 @@ const DEFAULT_LOCK_LEDGERS: u32 = 10;
 // Composite hook-state key/value pair: which account's deposit record
 // this is, and the record itself. `hook_state!`'s **Form 3** (a
 // struct-shaped key, constructed at each call site — see `my_hook` below)
-// with an **inline** value definition, declaring in one line what used to
-// take a `#[derive(HookKey)] struct DepositKey`, a
+// with an **inline** value definition, declaring in one line what a
+// `#[derive(HookKey)] struct DepositKey`, a
 // `#[derive(HookData)] struct DepositValue`, and a separate
-// `hook_state!(DepositKey => DepositValue)` pairing.
+// `hook_state!(DepositKey => DepositValue)` pairing would otherwise take.
 //
 // `tag` is a constant discriminant (always [`DEPOSIT_TAG`] in this hook) —
 // reserved so a future second record kind could share the same key space

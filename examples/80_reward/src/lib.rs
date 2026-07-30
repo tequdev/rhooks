@@ -43,18 +43,13 @@ const DEFAULT_REWARD_DELAY_BITS: i64 = 6_199_553_087_261_802_496;
 // `"RR"`/`"RD"` — the same 2-byte real-length keys govern.c/govern.rs write
 // under (see `examples/81_govern/src/keys.rs::REWARD_RATE`/`REWARD_DELAY`)
 // — declared via `hook_state!`'s Form 1 (a fully fixed key), read through
-// the typed layer below. An earlier attempt at this exact migration was
-// reverted (see git history) because `state_get_typed`/`state_get` used to
-// route every read through `crate::state::decode_read`'s specific-variant
-// `HookError::DoesntExist` match, which pushed this function's nesting
-// from 24 to 70 (over the 32-level guard-checker limit). That root cause
-// is now fixed at the source (`decode_read` compares the *raw* host-call
-// code against `hooks_core::DOESNT_EXIST` before ever constructing a
-// `HookError` — see DESIGN.md §5.1), so this migration is safe: measured
-// nesting depth here is unchanged (24/32) after this change. `XFL`'s
-// typed-layer decode is little-endian raw-bits, byte-for-byte identical
-// to the raw `state_xfl` this replaces (both require exactly 8 stored
-// bytes, which every writer of these keys always provides).
+// the typed layer below. Safe under the 32-level guard-checker limit
+// because `crate::state::decode_read` compares the *raw* host-call code
+// against `hooks_core::DOESNT_EXIST` before ever constructing a
+// `HookError` (see DESIGN.md §5.1) — measured nesting depth here is 24/32.
+// `XFL`'s typed-layer decode is little-endian raw-bits, byte-for-byte
+// identical to the raw `state_xfl` this replaces (both require exactly 8
+// stored bytes, which every writer of these keys always provides).
 hook_state!(RewardRateKey = b"RR" => XFL);
 hook_state!(RewardDelayKey = b"RD" => XFL);
 

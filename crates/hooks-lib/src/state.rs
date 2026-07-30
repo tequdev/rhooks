@@ -385,16 +385,15 @@ pub trait TypedStateKey: StateKeyEncode {
 /// constructed — rather than an already-decoded `Result<usize>`: matching
 /// one specific [`HookError`] variant out of an already-decoded value
 /// forces the compiler to keep the full ~44-arm [`HookError::from`] decode
-/// resolvable at this call site (and, once `state_get`/`state_get_typed`
-/// are inlined into a large hook, to fold that decode's own block nesting
-/// into the caller's — confirmed empirically: this was the exact cause of
-/// a 24→70 nesting-depth blowup when first tried the other way, well past
-/// the Hook API's 32-level guard-checker limit). See DESIGN.md §5.1's "no
+/// resolvable at this call site, and to fold that decode's own block
+/// nesting into the caller's once inlined into a large hook (measured: a
+/// 24→70 nesting-depth blowup, over the Hook API's 32-level guard-checker
+/// limit, when tried the other way). See DESIGN.md §5.1's "no
 /// specific-variant decode inside hooks-lib" principle. `res(code)` is
-/// still called on the one path that actually needs a full [`HookError`]
-/// (a real, non-"doesn't exist" error) — its caller only ever propagates
-/// that error onward via `?`, never matching a further specific variant,
-/// so [`HookError::from`]'s decode still optimizes away there too.
+/// still called on the one path that needs a full [`HookError`] (a real,
+/// non-"doesn't exist" error) — its caller only ever propagates that
+/// error onward via `?`, so [`HookError::from`]'s decode optimizes away
+/// there too.
 ///
 /// Factored out of the two public functions so the mapping logic has one,
 /// directly testable, definition.

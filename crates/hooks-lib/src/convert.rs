@@ -400,11 +400,8 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// no way to use an associated const as an array length in generic code —
 /// the same restriction [`FixedRead::read_exact`]'s doc comment describes)
 /// cannot do the same and falls back to the full [`PARAM_NAME_MAX_LEN`]
-/// scratch buffer. See `examples/81_govern`'s `IS{seat}` parameter (its
-/// `src/lib.rs` doc comment has the full before/after measurement) for a
-/// worked example: this exact-size-buffer override took a composite name
-/// from +607 worst-case instructions over the zero-copy raw baseline down
-/// to **0** — the compiled cost is now identical to the raw,
+/// scratch buffer. See `examples/12_typed-data`'s README for a measured
+/// example — a right-sized buffer compiles to the same cost as the raw,
 /// un-abstracted host call this typed layer replaces.
 ///
 /// # Relationship to the hook-state typed layer

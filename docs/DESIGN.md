@@ -370,31 +370,22 @@ concession for *hook authors*, who have no cheaper alternative once they
 need to branch on a particular `HookError`. `hooks-lib` itself is not in
 that position: every one of its host-call wrappers already has the raw,
 undecoded `i64` return code in hand *before* it ever calls `res`/
-`HookError::from`. Comparing that raw code directly against a raw constant
-(`hooks_core::DOESNT_EXIST`, `hooks_core::NOT_IMPLEMENTED`, …) is a single
-scalar `i64` comparison with no enum-decode machinery involved at all — not
-"one specific-variant match site" that still has to be paid for once, but
-*zero* sites, because no `HookError` is ever constructed on that path.
-`crate::state::decode_read` (shared by `state_get`/`state_foreign_get`) and
-`crate::api::state::value_or_absent` (shared by every `state_update_*`) are
-the two places this previously mapped "doesn't exist" by decoding the
-result first and matching `Err(HookError::DoesntExist)` — a pattern that
-is indistinguishable, from the compiler's point of view, from a hook
-author's own specific-variant match, and so paid the same nesting cost
-*inside hooks-lib*, compounding whatever budget the calling hook had left.
-Both were rewritten to compare the raw `code` against `hooks_core::
-DOESNT_EXIST` before any `HookError` is decoded; the `Err(HookError::
-from(code))` fallback path (reached only once the raw-code check has
-already ruled out "doesn't exist") is unaffected, since it is still a bare
-`Err(_)` at every one of its own call sites. This is what made re-migrating
+`HookError::from`, so comparing that code directly against a raw constant
+(`hooks_core::DOESNT_EXIST`, `hooks_core::NOT_IMPLEMENTED`, …) needs no
+enum-decode machinery at all — zero specific-variant-match sites, not one.
+`crate::state::decode_read` (shared by `state_get`/`state_foreign_get`)
+and `crate::api::state::value_or_absent` (shared by every
+`state_update_*`) both compare the raw `code` against `hooks_core::
+DOESNT_EXIST` before any `HookError` is decoded, for exactly this reason —
+the `Err(HookError::from(code))` fallback path is unaffected, since every
+call site still only matches it as a bare `Err(_)`. Concretely: migrating
 `examples/80_reward`'s `"RR"`/`"RD"` state reads to `hook_state!` +
-`state_get_typed` safe: before this fix that migration pushed nesting from
-24 to 70 (over the limit) purely from `decode_read`'s internal
-specific-variant match being inlined alongside the hook's own; after it,
-nesting stays at 24 — see `examples/80_reward/src/lib.rs` for the migrated
-call site. (One further, empirically-discovered wrinkle: the raw-code
-helpers this required — `state_raw_code`, `state_u64_raw_code`,
-`state_foreign_raw_code` in `crates/hooks-lib/src/api/state.rs` — are
+`state_get_typed` needs this — without it, that migration pushes nesting
+from 24 to 70 (over the limit); with it, nesting stays at 24 — see
+`examples/80_reward/src/lib.rs` for the migrated call site. (One further
+wrinkle: the raw-code helpers this needs — `state_raw_code`,
+`state_u64_raw_code`, `state_foreign_raw_code` in
+`crates/hooks-lib/src/api/state.rs` — are
 *not* called by the existing `state`/`state_u64`/`state_foreign` public
 wrappers, even though the logic is identical; routing those wrappers
 through the new helpers, even with both sides `#[inline(always)]`,
@@ -726,41 +717,29 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
 encode buffer, not a generic worst-case-sized one.** `TypedParamName`'s
 one abstract method, `with_name_bytes<R>(&self, f: impl FnOnce(&[u8]) ->
 R) -> R`, hands the caller a closure instead of writing into (or
-returning a reference into) a caller-owned buffer — deliberately, so each
-concrete name type controls *where* its encoded bytes live: a `'static`
-literal for the zero-copy plain-byte-string forms (unchanged from
-before), or, for every composite form (2/3/4/existing-type),
-`hook_parameter!`/`otxn_parameter!`'s generated `impl` allocates a stack
-buffer sized to exactly that name's own `ToBytes::MAX_LEN` — not the full
-32-byte `PARAM_NAME_MAX_LEN` the trait's *generic* default body must fall
-back to (generic code can't spell `[0u8; Self::MAX_LEN]` on stable Rust;
-only a concrete, non-generic `impl` block can, the same restriction
-`FixedRead::read_exact`'s doc comment documents for the read side). This
-mattered in practice, not just in principle: before this fix, a
-composite/runtime-varying parameter name (`examples/81_govern`'s
-`IS{seat}`, one `hook_parameter!` Form-4 newtype indexed by a loop
-variable) cost **+607** worst-case instructions over the raw,
-un-abstracted `hook_param_exact` call it replaced — a 32-byte
-zero-initialized scratch buffer, allocated fresh per call, charged once
-per iteration of a `guard!`-bounded loop, dominated the delta far more
-than the 3 bytes actually being encoded. After this fix, the identical
-declaration costs **0** worst-case instructions over the raw baseline —
-see `examples/81_govern/src/lib.rs`'s `IS{seat}` doc comment for the full
-before/after (including a hand-rolled per-hook lookup-table workaround
-that was tried and discarded in favor of this general fix, since a
-one-off workaround doesn't help the *next* hook with a composite name).
+returning a reference into) a caller-owned buffer, so each concrete name
+type controls *where* its encoded bytes live: a `'static` literal for the
+zero-copy plain-byte-string forms, or, for every composite form
+(2/3/4/existing-type), a stack buffer sized to exactly that name's own
+`ToBytes::MAX_LEN` — not the full 32-byte `PARAM_NAME_MAX_LEN` the
+trait's *generic* default body must fall back to (generic code can't
+spell `[0u8; Self::MAX_LEN]` on stable Rust; only a concrete, non-generic
+`impl` block can, the same restriction `FixedRead::read_exact`'s doc
+comment documents for the read side). Measured impact:
+`examples/81_govern`'s `IS{seat}` (a composite, runtime-varying name)
+went from **+607** worst-case instructions over the raw baseline to
+**0** — see `examples/81_govern/src/lib.rs`'s `IS{seat}` doc comment.
 `examples/12_typed-data`'s composite `AdminName` parameter improved too
-(485 → 470 worst-case instructions), confirming the fix isn't
-`81_govern`-specific.
-`StateKeyEncode`/`EncodedStateKey` were checked for the
-identical asymmetry and found not to have it: a hook-state key's raw
-`[u8; N]` baseline *already* goes through `EncodedStateKey`'s own
-always-32-byte buffer (the Hook API left-pads a short key host-side, so
-every key — raw or composite — is carried in a fixed 32-byte struct
-field either way), so there is no zero-copy baseline being lost the way
-`hook_param_exact`'s direct pointer-passthrough was for names; measured,
-composite state keys (`examples/02_state-counter`'s `hook_state!` Form 2)
-show no cost change from this fix, consistent with that analysis.
+(485 → 470 worst-case instructions), confirming the fix generalizes.
+`StateKeyEncode`/`EncodedStateKey` were checked for the identical
+asymmetry and found not to have it: a hook-state key's raw `[u8; N]`
+baseline *already* goes through `EncodedStateKey`'s own always-32-byte
+buffer (the Hook API left-pads a short key host-side, so every key is
+carried in a fixed 32-byte struct field either way), so there is no
+zero-copy baseline being lost the way `hook_param_exact`'s direct
+pointer-passthrough was for names — confirmed by measuring composite
+state keys (`examples/02_state-counter`'s `hook_state!` Form 2), which
+show no cost change.
 
 ### 5.5 Emitted-transaction templates: `txn_template!` (user-defined layouts)
 

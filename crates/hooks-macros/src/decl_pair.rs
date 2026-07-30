@@ -552,22 +552,15 @@ fn value_struct_codegen(shape: &StructShape, role: Role) -> String {
 /// backward-compatible/Form-2/3/4 declaration uses.
 ///
 /// For the parameter case, also overrides
-/// [`TypedParamName::with_name_bytes`](::hooks_lib::convert::TypedParamName::with_name_bytes):
-/// rather than relying on the trait's generic default (which must use a
-/// full [`PARAM_NAME_MAX_LEN`](::hooks_lib::convert::PARAM_NAME_MAX_LEN)
-/// (32) byte scratch buffer, zero-initialized fresh per call, since
-/// generic code can't use an associated const as an array length — see
-/// [`TypedParamName::with_name_bytes`](::hooks_lib::convert::TypedParamName::with_name_bytes)'s
-/// doc comment), this override allocates exactly `<{key} as ToBytes>::
-/// MAX_LEN` bytes: a compile-time literal *at this concrete, non-generic
-/// `impl` block's own definition site* (no `generic_const_exprs` needed —
-/// `{key}` is a concrete type here, not a generic parameter), so every
-/// composite name this macro declares gets a right-sized buffer with no
-/// oversized zero-init and no bounds-checked slicing down to a shorter
-/// written prefix afterward. This is what fixed `examples/81_govern`'s
-/// `IS{seat}` parameter's +607-worst-case-instruction regression at the
-/// source, rather than needing a hand-written per-hook workaround — see
-/// that example's `src/lib.rs` doc comment for the measured before/after.
+/// [`TypedParamName::with_name_bytes`](::hooks_lib::convert::TypedParamName::with_name_bytes)
+/// to allocate exactly `<{key} as ToBytes>::MAX_LEN` bytes instead of
+/// relying on the trait's generic default (a full
+/// [`PARAM_NAME_MAX_LEN`](::hooks_lib::convert::PARAM_NAME_MAX_LEN)
+/// scratch buffer — see that method's doc comment for why the default
+/// can't size itself this precisely). This works here because the
+/// allocation sits inside a concrete, non-generic `impl` block — `{key}`
+/// is a real type at codegen time, not a generic parameter — so
+/// `MAX_LEN` is an ordinary compile-time constant.
 fn pairing_impl(key: &str, value: &str, role: Role) -> String {
     match role {
         Role::State => format!(
@@ -597,11 +590,10 @@ impl ::hooks_lib::convert::TypedParamName for {key} {{
 }
 
 /// Generates the fixed-byte-string `ToBytes` impl a Form-1/legacy-fixed key
-/// or name shares: `MAX_LEN = { $bytes.len() }`, `write` delegating straight
-/// to `$bytes`'s own `ToBytes::write` — the same "wire encoding *is* the
-/// in-memory representation, nothing to compute" shape this crate's
-/// previous `hook_parameter!`/`otxn_parameter!` 3-argument form already used
-/// (see `hooks_lib::convert::TypedParamName`'s doc comment, "Zero-cost for
+/// or name shares: `MAX_LEN = { $bytes.len() }`, `write` delegating
+/// straight to `$bytes`'s own `ToBytes::write` — the wire encoding *is*
+/// the in-memory representation, nothing to compute (see
+/// `hooks_lib::convert::TypedParamName`'s doc comment, "Zero-cost for
 /// the plain-byte-string case").
 fn fixed_bytes_to_bytes_impl(name: &str, bytes: &str) -> String {
     format!(
@@ -624,8 +616,7 @@ impl ::hooks_lib::convert::ToBytes for {name} {{
 /// [`TypedParamName::with_name_bytes`](::hooks_lib::convert::TypedParamName::with_name_bytes)
 /// to hand `f` `$bytes` directly — a `'static` reference, no copy, no
 /// buffer, no per-call encode — the zero-copy fast path
-/// `hooks_lib::convert::TypedParamName`'s doc comment describes, preserved
-/// unchanged from this crate's previous `macro_rules!` 3-argument form.
+/// `hooks_lib::convert::TypedParamName`'s doc comment describes.
 fn fixed_bytes_param_pairing(name: &str, bytes: &str, value: &str) -> String {
     format!(
         "

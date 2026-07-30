@@ -150,24 +150,18 @@ pub fn state<B: AsMut<[u8]> + ?Sized, K: AsRef<[u8]> + ?Sized>(
 /// fast path for callers that need to compare the raw code against a
 /// specific constant (e.g. [`hooks_core::DOESNT_EXIST`]) *before* deciding
 /// whether to decode at all — see DESIGN.md §5.1's "no specific-variant
-/// decode inside hooks-lib" principle for why this matters: pattern-matching
-/// one specific [`HookError`] variant out of an *already-decoded* value
-/// forces the compiler to keep the full ~44-arm [`HookError::from`] decode
-/// resolvable at that call site (and, once inlined into a large hook, to
-/// fold that decode's own block nesting into the caller's) — a raw `i64`
-/// comparison needs none of that.
+/// decode inside hooks-lib" principle.
 ///
 /// Deliberately **not** implemented by having [`state`] call this (or vice
-/// versa): even with both `#[inline(always)]`, measured directly, routing
-/// [`state`] *through* a second, separately-defined function changed
-/// `hooks-build`'s own unnest pass's output for an unrelated hook
+/// versa): measured directly, routing [`state`] *through* a second,
+/// separately-defined function (even with both `#[inline(always)]`)
+/// changed `hooks-build`'s unnest pass's output for an unrelated hook
 /// (`examples/81_govern`, which never touches this function's raw-code
-/// path at all) enough to push its nesting depth from 22 to 55 — the
-/// pass's heuristics operate on the compiled wasm's actual block shape,
-/// not a purely semantics-preserving view of the source, so two
-/// call-graph shapes that "should" compile identically are not guaranteed
-/// to. Duplicating this one small function body instead keeps [`state`]'s
-/// own compiled output provably identical to before this existed.
+/// path) enough to push its nesting depth from 22 to 55 — the pass's
+/// heuristics operate on the compiled wasm's actual block shape, not a
+/// purely semantics-preserving view of the source. Duplicating this one
+/// small function body instead keeps [`state`]'s own compiled output
+/// provably unaffected.
 #[inline(always)]
 pub(crate) fn state_raw_code<B: AsMut<[u8]> + ?Sized, K: AsRef<[u8]> + ?Sized>(
     out: &mut B,
@@ -743,14 +737,14 @@ mod tests {
         assert_eq!((&bytes).foreign_ref(), Some(bytes.as_slice()));
     }
 
-    // `state_exact` no longer performs its own length comparison —
-    // `T::read_exact` (the `FixedRead` impl, one per concrete `T`) does,
-    // and is exercised standalone by `convert.rs`'s
-    // `fixed_read_array_rejects_short_write`/`fixed_read_succeeds_on_exact_write`
-    // (and `types.rs`'s newtype-flavored equivalents). `state_exact` itself
-    // always goes through the host stub on this target (returning
-    // `NotImplemented` before any length check happens), so there is
-    // nothing left for a standalone, non-host-call test to exercise here.
+    // `state_exact`'s length comparison lives in `T::read_exact` (the
+    // `FixedRead` impl, one per concrete `T`), exercised standalone by
+    // `convert.rs`'s `fixed_read_array_rejects_short_write`/
+    // `fixed_read_succeeds_on_exact_write` (and `types.rs`'s newtype-
+    // flavored equivalents). `state_exact` itself always goes through the
+    // host stub on this target (returning `NotImplemented` before any
+    // length check happens), so there is nothing left for a standalone,
+    // non-host-call test to exercise here.
 
     #[test]
     fn value_or_absent_distinguishes_doesnt_exist_from_real_errors() {

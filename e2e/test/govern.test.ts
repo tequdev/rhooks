@@ -308,19 +308,13 @@ describe('govern: L1 table (real genesis account) reward-rate vote', () => {
   })
 })
 
-// `IMC`/`IRR`/`IRD` are read via `hook_parameter!`'s typed accessors
-// (`hook_param_typed`, routing through `hook_param_exact`/
-// `FixedRead::read_exact`), which enforce an *exact*-length read —
-// **a deliberate, documented divergence from govern.c**, not a bug: the
-// C source's own check for these three (`hook_param(...) < 0`) is
-// existence-only, so a parameter present but shorter than expected (e.g.
-// a 3-byte `IRR` instead of 8) is silently accepted by both govern.c and
-// `hook_param`'s host semantics (the unwritten remainder reads as zero,
-// via wasm's zero-initialized-locals guarantee — not a true
-// uninitialized-memory read, but the C source's own intent still reads
-// as an oversight, since `IS{seat}` — `hook_param`'s only other caller in
-// this file — already checks `!= 20`, an exact length). This suite
-// deliberately does *not* reproduce that leniency: see
+// `IMC`/`IRR`/`IRD` are read via `hook_parameter!`'s typed accessors,
+// which enforce an *exact*-length read — **a deliberate, documented
+// divergence from govern.c**, not a bug: govern.c's own check for these
+// three (`hook_param(...) < 0`) is existence-only, so a parameter present
+// but shorter than expected (e.g. a 3-byte `IRR` instead of 8) is
+// silently accepted there, unlike `IS{seat}` (`hook_param`'s only other
+// caller in govern.c), which already checks for an exact length. See
 // `examples/81_govern/src/lib.rs`'s `setup`/
 // `setup_initial_reward_rate_and_delay` doc comments and the README's
 // "Parameter read semantics" section for the full argument.

@@ -48,8 +48,7 @@ sends a struct at its own real encoded length (7 bytes here — see
 `hooks_lib::state`'s module doc comment, "Key length and padding," and
 `docs/DESIGN.md` §5.7) — never locally zero-padded up to the fixed 32-byte
 key space. That is exactly the same 7 bytes a bare `*b"counter"` array key
-sends (this example's original form, before switching to the typed
-layer), so `CounterKey { name: *b"counter" }` lands on the identical,
+sends, so `CounterKey { name: *b"counter" }` lands on the identical,
 host-left-padded on-ledger slot — the same idiom as the C hook
 `state(&v, 8, "counter", 7)`.
 

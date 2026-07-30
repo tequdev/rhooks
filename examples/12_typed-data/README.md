@@ -10,9 +10,9 @@ the generated code costs nothing extra at the wasm level (a real
 worst-case-instruction-count measurement, not just an assertion).
 
 Under the hood, each declaration still expands to the same four narrow,
-purpose-built impls this example used to spell out by hand with separate
-derives — `#[derive(HookKey)]`, `#[derive(HookData)]`,
-`#[derive(ParamName)]`, `#[derive(ParamValue)]` — plus the pairing trait:
+purpose-built impls the separate derives generate —
+`#[derive(HookKey)]`, `#[derive(HookData)]`, `#[derive(ParamName)]`,
+`#[derive(ParamValue)]` — plus the pairing trait:
 
 | role | generates | example (declared inline below) |
 |---|---|---|
@@ -136,9 +136,9 @@ macros with identical grammar and expansion — purely so the declaration
 site documents which of `hook_param`/`otxn_param` a name is meant for; see
 `hooks_lib::convert::TypedParamName`'s doc comment.) Only a *plain,
 already-known-at-compile-time* name is free, though — Form 1 (used above)
-overrides `TypedParamName::name_bytes` to hand over the already-`'static`
+overrides `TypedParamName::with_name_bytes` to hand over the already-`'static`
 literal bytes directly, at zero runtime cost, while Form 3 (used below,
-for `AdminName`) relies on `TypedParamName::name_bytes`'s default body, a
+for `AdminName`) relies on `TypedParamName::with_name_bytes`'s default body, a
 small, genuine runtime encode via `Name`'s own `ToBytes` impl, unavoidable
 for an arbitrary composite type — Rust has no stable way to run a trait
 method at compile time. `hook_parameter!`/`otxn_parameter!` also keep the
@@ -232,13 +232,9 @@ hand-packed functions above (everything else byte-for-byte identical):
 | derived (this crate, as committed) | 441 | 1504 bytes |
 | hand-packed (`.get()`/`.get_mut()` per field, as most hooks write it today) | 525 | 1674 bytes |
 
-> **Note:** this table predates `DepositKey`'s `HookKey`-derived
-> `StateKeyEncode::encode()` sending its own real length (21 bytes) instead
-> of a locally zero-padded 32 (see `docs/DESIGN.md` §5.7) — both rows would
-> shift down slightly if re-measured today; the relative comparison
-> (derived cheaper than hand-packed) is unaffected. The full committed
-> hook's current, directly measured numbers (including `AdminName`) are
-> 483 instructions / 1642 bytes — see the note after the next table.
+(This table covers `DepositKey`/`DepositValue`/`Config`/`Instruction`
+only, not the `AdminName` composite parameter name — see "Measured cost
+of a composite name" below for the full hook's numbers including that.)
 
 The derive isn't just *as cheap as* hand-packing here — it measures
 **cheaper**: the generated `write`/`read` check the struct's total length
@@ -346,7 +342,7 @@ see `hooks_lib::ParamName`'s doc comment for the full rationale, and its
 `compile_fail` examples pinning that a `ParamName`-shaped type can't be
 read back as a value. Because `AdminName` is Form 3 (not Form 1, the fully
 fixed form `CfgName`/`InsName` above use), the generated `TypedParamName`
-impl relies on `name_bytes`'s default (genuine-encode) body instead of the
+impl relies on `with_name_bytes`'s default (genuine-encode) body instead of the
 zero-copy override — see the "Measured cost of a composite name" section
 below for what that costs. The `const ADMIN_PAUSE` declared separately
 above (not part of `hook_state!`'s Form 2 fixed-instance mechanism, since
@@ -400,30 +396,24 @@ the wrong size" the same as `paused == 0`.
 
 Unlike the plain `CFG`/`INS` tags (measured identical to the loose API in
 the "Pairing a key with its value type" section above), a **composite**
-parameter name is not free: `TypedParamName::name_bytes`'s default body has
-to actually run `AdminName::write(..)` at runtime (Rust has no stable way to
-run a trait method at compile time, so this can't be folded away for an
-arbitrary `ToBytes` type — see `hooks_lib::convert::TypedParamName`'s doc
-comment). Measured by building this exact hook twice — once as committed
-(with the `AdminName`/`PauseSwitch` pause switch), once with that whole
-feature removed (everything else byte-for-byte identical):
+parameter name isn't free: `TypedParamName::with_name_bytes`'s
+composite-form override has to actually run `AdminName::write(..)` at
+runtime (Rust has no stable way to run a trait method at compile time —
+see `hooks_lib::convert::TypedParamName`'s doc comment). Measured by
+building this exact hook twice — once as committed (with the
+`AdminName`/`PauseSwitch` pause switch), once with that whole feature
+removed (everything else byte-for-byte identical):
 
 | version | worst-case instructions | wasm size |
 |---|---|---|
 | without the `AdminName` pause switch | 441 | 1504 bytes |
-| with the `AdminName` pause switch (as committed, pre-`HookKey`-real-length change) | 489 | 1652 bytes |
-| with the `AdminName` pause switch (as committed, current) | 483 | 1642 bytes |
+| with the `AdminName` pause switch (as committed) | 470 | 1611 bytes |
 
-+48 instructions, +148 bytes over the no-`AdminName` baseline at the time
-this table was measured — the honest, unavoidable cost of one
-composite-name-keyed `hook_param` lookup (the struct encode itself, plus
-the extra branch/rollback path checking it). Still guard-clean at the
-source level: no `--auto-guard`/`--default-maxiter` needed either way.
-`DepositKey`'s `HookKey` derive now sends `StateKeyEncode::encode()`'s real
-21-byte length instead of a locally zero-padded 32 (`docs/DESIGN.md` §5.7),
-shaving 6 instructions/10 bytes off the "as committed" row (the
-no-`AdminName` baseline above predates that change too and wasn't
-re-measured, but would shift by roughly the same amount).
++29 instructions, +107 bytes over the no-`AdminName` baseline — the
+unavoidable cost of one composite-name-keyed `hook_param` lookup (the
+struct encode itself, plus the extra branch/rollback path checking it).
+Still guard-clean at the source level: no `--auto-guard`/
+`--default-maxiter` needed either way.
 
 ## Build
 

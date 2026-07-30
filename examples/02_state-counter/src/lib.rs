@@ -23,8 +23,7 @@ use hooks_lib::{accept, hook, hook_errors, hook_state, rollback};
 // from 1 to 32 bytes and left-pads a shorter one internally (see
 // `hooks_lib::state`'s module doc comment, "Key length and padding") — so
 // `CounterKey { name: *b"counter" }` lands on the exact same 32-byte
-// storage slot a bare `*b"counter"` key would (this example's previous
-// form, before switching to `hook_state!`'s Form 2).
+// storage slot a bare `*b"counter"` key would.
 //
 // `hook_state!`'s Form 2 (`Name { fields } = { inits } => Value`) declares
 // the `CounterKey` struct, its `HookKey`-equivalent `ToBytes`/
