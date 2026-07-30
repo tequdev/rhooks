@@ -9,11 +9,14 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, guard, guard_m, hook, hook_errors, rollback};
+use hooks_lib::{accept, guard, guard_m, hook, hook_errors, hook_parameter, rollback};
 
-/// Name of the Hook parameter carrying the 20-byte blocked `AccountId`
-/// (same idiom as `firewall`'s `BL` parameter).
-const BL_PARAM: &[u8] = b"BL";
+// The Hook parameter carrying the 20-byte blocked `AccountId` (name
+// `"BL"`, same idiom as `firewall`'s `BL` parameter — see that crate's
+// `BlockedParamName` doc comment for the general argument for why this
+// migration from the raw `hook_param_exact(BL_PARAM)` this used to call
+// changes nothing observable).
+hook_parameter!(BlockedParamName = b"BL" => AccountId);
 
 hook_errors! {
     /// `guard-patterns` rollback codes.
@@ -98,7 +101,7 @@ fn my_hook() -> i64 {
     };
 
     // No (valid) blacklist parameter configured: nothing to block.
-    let Ok(blocked) = hook_param_exact(BL_PARAM) else {
+    let Ok(blocked) = hook_param_typed(&BlockedParamName) else {
         accept!();
     };
 

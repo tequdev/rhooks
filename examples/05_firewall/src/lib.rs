@@ -10,10 +10,21 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, rollback};
+use hooks_lib::{accept, hook, hook_errors, hook_parameter, rollback};
 
-/// Name of the Hook parameter carrying the 20-byte blocked `AccountId`.
-const BL_PARAM: &[u8] = b"BL";
+// The Hook parameter carrying the 20-byte blocked `AccountId` (name
+// `"BL"`). `hook_parameter!`'s Form 1 (a fixed-byte-string name) ties the
+// name to `AccountId` at the type level — `hook_param_typed` below
+// replaces the previous buffer-mode `hook_param(&mut blocked, BL_PARAM)`
+// with an identical outcome: that call's own `Ok(n) if n == ACC_ID_LEN`
+// guard already required an *exact* 20-byte read (govern.c-style
+// buffer-mode reads and `hook_param_exact`'s `FixedRead`-backed exact-
+// length check agree in every reachable case — see
+// `examples/81_govern`'s README, "Parameter read semantics" section, for
+// the general argument), so this migration changes nothing observable:
+// missing, too-short, or too-long all still fall through to `accept!()`
+// exactly as before.
+hook_parameter!(BlockedParamName = b"BL" => AccountId);
 
 hook_errors! {
     /// `firewall` rollback codes.
@@ -39,12 +50,11 @@ fn my_hook() -> i64 {
         ),
     }
 
-    let mut blocked = AccountId::default();
-    match hook_param(&mut blocked, BL_PARAM) {
-        // No (valid) blacklist parameter configured: nothing to block.
-        Ok(n) if n == ACC_ID_LEN => {}
-        _ => accept!(),
-    }
+    // No (valid) blacklist parameter configured: nothing to block.
+    let blocked: AccountId = match hook_param_typed(&BlockedParamName) {
+        Ok(v) => v,
+        Err(_) => accept!(),
+    };
 
     // `buf_eq_20` (not `sender == blocked`): array `==` compiles to a
     // compiler-generated, unguarded `bcmp`-style loop on `wasm32v1-none` at

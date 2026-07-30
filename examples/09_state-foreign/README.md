@@ -37,16 +37,24 @@ about itself." Reading a genuinely different hook's namespace on a foreign
 account would need an actual `namespace` value too (out of scope for this
 minimal example).
 
-`target` itself comes from a Hook parameter (`ACCT`), read with
-`hook_param_exact` (`hooks_lib::api::hook_ctx::hook_param_exact`) — the
-same "config via `hook_param`" idiom as `examples/03_hook-params`, just
-requiring the result to be exactly `AccountId`'s length (20 bytes,
-inferred from `let target: AccountId = hook_param_exact(ACCT_PARAM)`, no
-turbofish) instead of manually checking a buffer's written length. See
-that example's README for the
-hex-encoding/`SetHook` details, which apply here unchanged (just a
-different parameter name and a 20-byte `AccountId` payload instead of an
-8-byte integer).
+`target` itself comes from a Hook parameter (`ACCT`), declared via
+`hook_parameter!(AcctParamName = b"ACCT" => AccountId)` and read with
+`hook_param_typed(&AcctParamName)` — the same "config via `hook_param`"
+idiom as `examples/03_hook-params`, just requiring the result to be
+exactly `AccountId`'s length (20 bytes, enforced by `AccountId`'s
+`FixedRead` impl, no turbofish) instead of manually checking a buffer's
+written length. See that example's README for the hex-encoding/`SetHook`
+details, which apply here unchanged (just a different parameter name and
+a 20-byte `AccountId` payload instead of an 8-byte integer).
+
+The `state_foreign` read just below, unlike `ACCT`, is **not** migrated
+to `hook_state!`/`state_foreign_get_typed` — see `my_hook`'s doc comment
+in `src/lib.rs` for the full argument (in short: state's typed layer
+decodes a lenient *prefix*, not an exact length, so it would silently
+tolerate an oversized `enabled` value this raw code correctly rejects;
+separately, `ENABLED_KEY`'s `pad!`-based right-padding is byte-
+incompatible with the short-key form's host-left-padding, so migrating
+the key would silently change which 32-byte state slot gets read).
 
 `state_foreign`'s `Err(HookError::DoesntExist)` (no entry at all — the
 common, expected "not configured" case) is deliberately distinguished from
