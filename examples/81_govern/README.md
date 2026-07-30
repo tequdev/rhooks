@@ -13,9 +13,9 @@ table voting on an L1 topic, forwarded to L1 as an `Invoke`.
 Build: `hooks-build build --manifest-path examples/81_govern/Cargo.toml`
 (also wired into `mise run build-examples`).
 
-- Worst-case instructions: **44560** (`hook`), 0 (`cbak` — none declared)
+- Worst-case instructions: **44593** (`hook`), 0 (`cbak` — none declared)
 - Max block/loop/if nesting: **22** (limit: 32)
-- Binary size: **14373 bytes**
+- Binary size: **14429 bytes**
 
 ## Files
 
@@ -62,6 +62,34 @@ hook slot (`'H'`), or `'R'`/`'D'` (`'R'`); `layer` is `1` or `2` (always
 | `T` (1 byte) | 2-byte value: `{topic_type, topic_id}` |
 | `V` (1 byte) | The vote's data: 8 bytes (`'R'`), 20 bytes (`'S'`), or 32 bytes (`'H'`) |
 | `L` (1 byte) | 1-byte value: `1` or `2` — which layer this vote targets (L2 tables only; an L1 table's own votes are always layer 1) |
+
+## Parameter read semantics, and which ones migrated to `hook_parameter!`/`otxn_parameter!`
+
+`IMC`/`IS{seat}`/`IRR`/`IRD` are read via `hook_param` (hook-configuration
+parameters, set at `SetHook` time); `T`/`L`/`V` are read via `otxn_param`
+(parameters attached to the *voting* `Invoke` transaction itself). These
+two host functions have a real, load-bearing difference once the
+requested read is a fixed-size buffer, confirmed by reading xahaud's own
+implementation (`src/xrpld/app/hook/detail/HookAPI.cpp`/`applyHook.cpp`):
+
+- **`otxn_param`** explicitly checks `if (val.size() > write_len) return TOO_SMALL;` *before* writing — an actual value longer than the destination buffer is a hard error, never a silent truncation. A buffer-mode read into an exactly-`N`-byte buffer can therefore only ever return exactly `N` (success) or fail — identical to `FixedRead::read_exact`'s own contract (`written == N` or `TooSmall`).
+- **`hook_param`** has no such check — it always falls through to the generic `WRITE_WASM_MEMORY_AND_RETURN` path, which writes `min(actual_len, write_len)` bytes and returns that count. An actual value *longer* than the buffer is silently truncated and still reported as a full, successful `N`-byte read (matching `read_exact`'s check by coincidence, since `written` is always `N` when `actual >= N`) — but an actual value *shorter* than the buffer (including a valid, explicit **empty** parameter value — `hook_param_set`'s own documented range is 0–256 bytes, so this is a real, constructible state) is *also* reported as success (`written < N`, no error at all), which `read_exact`/a typed declaration would instead reject as `HookError::TooSmall`.
+
+| Param | Read via | govern.c check | Exact-length semantics? | Migrated? |
+|---|---|---|---|---|
+| `T` | `otxn_param` | `otxn_param(SBUF(topic), "T", 1)` against `!= 2` | Yes — `otxn_param` errors on oversized, partial-writes-on-undersized are caught by the same `!= 2` | **Yes** — `otxn_parameter!(TopicParamName = b"T" => [u8; 2])` |
+| `L` | `otxn_param` | `otxn_param(&l, 1, "L", 1)` against `!= 1` | Yes, same reasoning | **Yes** — `otxn_parameter!(LayerParamName = b"L" => [u8; 1])` |
+| `V` | `otxn_param` | `otxn_param(topic_data + padding, topic_size, "V", 1)` against `!= topic_size` | Yes, same reasoning, but `topic_size` is **runtime-varying** (8/20/32 depending on `t`) | **No** — see below |
+| `IMC` | `hook_param` | `hook_param(SVAR(imc), "IMC", 3) < 0` — existence-only, **not** exact-length | No — an explicit empty `IMC` value silently succeeds as `imc = 0`, then falls through to the *separate* `imc == 0` check (a different rollback message than "missing") | **No** — see below |
+| `IS{seat}` | `hook_param` | `hook_param(SBUF(member_acc), member_pkey, 3) != 20` — **exact-length** | Yes — govern.c itself checks `!= 20`, not `< 0`, for this one parameter | **Yes** (already migrated in an earlier commit — see `src/lib.rs`'s `MemberParamName` doc comment) |
+| `IRR` | `hook_param` | `hook_param(SVAR(irr), "IRR", 3) < 0` — existence-only | No — a 1–7-byte partial `IRR` value silently succeeds (zero-padded tail, from wasm's zero-initialized locals), never rejected as too short | **No** — see below |
+| `IRD` | `hook_param` | `hook_param(SVAR(ird), "IRD", 3) < 0` — existence-only | No, same reasoning as `IRR` | **No** — see below |
+
+**`T`/`L` migrated.** Both are read via `otxn_param` with govern.c's own check already being an exact-length comparison, so `otxn_parameter!`'s typed accessors (`otxn_param_typed`, routing through `otxn_param_exact`/`FixedRead::read_exact`) reproduce the existing behavior exactly for every reachable input (missing, too short, too long, or exactly right all funnel to the same "invalid" outcome either way). See `src/lib.rs`'s `TopicParamName`/`LayerParamName` doc comment for the full argument.
+
+**`V` left raw.** `otxn_param`'s exact-length semantics would, in principle, support a typed declaration — but `topic_size` (hence the expected value length) is chosen at runtime from `t`, not fixed. Three separate typed declarations (one per topic type, `VoteAccountParamName`/`VoteHashParamName`/`VoteRewardParamName`) were considered, since `otxn_parameter!`'s grammar has no problem with multiple marker types sharing the literal name `b"V"`. Rejected: the read value is used as **opaque bytes** for the rest of the function (front-padded into a shared 32-byte scratch buffer, then written to state/emitted-transaction bytes verbatim — never decoded into a semantic `AccountId`/`Hash`/XFL value anywhere in this crate). Three typed declarations would require decoding into a real Rust value and then *re-encoding it back out* into the same padded scratch buffer, purely to get back to the same bytes already sitting in a buffer after a raw `otxn_param` call — real complexity added for zero type-safety benefit, since nothing downstream ever needs the decoded form.
+
+**`IMC`/`IRR`/`IRD` left raw.** Unlike `IS{seat}` (which govern.c itself checks with an exact-length `!= 20`), these three are checked only for existence (`< 0`) in govern.c — a deliberate(-looking), real asymmetry in the C source, not an artifact of the Rust port. `hook_param`'s silent-truncation/silent-partial-write semantics mean a typed declaration (which always enforces exact length via `read_exact`) would reject an explicit empty `IMC`/a partial `IRR`/`IRD` value that govern.c (and this crate's current raw `hook_param` + `.is_err()` check) both accept without complaint. This is a real, constructible edge case (a `SetHook` transaction can set a 0-byte or short-but-nonzero-length hook parameter value), not merely a theoretical one, so it's kept raw to preserve strict behavior equivalence rather than risk a different rollback message on a malformed installation parameter.
 
 ## Behavior-equivalence table
 

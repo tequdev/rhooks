@@ -54,7 +54,7 @@
 //!   one call site, and only that one, has to avoid it.
 //!
 //! Measured (`hooks-build check examples/81_govern/out/govern.wasm`):
-//! worst-case instructions 44560, max nesting depth 22 (limit 32) — see
+//! worst-case instructions 44593, max nesting depth 22 (limit 32) — see
 //! the README's "Toolchain limitation" section for the fuller writeup,
 //! including the live `GUARD_VIOLATION` the guard-bound point above
 //! fixes.
@@ -68,7 +68,7 @@ mod txn;
 
 use hooks_lib::prelude::*;
 use hooks_lib::static_cell::HookStatic;
-use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, rollback};
+use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, otxn_parameter, rollback};
 
 // `IS{seat}` — the initial-member-account hook parameter name `setup`
 // reads per seat (`this_seat` runtime-varying, 0..SEAT_COUNT — see `setup`
@@ -127,6 +127,32 @@ use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, rollback};
 // {seat}` was ever typed at all). Byte-for-byte identical parameter names
 // to both the raw baseline and govern.c.
 hook_parameter!(MemberParamName [u8; 3] => AccountId);
+
+// `T`/`L` — the topic-selector/layer-selector `Invoke` parameters `my_hook`
+// reads per vote (see below). Migrated to `otxn_parameter!` after
+// confirming, by reading xahaud's own host implementation
+// (`src/xrpld/app/hook/detail/HookAPI.cpp`/`applyHook.cpp`'s `otxn_param`),
+// that `otxn_param` — unlike `hook_param` — explicitly returns `TOO_SMALL`
+// whenever the actual parameter value is *longer* than the destination
+// buffer (`if (val.size() > write_len) return TOO_SMALL;`, checked before
+// the generic `WRITE_WASM_MEMORY_AND_RETURN` truncate-and-return-`min`
+// path `hook_param` alone uses). That means a buffer-mode `otxn_param`
+// read into an exactly-`N`-byte buffer can *only* ever return exactly `N`
+// (success) or fail — never a shorter, silently-truncated "success" the
+// way `hook_param` can. govern.c's own checks for both of these
+// (`otxn_param(SBUF(topic), "T", 1)` against `!= 2`;
+// `otxn_param(&l, 1, "L", 1)` against `!= 1`) are therefore already exact-
+// length checks, identical in effect to what `FixedRead::read_exact`/
+// `otxn_param_exact`/`otxn_param_typed` enforce — this migration changes
+// nothing observable. (Contrast `IMC`/`IRR`/`IRD` below, read via
+// `hook_param`, whose govern.c checks are existence-only (`< 0`), *not*
+// exact-length — see the comment at that read site for why those are not
+// migrated.) `[u8; N]` already implements `FixedRead`/`ToBytes` via this
+// crate's blanket array impl (a bare `u8` does not itself implement
+// `FixedRead`, so `L`'s one-byte value is declared as `[u8; 1]`, not
+// `u8`), so Form 1 needs no new value struct for either.
+otxn_parameter!(TopicParamName = b"T" => [u8; 2]);
+otxn_parameter!(LayerParamName = b"L" => [u8; 1]);
 
 /// `genesis[20]` in govern.c: the network genesis account (see
 /// `examples/80_reward/src/mint_txn.rs::GENESIS_ACCOUNT`'s doc comment
@@ -267,8 +293,9 @@ fn my_hook() -> i64 {
             .nope(b"Governance: You are not currently a governance member at this table.");
     }
 
-    let mut topic = [0u8; 2];
-    let topic_ok = otxn_param(&mut topic, b"T") == Ok(2);
+    let topic_result: Result<[u8; 2]> = otxn_param_typed(&TopicParamName);
+    let topic_ok = topic_result.is_ok();
+    let topic = topic_result.unwrap_or([0, 0]);
     let t = topic[0];
     let n = topic[1];
     if !topic_ok || (t != b'S' && t != b'H' && t != b'R') {
@@ -288,12 +315,11 @@ fn my_hook() -> i64 {
 
     let mut l = 1u8;
     if !is_l1_table {
-        let mut lbuf = [0u8; 1];
-        if otxn_param(&mut lbuf, b"L") != Ok(1) {
-            GovernError::BadParameter
-                .nope(b"Governance: Missing L parameter. Which layer are you voting for?");
-        }
-        l = lbuf[0];
+        l = match otxn_param_typed(&LayerParamName) {
+            Ok([v]) => v,
+            Err(_) => GovernError::BadParameter
+                .nope(b"Governance: Missing L parameter. Which layer are you voting for?"),
+        };
         if l != 1 && l != 2 {
             GovernError::BadParameter.nope(b"Governance: Layer parameter must be '1' or '2'.");
         }
@@ -437,6 +463,16 @@ fn my_hook() -> i64 {
 /// and `IS0..IS{imc-1}` hook parameters and populates the initial seat
 /// table. Diverges (`accept!`/`rollback!`) — govern.c's setup path never
 /// falls through to normal voting.
+///
+/// `IMC`/`IRR`/`IRD` are deliberately read via raw `hook_param` +
+/// `.is_err()`, not a `hook_parameter!` typed declaration (unlike
+/// `IS{seat}` just above, or `T`/`L` in `my_hook`) — see the "Parameter
+/// read semantics" table in the README, or, in short: govern.c's own
+/// checks for these three are existence-only (`< 0`), not the exact-
+/// length check it uses for `IS{seat}`/`T`/`L`, and `hook_param`'s host
+/// semantics silently accept a too-short (including empty) actual value
+/// rather than erroring — a real edge case a typed declaration's
+/// `read_exact`-backed exact-length check would reject differently.
 #[inline(never)]
 fn setup(is_l1_table: bool) -> ! {
     let mut imc = [0u8; 1];
