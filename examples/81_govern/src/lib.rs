@@ -68,7 +68,35 @@ mod txn;
 
 use hooks_lib::prelude::*;
 use hooks_lib::static_cell::HookStatic;
-use hooks_lib::{accept, guard, hook, hook_errors, rollback};
+use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, rollback};
+
+// `IS{seat}` — the initial-member-account hook parameter name `setup`
+// reads per seat (`[b'I', b'S', this_seat]`, `this_seat` runtime-varying —
+// see `setup` below). `hook_parameter!`'s Form 4 (a newtype wrapping one
+// existing type, here the same `[u8; 3]` shape the raw array literal
+// already was) ties the name to exactly one value type (`AccountId`) at
+// the type level. Byte-for-byte identical to the raw
+// `hook_param_exact(&member_pkey)` call this replaces:
+// `TypedParamName::name_bytes`'s default body runs the generated
+// `ToBytes::write`, which for a single-field newtype writes exactly its
+// one field's bytes — the same `[u8; 3]` `member_pkey` array, unchanged —
+// and `hook_param_typed` itself delegates straight to
+// `hook_param_exact::<AccountId>` (see `hooks_lib::api::hook_ctx::hook_param_typed`'s
+// implementation), the exact function this replaces. Unlike `state`'s
+// typed layer (see the `state_xfl`/`RewardRateKey` note in
+// `examples/80_reward`), `hook_param_typed`/`hook_param_exact` never
+// match a *specific* `HookError` variant, so this migration carries none
+// of that nesting-depth risk — confirmed measured: max nesting depth is
+// unchanged (22, same as before this change). Worst-case instructions did
+// go up modestly (+607, 44560 -> 45167): `name_bytes`'s default body (used
+// here, since a newtype isn't the "plain byte-string" zero-copy case —
+// see `hooks_lib::convert::TypedParamName`'s doc comment) copies the name
+// into a scratch buffer before the host call, unlike the raw
+// `hook_param_exact(&member_pkey)` this replaces, which passed the array
+// reference straight through with no extra copy. Still comfortably inside
+// the 32-level guard limit and the live e2e suite's measured instruction
+// budget for this hook (see `e2e/test/govern.test.ts`).
+hook_parameter!(MemberParamName [u8; 3] => AccountId);
 
 /// `genesis[20]` in govern.c: the network genesis account (see
 /// `examples/80_reward/src/mint_txn.rs::GENESIS_ACCOUNT`'s doc comment
@@ -425,8 +453,8 @@ fn setup(is_l1_table: bool) -> ! {
         guard!(u32::from(SEAT_COUNT));
         let this_seat = i;
         i = i.wrapping_add(1);
-        let member_pkey = [b'I', b'S', this_seat];
-        let member_acc: AccountId = match hook_param_exact(&member_pkey) {
+        let member_pkey = MemberParamName([b'I', b'S', this_seat]);
+        let member_acc: AccountId = match hook_param_typed(&member_pkey) {
             Ok(a) => a,
             Err(_) => GovernError::BadParameter
                 .nope(b"Governance: One or more initial member account ID's is missing"),

@@ -40,6 +40,22 @@ const DEFAULT_REWARD_RATE_BITS: i64 = 6_038_156_834_009_797_973;
 /// `DEFAULT_REWARD_DELAY` in reward.c: 2,600,000 seconds as raw XFL bits.
 const DEFAULT_REWARD_DELAY_BITS: i64 = 6_199_553_087_261_802_496;
 
+// `state_xfl(b"RR"/b"RD")` below deliberately stays on the raw `api::state`
+// layer, not `hook_state!`'s typed pairing: `state_get_typed`/`state_get`
+// route every read through `crate::state::decode_read`, which internally
+// matches the *specific* `HookError::DoesntExist` variant to turn "no
+// entry" into `Ok(None)` — that forces the compiler to fully resolve
+// `hooks_lib::error::res`'s ~40-arm `HookError::from(i64)` decode at the
+// call site. Measured directly (`hooks-build build`): doing that here
+// pushes this function's block/loop/if nesting from the current 24 to 70,
+// blowing the Hook API's 32-level guard-checker limit outright (verified,
+// not hypothesized — this migration was tried and reverted because of
+// this exact failure). `state_xfl`'s raw `Result<XFL>` never matches a
+// specific variant (`res()` is a plain sign check), so it stays.
+// `examples/81_govern`'s `keys::REWARD_RATE`/`REWARD_DELAY` (the same
+// `b"RR"`/`b"RD"` keys, write side) has the identical constraint — see
+// that crate's own module doc comment.
+
 /// `MAXUNL` in reward.c: `UNLReport`'s `ActiveValidators` array is assumed
 /// to hold at most this many entries.
 const MAX_UNL: usize = 128;
