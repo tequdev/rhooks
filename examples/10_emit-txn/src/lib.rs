@@ -52,7 +52,7 @@ fn my_hook() -> i64 {
         );
     }
 
-    let Ok(dest) = otxn_field_exact(sfAccount) else {
+    let Ok(dest) = otxn_field_typed(sfAccount) else {
         rollback!(
             b"emit-txn: could not read otxn sender",
             EmitTxnError::CouldNotReadSender

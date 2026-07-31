@@ -31,9 +31,9 @@ fn min_drops() -> u64 {
 
 #[hook]
 fn my_hook() -> i64 {
-    let drops = match otxn_field_exact(sfAmount) {
-        Ok(raw) => u64::from_be_bytes(raw) & !NATIVE_AMOUNT_FLAG_BITS,
-        Err(_) => rollback!(
+    let drops = match otxn_field_typed(sfAmount) {
+        Ok(AmountBytes::Native(n)) => u64::from_be_bytes(n.0) & !NATIVE_AMOUNT_FLAG_BITS,
+        Ok(AmountBytes::Iou(_)) | Err(_) => rollback!(
             b"hook-params: unsupported (non-native) Amount",
             HookParamsError::UnsupportedAmount
         ),

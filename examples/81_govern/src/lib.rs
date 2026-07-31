@@ -92,7 +92,7 @@ fn my_hook() -> i64 {
         done(b"Governance: Passing non-Invoke txn. HookOn should be changed to avoid this.");
     }
 
-    let Ok(sender) = otxn_field_exact::<AccountId>(sfAccount) else {
+    let Ok(sender) = otxn_field_typed(sfAccount) else {
         GovernError::AssertionFailed.nope(b"govern: could not read otxn Account")
     };
     let Ok(hook_accid) = hook_account_buf() else {
@@ -100,7 +100,7 @@ fn my_hook() -> i64 {
     };
 
     if buf_eq_20(&sender, &hook_accid) {
-        if let Ok(dest) = otxn_field_exact::<AccountId>(sfDestination) {
+        if let Ok(dest) = otxn_field_typed(sfDestination) {
             if !buf_eq_20(&hook_accid, &dest) {
                 done(b"Goverance: Passing outgoing txn.");
             }

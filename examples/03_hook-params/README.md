@@ -37,12 +37,12 @@ size" into the same `Err`. Both fall back to the default via
 hard error. This mirrors `firewall`'s `hook_param` pattern for its `BL`
 parameter, but reads a threshold instead of an `AccountId`.
 
-The originating transaction's `Amount` is read the same way, via
-`otxn_field_exact(sfAmount)` (again inferred as `[u8; 8]`, this time from
-the `u64::from_be_bytes(raw)` call in the match arm below), and only
-accepted if it comes back as exactly 8 bytes (a native amount serializes
-as 8 bytes; an IOU amount is 48). The top two bits of a serialized native
-amount are format flags, not
+The originating transaction's `Amount` is read via
+`otxn_field_typed(sfAmount)`, which classifies the field by its wire length
+and hands back an `AmountBytes` — `Native([u8; 8])` for an 8-byte native
+amount, `Iou(_)` for a 48-byte IOU amount — so only the `Native` arm is
+accepted; `Iou` (and any read error) falls to the same "unsupported" arm.
+The top two bits of a serialized native amount are format flags, not
 part of the drops value (`0x80` = "not an IOU", `0xC0`'s low bit = sign,
 always set since XRP/XAH amounts are never negative) — see
 `hooks_lib::txn::codec::encode_native_amount_const`'s doc comment for the

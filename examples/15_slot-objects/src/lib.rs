@@ -347,7 +347,7 @@ const CHK_IOU: u8 = 5;
 /// accepts with the bits it earned.
 #[hook]
 fn my_hook() -> i64 {
-    let Ok(sender) = otxn_field_exact(sfAccount) else {
+    let Ok(sender) = otxn_field_typed(sfAccount) else {
         rollback!(b"slot-objects: no sfAccount", SlotObjectsError::NoSender)
     };
     let Ok(keylet) = keylet_account(&sender) else {

@@ -109,13 +109,13 @@ fn store(key: &KeyletKey, value: &Keylet) {
 /// Hook entry point. See the module doc comment for the full behavior.
 #[hook]
 fn my_hook() -> i64 {
-    let Ok(owner) = otxn_field_exact(sfAccount) else {
+    let Ok(owner) = otxn_field_typed(sfAccount) else {
         rollback!(
             b"keylets: sfAccount missing from the originating transaction",
             KeyletsError::AccountFieldMissing
         )
     };
-    let Ok(dest) = otxn_field_exact(sfDestination) else {
+    let Ok(dest) = otxn_field_typed(sfDestination) else {
         rollback!(
             b"keylets: sfDestination missing from the originating transaction",
             KeyletsError::DestinationFieldMissing

@@ -45,7 +45,7 @@ impl RejectReason {
 
 #[hook]
 fn my_hook() -> i64 {
-    if otxn_field_exact::<AccountId>(sfAccount).is_err() {
+    if otxn_field_typed(sfAccount).is_err() {
         RejectReason::BadAccountField.rollback();
     }
 
@@ -56,9 +56,9 @@ fn my_hook() -> i64 {
         _ => {}
     }
 
-    let drops = match otxn_field_exact(sfAmount) {
-        Ok(raw) => u64::from_be_bytes(raw) & !NATIVE_AMOUNT_FLAG_BITS,
-        Err(_) => RejectReason::NotNativeAmount.rollback(),
+    let drops = match otxn_field_typed(sfAmount) {
+        Ok(AmountBytes::Native(n)) => u64::from_be_bytes(n.0) & !NATIVE_AMOUNT_FLAG_BITS,
+        Ok(AmountBytes::Iou(_)) | Err(_) => RejectReason::NotNativeAmount.rollback(),
     };
 
     if drops > MAX_DROPS {

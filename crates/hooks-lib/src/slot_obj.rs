@@ -693,7 +693,7 @@ fn decode_issue(no: u32) -> Result<IssueData> {
 /// 44 bytes, the MPT issue length. Out of scope as a *value* (see
 /// [`IssueData`]) but deliberately readable, so it is reported as a parse
 /// error rather than as a buffer-too-small error from the host.
-const ISSUE_MAX_READ_LEN: usize = 44;
+pub(crate) const ISSUE_MAX_READ_LEN: usize = 44;
 
 /// Classifies serialized issue bytes by their length: 20 → native, 40 → IOU
 /// (currency then issuer), anything else → [`HookError::ParseError`].
