@@ -3,7 +3,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, account_id, hook, hook_errors, rollback};
+use hooks_lib::*;
 
 /// r-address used by the compile-time and runtime conversions.
 const OWNER_RADDR: &[u8; 34] = b"rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
@@ -41,12 +41,11 @@ hook_errors! {
 /// Accepts only when all conversion paths agree.
 #[hook]
 fn my_hook() -> i64 {
-    let installed_on = match hook_account_buf() {
-        Ok(a) => a,
-        Err(_) => rollback!(
+    let Ok(installed_on) = hook_account_buf() else {
+        rollback!(
             b"account-id-macro: hook_account failed",
             AccountIdMacroError::HookAccountFailed
-        ),
+        )
     };
     if !buf_eq_20(&installed_on, &OWNER) {
         rollback!(
@@ -55,12 +54,11 @@ fn my_hook() -> i64 {
         );
     }
 
-    let runtime_accid = match util_accid_buf(OWNER_RADDR) {
-        Ok(a) => a,
-        Err(_) => rollback!(
+    let Ok(runtime_accid) = util_accid_buf(OWNER_RADDR) else {
+        rollback!(
             b"account-id-macro: util_accid failed",
             AccountIdMacroError::UtilAccidFailed
-        ),
+        )
     };
     if !buf_eq_20(&runtime_accid, &OWNER) {
         rollback!(
@@ -75,12 +73,11 @@ fn my_hook() -> i64 {
             AccountIdMacroError::RaddrBufAlreadyTaken
         );
     };
-    let n = match util_raddr(raddr_buf, OWNER.as_ref()) {
-        Ok(n) => n,
-        Err(_) => rollback!(
+    let Ok(n) = util_raddr(raddr_buf, OWNER.as_ref()) else {
+        rollback!(
             b"account-id-macro: util_raddr failed",
             AccountIdMacroError::UtilRaddrFailed
-        ),
+        )
     };
     if n != OWNER_RADDR.len() {
         rollback!(

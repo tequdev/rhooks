@@ -11,7 +11,7 @@ mod raw;
 
 use hooks_lib::prelude::*;
 use hooks_lib::static_cell::HookStatic;
-use hooks_lib::{accept, guard, hook, hook_errors, hook_state, rollback};
+use hooks_lib::*;
 use mint_txn::{L1_SEATS, MintTxn};
 
 /// Default reward rate as raw XFL bits.
@@ -75,15 +75,6 @@ static MINT_TXN: HookStatic<MintTxn> = HookStatic::new(MintTxn::new());
 /// `UNLReport.ActiveValidators`'s worst-case serialized bytes — also a
 /// `HookStatic` for the same reason.
 static AV_BUF: HookStatic<[u8; AV_ARRAY_LEN]> = HookStatic::new([0u8; AV_ARRAY_LEN]);
-
-/// Scratch space for the sender's AccountRoot Keylet (34 bytes). A
-/// `HookStatic` rather than a stack local for the same reason
-/// [`MINT_TXN`]/[`AV_BUF`] are: a 34-byte-and-up zero-initialized stack
-/// array is exactly the size `wasm32v1-none`'s codegen can start
-/// lowering to an unguarded `memset`-style loop at some optimization
-/// levels (see `examples/README.md`'s "Statics for templates and large
-/// buffers") — unrelated to which API wraps `util_keylet` itself.
-static ACCOUNT_KEYLET: HookStatic<[u8; KEYLET_LEN]> = HookStatic::new([0u8; KEYLET_LEN]);
 
 /// The five account-root fields this hook reads, and which of the three
 /// "cannot proceed" outcomes applies instead.
@@ -164,13 +155,11 @@ fn my_hook() -> i64 {
         accept!(b"Reward: Passing non-claim txn", 0);
     }
 
-    let sender: AccountId = match otxn_field_exact(sfAccount) {
-        Ok(a) => a,
-        Err(_) => RewardError::AssertionFailed.rollback(b"reward: could not read otxn Account"),
+    let Ok(sender) = otxn_field_exact::<AccountId>(sfAccount) else {
+        RewardError::AssertionFailed.rollback(b"reward: could not read otxn Account")
     };
-    let hook_acc: AccountId = match hook_account_buf() {
-        Ok(a) => a,
-        Err(_) => RewardError::AssertionFailed.rollback(b"reward: could not read hook_account"),
+    let Ok(hook_acc) = hook_account_buf() else {
+        RewardError::AssertionFailed.rollback(b"reward: could not read hook_account")
     };
     // The hook's own emitted ClaimReward-adjacent traffic (there is none
     // today, but reward.c guards this unconditionally) passes through.
@@ -211,31 +200,12 @@ fn my_hook() -> i64 {
 
     // Slot the sender's AccountRoot; `RewardAccumulator` only exists once
     // a prior ClaimReward has already run the protocol-level reward setup
-    // on this account. `util_keylet`, not `util_keylet_buf`: the output
-    // still needs to land in the `HookStatic` scratch buffer above, not a
-    // fresh stack-local `Keylet` (see `ACCOUNT_KEYLET`'s doc comment).
-    let Some(kl_buf) = ACCOUNT_KEYLET.take() else {
-        RewardError::AssertionFailed.rollback(b"reward: account keylet buffer already taken");
+    // on this account. The typed helper returns a full 34-byte `Keylet`
+    // by construction, so no length check is needed.
+    let Ok(kl) = keylet_account(&sender) else {
+        RewardError::AssertionFailed.rollback(b"reward: could not build account keylet")
     };
-    let kl_len = match util_keylet(
-        kl_buf,
-        KEYLET_ACCOUNT,
-        sender.as_ptr() as u32,
-        ACC_ID_LEN as u32,
-        0,
-        0,
-        0,
-        0,
-    ) {
-        Ok(n) => n,
-        Err(_) => RewardError::AssertionFailed.rollback(b"reward: could not build account keylet"),
-    };
-    // An account keylet is always the full 34 bytes; checking rather than
-    // assuming keeps the copy inside `read_reward_fields` honest.
-    if kl_len != KEYLET_LEN {
-        RewardError::AssertionFailed.rollback(b"reward: could not build account keylet");
-    }
-    let fields = match read_reward_fields(&Keylet(*kl_buf)) {
+    let fields = match read_reward_fields(&kl) {
         RewardFieldRead::Read(f) => f,
         RewardFieldRead::NoAccountSlot => {
             RewardError::AssertionFailed.rollback(b"reward: could not slot sender account")

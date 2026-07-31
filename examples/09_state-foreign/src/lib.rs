@@ -1,7 +1,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, hook_parameter, pad, rollback};
+use hooks_lib::*;
 
 hook_parameter!(AcctParam, AcctParamName = b"ACCT" => AccountId);
 
@@ -24,12 +24,11 @@ hook_errors! {
 
 #[hook]
 fn my_hook() -> i64 {
-    let target: AccountId = match AcctParam.get_value() {
-        Ok(t) => t,
-        Err(_) => rollback!(
+    let Ok(target) = AcctParam.get_value() else {
+        rollback!(
             b"state-foreign: ACCT parameter not configured",
             StateForeignError::AcctNotConfigured
-        ),
+        )
     };
 
     let mut flag = [0u8; 1];

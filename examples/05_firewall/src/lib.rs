@@ -1,7 +1,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, hook_parameter, rollback};
+use hooks_lib::*;
 
 hook_parameter!(BlockedParam, BlockedParamName = b"BL" => AccountId);
 
@@ -17,18 +17,15 @@ hook_errors! {
 
 #[hook]
 fn my_hook() -> i64 {
-    let mut sender = AccountId::default();
-    match otxn_field(&mut sender, sfAccount) {
-        Ok(n) if n == ACC_ID_LEN => {}
-        _ => rollback!(
+    let Ok(sender) = otxn_field_exact(sfAccount) else {
+        rollback!(
             b"firewall: could not read otxn sender",
             FirewallError::CouldNotReadSender
-        ),
-    }
+        )
+    };
 
-    let blocked: AccountId = match BlockedParam.get_value() {
-        Ok(v) => v,
-        Err(_) => accept!(),
+    let Ok(blocked) = BlockedParam.get_value() else {
+        accept!()
     };
 
     // Avoid `==`, which can compile to an unguarded loop.

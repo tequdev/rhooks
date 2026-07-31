@@ -1,7 +1,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, cbak, hook, hook_errors, rollback, txn_template};
+use hooks_lib::*;
 
 txn_template! {
     /// A payment template for emitted transactions.
@@ -52,14 +52,12 @@ fn my_hook() -> i64 {
         );
     }
 
-    let mut dest = AccountId::default();
-    match otxn_field(&mut dest, sfAccount) {
-        Ok(n) if n == ACC_ID_LEN => {}
-        _ => rollback!(
+    let Ok(dest) = otxn_field_exact(sfAccount) else {
+        rollback!(
             b"emit-txn: could not read otxn sender",
             EmitTxnError::CouldNotReadSender
-        ),
-    }
+        )
+    };
 
     let Some(txn) = TXN.take() else {
         rollback!(
@@ -76,12 +74,11 @@ fn my_hook() -> i64 {
     }
     txn.set_destination(&dest);
 
-    let prepared = match txn.prepare_for_emit() {
-        Ok(p) => p,
-        Err(_) => rollback!(
+    let Ok(prepared) = txn.prepare_for_emit() else {
+        rollback!(
             b"emit-txn: prepare_for_emit failed",
             EmitTxnError::PrepareFailed
-        ),
+        )
     };
 
     match prepared.emit() {

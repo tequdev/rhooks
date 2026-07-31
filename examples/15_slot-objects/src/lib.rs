@@ -7,7 +7,7 @@
 
 use hooks_lib::prelude::*;
 use hooks_lib::slot_path;
-use hooks_lib::{accept, guard, hook, hook_errors, rollback};
+use hooks_lib::*;
 
 hook_errors! {
     /// `slot-objects` rollback codes.
@@ -347,16 +347,14 @@ const CHK_IOU: u8 = 5;
 /// accepts with the bits it earned.
 #[hook]
 fn my_hook() -> i64 {
-    let sender: AccountId = match otxn_field_exact(sfAccount) {
-        Ok(v) => v,
-        Err(_) => rollback!(b"slot-objects: no sfAccount", SlotObjectsError::NoSender),
+    let Ok(sender) = otxn_field_exact(sfAccount) else {
+        rollback!(b"slot-objects: no sfAccount", SlotObjectsError::NoSender)
     };
-    let keylet = match keylet_account(&sender) {
-        Ok(k) => k,
-        Err(_) => rollback!(
+    let Ok(keylet) = keylet_account(&sender) else {
+        rollback!(
             b"slot-objects: keylet_account failed",
             SlotObjectsError::KeyletFailed
-        ),
+        )
     };
     let group: u8 = otxn_param_exact::<[u8; 1]>(b"CHK")
         .map(|v| v[0])

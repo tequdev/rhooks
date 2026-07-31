@@ -1,7 +1,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, rollback};
+use hooks_lib::*;
 
 /// The numerator for the computed percentage.
 const PERCENT_NUM: u32 = 1;
@@ -48,40 +48,35 @@ hook_errors! {
 // XFL operators delegate to checked Hook API calls.
 #[allow(clippy::arithmetic_side_effects)]
 fn my_hook() -> i64 {
-    let txn = match SlotObject::from_otxn() {
-        Ok(s) => s,
-        Err(_) => rollback!(b"xfl-math: otxn_slot failed", XflMathError::OtxnSlotFailed),
+    let Ok(txn) = SlotObject::from_otxn() else {
+        rollback!(b"xfl-math: otxn_slot failed", XflMathError::OtxnSlotFailed)
     };
-    let amount_slot = match txn.get(sfAmount) {
-        Ok(s) => s,
-        Err(_) => rollback!(
+    let Ok(amount_slot) = txn.get(sfAmount) else {
+        rollback!(
             b"xfl-math: no Amount field on otxn",
             XflMathError::NoAmountField
-        ),
+        )
     };
 
-    let amount = match amount_slot.as_xfl() {
-        Ok(x) => x,
-        Err(_) => rollback!(
+    let Ok(amount) = amount_slot.as_xfl() else {
+        rollback!(
             b"xfl-math: Amount is not a valid XFL amount",
             XflMathError::InvalidAmount
-        ),
+        )
     };
 
-    let share = match amount.mulratio(false, PERCENT_NUM, PERCENT_DEN) {
-        Ok(x) => x,
-        Err(_) => rollback!(
+    let Ok(share) = amount.mulratio(false, PERCENT_NUM, PERCENT_DEN) else {
+        rollback!(
             b"xfl-math: mulratio failed (overflow?)",
             XflMathError::MulratioFailed
-        ),
+        )
     };
 
-    let min_share = match XFL::new(-21, 1_000_000_000_000_000) {
-        Ok(x) => x,
-        Err(_) => rollback!(
+    let Ok(min_share) = XFL::new(-21, 1_000_000_000_000_000) else {
+        rollback!(
             b"xfl-math: could not construct min_share",
             XflMathError::MinShareConstructFailed
-        ),
+        )
     };
 
     match share.lt(min_share) {
@@ -96,12 +91,11 @@ fn my_hook() -> i64 {
         ),
     }
 
-    let remaining = match amount - share {
-        Ok(x) => x,
-        Err(_) => rollback!(
+    let Ok(remaining) = amount - share else {
+        rollback!(
             b"xfl-math: amount - share failed",
             XflMathError::RemainingComputeFailed
-        ),
+        )
     };
     match remaining.compare(XFL::from_raw_bits(0), COMPARE_LESS | COMPARE_EQUAL) {
         Ok(true) => rollback!(
@@ -115,21 +109,19 @@ fn my_hook() -> i64 {
         ),
     }
 
-    let growth = match XFL::new(-15, 1_010_000_000_000_000) {
-        Ok(x) => x,
-        Err(_) => rollback!(
+    let Ok(growth) = XFL::new(-15, 1_010_000_000_000_000) else {
+        rollback!(
             b"xfl-math: could not construct growth factor",
             XflMathError::GrowthConstructFailed
-        ),
+        )
     };
     let compounded_raw =
         share.unchecked() * growth.unchecked() * growth.unchecked() * growth.unchecked();
-    let compounded = match compounded_raw.validate() {
-        Ok(x) => x,
-        Err(_) => rollback!(
+    let Ok(compounded) = compounded_raw.validate() else {
+        rollback!(
             b"xfl-math: compounded share failed to validate",
             XflMathError::CompoundValidationFailed
-        ),
+        )
     };
     match compounded.compare(share, COMPARE_LESS | COMPARE_EQUAL) {
         Ok(true) => rollback!(

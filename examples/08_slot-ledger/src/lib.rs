@@ -1,7 +1,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, rollback};
+use hooks_lib::*;
 
 hook_errors! {
     /// Errors returned by the slot example.
@@ -25,35 +25,31 @@ hook_errors! {
 
 #[hook]
 fn my_hook() -> i64 {
-    let txn = match SlotObject::from_otxn() {
-        Ok(s) => s,
-        Err(_) => rollback!(
+    let Ok(txn) = SlotObject::from_otxn() else {
+        rollback!(
             b"slot-ledger: otxn_slot failed",
             SlotLedgerError::OtxnSlotFailed
-        ),
+        )
     };
 
-    let dest_slot = match txn.get(sfDestination) {
-        Ok(s) => s,
-        Err(_) => rollback!(
+    let Ok(dest_slot) = txn.get(sfDestination) else {
+        rollback!(
             b"slot-ledger: no Destination field on otxn",
             SlotLedgerError::NoDestinationField
-        ),
+        )
     };
-    let dest: AccountId = match dest_slot.value() {
-        Ok(d) => d,
-        Err(_) => rollback!(
+    let Ok(dest) = dest_slot.value() else {
+        rollback!(
             b"slot-ledger: Destination has unexpected size",
             SlotLedgerError::UnexpectedDestinationSize
-        ),
+        )
     };
 
-    let amount_slot = match txn.get(sfAmount) {
-        Ok(s) => s,
-        Err(_) => rollback!(
+    let Ok(amount_slot) = txn.get(sfAmount) else {
+        rollback!(
             b"slot-ledger: no Amount field on otxn",
             SlotLedgerError::NoAmountField
-        ),
+        )
     };
 
     match amount_slot.size() {

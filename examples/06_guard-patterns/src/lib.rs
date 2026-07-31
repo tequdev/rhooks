@@ -1,7 +1,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, guard, guard_m, hook, hook_errors, hook_parameter, rollback};
+use hooks_lib::*;
 
 hook_parameter!(BlockedParam, BlockedParamName = b"BL" => AccountId);
 
@@ -12,22 +12,6 @@ hook_errors! {
         CouldNotReadSender = 1,
         /// The originating account is blocked.
         BlockedAccount = 2,
-    }
-}
-
-/// Compares two accounts with a loop guarded for every possible byte.
-fn accounts_equal(a: &AccountId, b: &AccountId) -> bool {
-    let mut i: usize = 0;
-    loop {
-        // The loop can examine each AccountId byte once.
-        guard!(ACC_ID_LEN as u32);
-        if i >= ACC_ID_LEN {
-            break true;
-        }
-        if a.get(i) != b.get(i) {
-            break false;
-        }
-        i = i.wrapping_add(1);
     }
 }
 
@@ -47,7 +31,7 @@ fn my_hook() -> i64 {
         accept!();
     };
 
-    if accounts_equal(&sender, &blocked) {
+    if buf_eq_20(&sender, &blocked) {
         rollback!(
             b"guard-patterns: blocked account",
             GuardPatternsError::BlockedAccount

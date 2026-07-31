@@ -1,6 +1,6 @@
 #![no_std]
 
-use hooks_lib::{accept, hook, trace};
+use hooks_lib::*;
 
 #[hook]
 fn my_hook() -> i64 {

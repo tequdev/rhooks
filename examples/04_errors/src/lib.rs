@@ -1,7 +1,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, rollback};
+use hooks_lib::*;
 
 /// The source tag rejected by this policy.
 const BLOCKED_SOURCE_TAG: u32 = 13;

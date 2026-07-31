@@ -1,7 +1,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, rollback};
+use hooks_lib::*;
 
 /// The big-endian minimum-amount parameter name.
 const MIN_PARAM: &[u8] = b"MIN";
