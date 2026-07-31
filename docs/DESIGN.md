@@ -1547,6 +1547,18 @@ than stack locals (see §6.3's static-buffer idiom).
 - `.gitignore`: `/target`, `/examples/target`, `/examples/**/out`, `out/`,
   `*.wasm` outside fixtures, `.DS_Store`. Binary test fixtures live in
   `crates/hooks-build/tests/fixtures/` and are exempted.
+- `fuzz/` — `cargo-fuzz` (libFuzzer) property-fuzz targets for
+  host-independent pure logic: `xfl.rs`'s decode path, `txn::codec`'s
+  `field_header`, and `wasm-smith`-generated modules through
+  `hooks-build`'s clean/flatten/unnest (a randomized counterpart to the
+  `*_differential.rs` tests). Its own `[workspace]` (deliberately excluded
+  from the root `members = ["crates/*"]`, since cargo-fuzz's ASan/coverage
+  build flags must never leak into normal builds) and its own nightly
+  requirement, independent of the rest of the workspace's toolchain — see
+  `fuzz/README.md`. `mise run fuzz-smoke` runs each target briefly as a
+  CI-style harness-health check; it is deliberately not part of
+  `mise run test` (fuzzing is open-ended, not a pass/fail gate on every
+  change).
 
 ## 9. Implementation plan (delegation map)
 

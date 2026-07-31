@@ -1,0 +1,50 @@
+[package]
+name = "hooks-build-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = "1"
+wasmparser = "0.254"
+wasm-encoder = { version = "0.254", features = ["wasmparser"] }
+wasmi = "0.46.0"
+wasm-smith = "0.254.0"
+
+[dependencies.hooks-lib]
+path = "../crates/hooks-lib"
+
+[dependencies.hooks-build]
+path = "../crates/hooks-build"
+
+# Use independent workspace for fuzzers
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "xfl_decode"
+path = "fuzz_targets/xfl_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "txn_codec"
+path = "fuzz_targets/txn_codec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "build_pipeline"
+path = "fuzz_targets/build_pipeline.rs"
+test = false
+doc = false
+bench = false

@@ -1,0 +1,10 @@
+[toolchain]
+# `fuzz/` pins its own nightly, independent of the root workspace's stable
+# `rust-toolchain.toml` (`1.89.0`, see `docs/DESIGN.md` §5.5 and §8):
+# cargo-fuzz requires nightly for `-Z sanitizer=address`, unrelated to
+# anything else in this repo. This file only takes effect for a process
+# whose current directory is `fuzz/` (or a descendant) — invocations from
+# the repo root (e.g. `mise run fuzz-smoke`, or `cargo fuzz run --fuzz-dir
+# fuzz ...`) instead select this toolchain explicitly via
+# `cargo +nightly-2026-07-20 fuzz ...`; see fuzz/README.md.
+channel = "nightly-2026-07-20"
