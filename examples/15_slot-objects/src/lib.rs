@@ -44,16 +44,16 @@
 //!    high-level object code (serialized type ID 10001–10004), not the
 //!    ordinary 14, so `try_cast::<STObject>()` must accept it.
 //! 10. **An IOU `as_xfl`.** The native round-trip above only exercises one
-//!    half of `slot_float`. This reads the sender's *trust line* balance —
-//!    a non-native amount — checks `is_native()` reports `false` on it, and
-//!    round-trips the value back to the integer the e2e paid in. Together
-//!    with check 2 that covers both branches of the amount path live.
+//!     half of `slot_float`. This reads the sender's *trust line* balance —
+//!     a non-native amount — checks `is_native()` reports `false` on it, and
+//!     round-trips the value back to the integer the e2e paid in. Together
+//!     with check 2 that covers both branches of the amount path live.
 //! 11. **A `u64` reads identically through `value()` and raw bytes.** The
-//!    typed read decodes the eight wire bytes big-endian rather than using
-//!    as-int64 mode, because the host rejects a bit-63 value there and
-//!    `sfExchangeRate` legitimately sets it. The account root has no such
-//!    field, so this pins the two paths agreeing on a real serialized value;
-//!    the bit-63 typing itself is pinned in the trybuild fixtures.
+//!     typed read decodes the eight wire bytes big-endian rather than using
+//!     as-int64 mode, because the host rejects a bit-63 value there and
+//!     `sfExchangeRate` legitimately sets it. The account root has no such
+//!     field, so this pins the two paths agreeing on a real serialized value;
+//!     the bit-63 typing itself is pinned in the trybuild fixtures.
 //!
 //! Each check contributes one bit to the accept code, so the e2e test can
 //! see exactly which passed. Triggered by `Invoke`.

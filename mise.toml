@@ -23,8 +23,11 @@ cargo fmt --all --manifest-path examples/Cargo.toml
 """
 
 [tasks.lint]
-description = "Lint the whole workspace (deny warnings)"
-run = "cargo clippy --workspace --all-targets -- -D warnings"
+description = "Lint the root workspace (all targets) and the examples workspace (wasm32v1-none), denying warnings"
+run = """
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --manifest-path examples/Cargo.toml --workspace --target wasm32v1-none -- -D warnings
+"""
 
 [tasks.test]
 description = "Run all workspace tests"
