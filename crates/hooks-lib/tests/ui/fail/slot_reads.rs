@@ -3,7 +3,7 @@
 //! not a runtime decode failure.
 
 use hooks_lib::prelude::*;
-use hooks_lib::slot_obj::Opaque;
+use hooks_lib::types::Opaque;
 
 fn main() {
     fn container(root: SlotObject<STObject>) -> Result<()> {

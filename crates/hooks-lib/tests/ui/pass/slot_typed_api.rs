@@ -8,7 +8,7 @@
 //! annotated.
 
 use hooks_lib::prelude::*;
-use hooks_lib::slot_obj::{Amount, Issue, Opaque};
+use hooks_lib::types::{Amount, Issue, Opaque};
 use hooks_lib::slot_path;
 
 fn reads(root: SlotObject<STObject>) -> Result<()> {

@@ -24,7 +24,7 @@ Build: `hooks-build build --manifest-path examples/80_reward/Cargo.toml`
 | `src/lib.rs` | Hook entry point: otxn/config checks, reward-rate math, orchestrates `mint_txn` and the L1-seat reward loop |
 | `src/mint_txn.rs` | Byte-exact `GenesisMint` transaction builder |
 | `src/message.rs` | The `ClaimReward`-too-early rollback message (digit-patched, matching reward.c's `msg_buf`) |
-| `src/raw.rs` | `float_*`/`slot_float` raw Hook API wrappers, scoped to the XFL reward-rate math — see "Toolchain limitation" below |
+| `src/raw.rs` | `float_*` raw Hook API wrappers, scoped to the XFL reward-rate math — see "Toolchain limitation" below |
 
 ## Hook state
 
@@ -91,7 +91,7 @@ field list; `GenesisMints` is a variable-length array.
 |---|---|---|---|
 | 1 | `rollback`/`accept` codes are `__LINE__` (the C source's line number) | Codes are a small `hook_errors!` enum (`RewardError`, see `lib.rs`) or `0` | reward.c's line-number codes aren't meaningful protocol data (only debugging aid for the C source); this repo's convention is a stable enum. `ter` (`tesSUCCESS`/`tecHOOK_REJECTED`) and the rollback/accept **message** are unaffected and match exactly. |
 | 2 | `seat > L1SEATS` (not `>=`) lets a stored seat byte of exactly 20 through, then writes `can_reward[20]` — out of bounds on a 20-element C array (UB) | Same `> L1_SEATS` condition preserved for state-layout parity, but `can_reward.get_mut(seat)` turns the out-of-range write into a safe no-op | `seat` values only ever come from govern.rs/govern.c, which never assigns seat 20 (`SEAT_COUNT = 20`, loop bound `i < member_count <= 20`), so this is unreachable in practice either way — this crate just doesn't reproduce the UB if it somehow were reached. |
-| 3 | reward.c's `float_*`/`slot_float` reward-rate math treats every host-call result as a raw, unchecked `i64` | `src/raw.rs` calls `float_set`/`float_divide`/`float_multiply`/`float_int`/`float_sign`/`float_one`/`float_compare`/`slot_float` through `hooks_core`'s raw FFI directly, not `hooks_lib::xfl::XFL`'s validated `Result<XFL, HookError>` API | Not a build constraint — a deliberate semantic match: reward.c folds host failure into the *same* validity checks it already needs for legitimately out-of-range values, never asking "did this call fail" on its own. See `src/raw.rs`'s module doc comment. Every other Hook API call in this crate uses `hooks_lib::api`'s ordinary wrappers — see "Toolchain limitation" below. |
+| 3 | reward.c's `float_*` reward-rate math treats every host-call result as a raw, unchecked `i64` | `src/raw.rs` calls `float_set`/`float_divide`/`float_multiply`/`float_int`/`float_sign`/`float_one`/`float_compare` through `hooks_core`'s raw FFI directly, not `hooks_lib::xfl::XFL`'s validated `Result<XFL, HookError>` API | Not a build constraint — a deliberate semantic match: reward.c folds host failure into the *same* validity checks it already needs for legitimately out-of-range values, never asking "did this call fail" on its own. See `src/raw.rs`'s module doc comment. Every other Hook API call in this crate uses `hooks_lib::api`'s ordinary wrappers — see "Toolchain limitation" below. |
 
 No other intentional behavioral differences. In particular: the reward
 formula, the delay/rate validity bounds, the fee-refund addition, the
@@ -171,7 +171,7 @@ wraps each call:
   looks for.
 
 `src/raw.rs` closes the one remaining, deliberately narrow gap: every
-`float_*`/`slot_float` call reward.c's reward-rate math makes is called
+`float_*` call reward.c's reward-rate math makes is called
 through a thin `unsafe` wrapper around `hooks_core`'s raw extern
 declaration instead of `hooks_lib::xfl::XFL`. This is **not** primarily a
 nesting-depth workaround — see `src/raw.rs`'s module doc comment for the
@@ -194,13 +194,41 @@ live-node test matrix (against `XahauGenesis_test.cpp`'s `ClaimReward`
 coverage) and which cases could/couldn't be reproduced outside a real
 genesis-activated network.
 
-## Slot API imports
+## Slot API: the typed layer, with an extraction
 
-This hook drives the numbered slot API directly (`slot_set`/`slot_subfield`/
-`slot_u64`/`slot_count`), managing slot numbers itself — the same reason it
-routes fallible Hook API calls through its own `raw.rs` shims. Those
-functions left the prelude when the typed `SlotObject` layer arrived (mixing
-the two corrupts handles, since both address the same 255 registers), so
-`src/lib.rs` names them explicitly via `hooks_lib::api::slot::{..}` and
-`hooks_lib::api::otxn::otxn_slot`. Nothing about the hook's behavior or its
-measured cost changed — see `examples/08_slot-ledger` for the typed layer.
+The account-root reads go through `hooks_lib::slot_obj`: `SlotObject::from_keylet`
+loads the sender's account, `.get(sfRewardAccumulator)` and friends derive the
+field handles, and `.value()` reads them. No slot numbers appear.
+
+Two details are worth knowing before touching `read_reward_fields`:
+
+- **It is `#[inline(never)]`, and that is load-bearing.** This hook sits at
+  nesting depth 26 of the Hook API's 32-level limit. Five `Result`-returning
+  typed reads inlined into `my_hook` measured **68** — the build is rejected
+  outright. In their own frame they cost nesting the entry point never sees.
+  Splitting the four presence checks into sequential `let else`s rather than
+  one 4-way tuple pattern was the other half of the fix: a tuple
+  `let (Ok(..), Ok(..), Ok(..), Ok(..)) = .. else` lowers to nested matches.
+- **`sfBalance` is read with `assume_type::<u64>()`.** The field is an
+  `Amount`, but what the reward math wants is the native amount's raw 64-bit
+  wire encoding — it masks the flag bits off itself — not a classified
+  `AmountBytes`. `assume_type` is the documented escape for "I know what is
+  in this slot"; the `u64` read decodes the same eight big-endian bytes the
+  previous `slot_u64` call did. `sfRewardLgrFirst`/`sfRewardLgrLast`/
+  `sfRewardTime` are UInt32 fields, so their typed reads hand back `u32`
+  where `slot_u64` handed back a widened `u64`; the widening is now explicit
+  at the read site.
+
+**Measured cost of the migration: +220 worst-case instructions (13766 →
+13986) and +434 bytes.** Most of it is the 34-byte keylet copy
+`SlotObject::from_keylet(&Keylet(*kl_buf))` makes where the raw `slot_set`
+took a slice, plus the `Result` plumbing on five reads that were previously
+`== Ok(n)` integer comparisons. The hook stays well inside both ceilings.
+
+`src/raw.rs` shrank by exactly one function: `slot_float` was a raw *slot*
+API and went with the rest. Its one caller — the otxn fee read — now goes
+through `fee_slot.as_xfl()`, folding a failed call into the same `> 0` test
+the value needed anyway, which is what reward.c's unchecked `int64_t` did by
+other means. The remaining `float_*` shims are untouched: they exist for the
+raw-`i64` semantics described in the table above, and none of that is slot
+navigation.

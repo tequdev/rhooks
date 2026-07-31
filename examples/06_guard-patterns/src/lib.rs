@@ -14,7 +14,6 @@ use hooks_lib::prelude::*;
 // named explicitly: the prelude's typed `SField` constants use the same
 // names, and an explicit import wins over a glob. Runtime call sites can use
 // either — they take `impl Into<u32>`.
-use hooks_lib::raw::sfcodes::sfAccount;
 use hooks_lib::{accept, guard, guard_m, hook, hook_errors, hook_parameter, rollback};
 
 // The Hook parameter carrying the 20-byte blocked `AccountId` (name

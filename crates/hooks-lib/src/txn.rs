@@ -752,15 +752,6 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 ///
 /// ```
 /// use hooks_lib::prelude::*;
-/// // `txn_template!` takes raw `u32` const expressions — see this module's
-/// // "Field codes are raw `u32`" section. Named explicitly rather than
-/// // glob-imported: the prelude's typed `SField` constants use the same
-/// // names, and an explicit import wins over a glob.
-/// use hooks_lib::raw::sfcodes::{
-///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
-///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
-///     sfSigningPubKey, sfSourceTag, sfTransactionType,
-/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -804,15 +795,6 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// the order violation (`destination` placed before `flags`):
 /// ```compile_fail,E0080
 /// use hooks_lib::prelude::*;
-/// // `txn_template!` takes raw `u32` const expressions — see this module's
-/// // "Field codes are raw `u32`" section. Named explicitly rather than
-/// // glob-imported: the prelude's typed `SField` constants use the same
-/// // names, and an explicit import wins over a glob.
-/// use hooks_lib::raw::sfcodes::{
-///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
-///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
-///     sfSigningPubKey, sfSourceTag, sfTransactionType,
-/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -836,15 +818,6 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// before the required-field checks even run):
 /// ```compile_fail
 /// use hooks_lib::prelude::*;
-/// // `txn_template!` takes raw `u32` const expressions — see this module's
-/// // "Field codes are raw `u32`" section. Named explicitly rather than
-/// // glob-imported: the prelude's typed `SField` constants use the same
-/// // names, and an explicit import wins over a glob.
-/// use hooks_lib::raw::sfcodes::{
-///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
-///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
-///     sfSigningPubKey, sfSourceTag, sfTransactionType,
-/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -864,15 +837,6 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// required field are fine):
 /// ```compile_fail,E0080
 /// use hooks_lib::prelude::*;
-/// // `txn_template!` takes raw `u32` const expressions — see this module's
-/// // "Field codes are raw `u32`" section. Named explicitly rather than
-/// // glob-imported: the prelude's typed `SField` constants use the same
-/// // names, and an explicit import wins over a glob.
-/// use hooks_lib::raw::sfcodes::{
-///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
-///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
-///     sfSigningPubKey, sfSourceTag, sfTransactionType,
-/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -895,15 +859,6 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// instead of `native_amount`:
 /// ```compile_fail,E0080
 /// use hooks_lib::prelude::*;
-/// // `txn_template!` takes raw `u32` const expressions — see this module's
-/// // "Field codes are raw `u32`" section. Named explicitly rather than
-/// // glob-imported: the prelude's typed `SField` constants use the same
-/// // names, and an explicit import wins over a glob.
-/// use hooks_lib::raw::sfcodes::{
-///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
-///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
-///     sfSigningPubKey, sfSourceTag, sfTransactionType,
-/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -930,15 +885,6 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// `Account`/`EmitDetails`/`Fee` were never actually filled in.
 /// ```compile_fail
 /// use hooks_lib::prelude::*;
-/// // `txn_template!` takes raw `u32` const expressions — see this module's
-/// // "Field codes are raw `u32`" section. Named explicitly rather than
-/// // glob-imported: the prelude's typed `SField` constants use the same
-/// // names, and an explicit import wins over a glob.
-/// use hooks_lib::raw::sfcodes::{
-///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
-///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
-///     sfSigningPubKey, sfSourceTag, sfTransactionType,
-/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -1003,7 +949,7 @@ macro_rules! txn_template {
 ///
 /// Two extra accumulators back value-based required-field detection:
 ///
-/// - `table` accumulates one `($sfcode, kind tag, payload offset)` tuple
+/// - `table` accumulates one `(($sfcode).code(), kind tag, payload offset)` tuple
 ///   literal per plain-kind field (`u32_field`/`native_amount`/
 ///   `account_id`/`empty_vl`), becoming the generated `$Name::FIELDS` const
 ///   array. `emit_details` has no `sfcode`, so it contributes no row.
@@ -1044,7 +990,7 @@ macro_rules! __txn_template_step {
         $crate::__txn_template_step! {
             @step
             name = $Name, meta = [$(#[$meta])*], vis = $vis,
-            order = [$($order)* , $sfcode],
+            order = [$($order)* , ($sfcode).code()],
             setters = [
                 $($setters)*
 
@@ -1052,7 +998,7 @@ macro_rules! __txn_template_step {
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds by construction: `Self::LEN` sums these same field sizes
                 $vis fn [<set_ $field>](&mut self, value: u32) {
-                    const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1);
+                    const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1);
                     self.bytes[OFF..OFF.wrapping_add(4)].copy_from_slice(&value.to_be_bytes());
                 }
             ],
@@ -1060,17 +1006,17 @@ macro_rules! __txn_template_step {
             buf = [$($buf)*],
             init = [
                 $($init)*
-                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), $sfcode);
+                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), ($sfcode).code());
                 $crate::txn::codec::write_const_bytes(
                     &mut $($buf)*,
-                    ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1),
+                    ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1),
                     &(($default) as u32).to_be_bytes(),
                 );
             ],
-            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::u32_field_size($sfcode)) ],
+            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::u32_field_size(($sfcode).code())) ],
             table = [
                 $($table)*
-                ($sfcode, $crate::txn::codec::KIND_U32_FIELD, ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1)),
+                (($sfcode).code(), $crate::txn::codec::KIND_U32_FIELD, ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1)),
             ],
             emit_details = [$($emit_details)*],
             fields = [ $($($rest)*)? ]
@@ -1089,7 +1035,7 @@ macro_rules! __txn_template_step {
         $crate::__txn_template_step! {
             @step
             name = $Name, meta = [$(#[$meta])*], vis = $vis,
-            order = [$($order)* , $sfcode],
+            order = [$($order)* , ($sfcode).code()],
             setters = [
                 $($setters)*
 
@@ -1103,7 +1049,7 @@ macro_rules! __txn_template_step {
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds as above; only `drops` itself is runtime-fallible
                 $vis fn [<set_ $field>](&mut self, drops: u64) -> $crate::error::Result<()> {
-                    const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1);
+                    const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1);
                     $crate::txn::codec::encode_native_amount(&mut self.bytes[OFF..OFF.wrapping_add(8)], drops)
                 }
             ],
@@ -1111,17 +1057,17 @@ macro_rules! __txn_template_step {
             buf = [$($buf)*],
             init = [
                 $($init)*
-                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), $sfcode);
+                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), ($sfcode).code());
                 $crate::txn::codec::write_const_bytes(
                     &mut $($buf)*,
-                    ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1),
+                    ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1),
                     &$crate::txn::codec::encode_native_amount_const($default),
                 );
             ],
-            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::native_amount_field_size($sfcode)) ],
+            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::native_amount_field_size(($sfcode).code())) ],
             table = [
                 $($table)*
-                ($sfcode, $crate::txn::codec::KIND_NATIVE_AMOUNT, ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1)),
+                (($sfcode).code(), $crate::txn::codec::KIND_NATIVE_AMOUNT, ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1)),
             ],
             emit_details = [$($emit_details)*],
             fields = [ $($($rest)*)? ]
@@ -1140,7 +1086,7 @@ macro_rules! __txn_template_step {
         $crate::__txn_template_step! {
             @step
             name = $Name, meta = [$(#[$meta])*], vis = $vis,
-            order = [$($order)* , $sfcode],
+            order = [$($order)* , ($sfcode).code()],
             setters = [
                 $($setters)*
 
@@ -1149,7 +1095,7 @@ macro_rules! __txn_template_step {
                 #[allow(clippy::indexing_slicing)] // in-bounds by construction, as above
                 $vis fn [<set_ $field>](&mut self, value: &$crate::types::AccountId) {
                     const OFF: usize = ($($prev)*)
-                        .wrapping_add($crate::txn::codec::field_header($sfcode).1)
+                        .wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1)
                         .wrapping_add(1);
                     self.bytes[OFF..OFF.wrapping_add($crate::types::ACC_ID_LEN)].copy_from_slice(value.as_ref());
                 }
@@ -1158,17 +1104,17 @@ macro_rules! __txn_template_step {
             buf = [$($buf)*],
             init = [
                 $($init)*
-                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), $sfcode);
+                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), ($sfcode).code());
                 $crate::txn::codec::write_const_bytes(
                     &mut $($buf)*,
-                    ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1),
+                    ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1),
                     &[$crate::types::ACC_ID_LEN as u8],
                 );
             ],
-            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::account_id_field_size($sfcode)) ],
+            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::account_id_field_size(($sfcode).code())) ],
             table = [
                 $($table)*
-                ($sfcode, $crate::txn::codec::KIND_ACCOUNT_ID, ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1).wrapping_add(1)),
+                (($sfcode).code(), $crate::txn::codec::KIND_ACCOUNT_ID, ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1).wrapping_add(1)),
             ],
             emit_details = [$($emit_details)*],
             fields = [ $($($rest)*)? ]
@@ -1187,23 +1133,23 @@ macro_rules! __txn_template_step {
         $crate::__txn_template_step! {
             @step
             name = $Name, meta = [$(#[$meta])*], vis = $vis,
-            order = [$($order)* , $sfcode],
+            order = [$($order)* , ($sfcode).code()],
             setters = [$($setters)*],
             emit_region = [$($emit_region)*],
             buf = [$($buf)*],
             init = [
                 $($init)*
-                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), $sfcode);
+                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), ($sfcode).code());
                 $crate::txn::codec::write_const_bytes(
                     &mut $($buf)*,
-                    ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1),
+                    ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1),
                     &[0u8],
                 );
             ],
-            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::empty_vl_field_size($sfcode)) ],
+            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::empty_vl_field_size(($sfcode).code())) ],
             table = [
                 $($table)*
-                ($sfcode, $crate::txn::codec::KIND_EMPTY_VL, ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1)),
+                (($sfcode).code(), $crate::txn::codec::KIND_EMPTY_VL, ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1)),
             ],
             emit_details = [$($emit_details)*],
             fields = [ $($($rest)*)? ]
@@ -1498,7 +1444,9 @@ mod tests {
 
     use crate::types::{ACC_ID_LEN, AccountId, EMIT_DETAILS_MAX_LEN};
     use hooks_core::consts::tfCANONICAL;
-    use hooks_core::sfcodes::{
+    // The typed constants: `txn_template!` calls `.code()` on whatever it is
+    // given, so its field list takes `SField`s, not raw `u32`s.
+    use crate::sfield::{
         sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee, sfFirstLedgerSequence,
         sfFlags, sfLastLedgerSequence, sfSequence, sfSigningPubKey, sfSourceTag,
     };
@@ -1658,12 +1606,13 @@ mod tests {
         );
     }
 
-    // Used only by `QualifiedPathAccount` below, to declare `sfAccount` via
-    // a fully qualified path (`hooks_core::sfcodes::sfAccount`) instead of
-    // the unqualified `sfAccount` name used everywhere else in this file —
-    // proving required-field detection is genuinely value-based: it must
-    // not matter how the constant was spelled at the declaration site.
-    use hooks_core::sfcodes::sfAccount as raw_sf_account;
+    // Used only by `QualifiedPathAccount` below, to declare `sfAccount`
+    // under a different name than the unqualified `sfAccount` used
+    // everywhere else in this file — proving required-field detection is
+    // genuinely value-based: it must not matter how the constant was
+    // spelled at the declaration site. Still an `SField`, since the macro
+    // calls `.code()` on it.
+    use crate::sfield::sfAccount as raw_sf_account;
 
     crate::txn_template! {
         /// See the `raw_sf_account` import above: declares `sfAccount` via

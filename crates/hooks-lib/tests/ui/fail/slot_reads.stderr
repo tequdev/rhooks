@@ -1,8 +1,8 @@
-error[E0599]: no method named `value` found for struct `hooks_lib::slot_obj::SlotObject<hooks_lib::slot_obj::STObject>` in the current scope
+error[E0599]: no method named `value` found for struct `hooks_lib::slot_obj::SlotObject<hooks_lib::types::STObject>` in the current scope
   --> tests/ui/fail/slot_reads.rs:11:22
    |
 11 |         let _ = root.value()?;
-   |                      ^^^^^ method not found in `hooks_lib::slot_obj::SlotObject<hooks_lib::slot_obj::STObject>`
+   |                      ^^^^^ method not found in `hooks_lib::slot_obj::SlotObject<hooks_lib::types::STObject>`
    |
    = note: the method was found for
            - `hooks_lib::slot_obj::SlotObject<AccountId>`

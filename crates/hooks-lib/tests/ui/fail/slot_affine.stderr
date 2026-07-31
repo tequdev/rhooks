@@ -2,7 +2,7 @@ error[E0382]: borrow of moved value: `root`
   --> tests/ui/fail/slot_affine.rs:11:17
    |
 8  |     fn no_copy(root: SlotObject<STObject>) -> Result<()> {
-   |                ---- move occurs because `root` has type `hooks_lib::slot_obj::SlotObject<hooks_lib::slot_obj::STObject>`, which does not implement the `Copy` trait
+   |                ---- move occurs because `root` has type `hooks_lib::slot_obj::SlotObject<hooks_lib::types::STObject>`, which does not implement the `Copy` trait
 9  |         let moved = root;
    |                     ---- value moved here
 10 |         // `root` was moved, not copied.
@@ -13,7 +13,7 @@ error[E0382]: borrow of moved value: `root`
   --> tests/ui/fail/slot_affine.rs:19:17
    |
 16 |     fn moved_after_clear(root: SlotObject<STObject>) -> Result<()> {
-   |                          ---- move occurs because `root` has type `hooks_lib::slot_obj::SlotObject<hooks_lib::slot_obj::STObject>`, which does not implement the `Copy` trait
+   |                          ---- move occurs because `root` has type `hooks_lib::slot_obj::SlotObject<hooks_lib::types::STObject>`, which does not implement the `Copy` trait
 17 |         root.clear()?;
    |              ------- `root` moved due to this method call
 18 |         // `clear` consumed it.

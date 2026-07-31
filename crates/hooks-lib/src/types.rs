@@ -60,6 +60,8 @@
 //! from the annotated return type rather than a caller-supplied `N`. See
 //! [`crate::convert::FixedRead`]'s doc comment for the full story.
 
+use core::marker::PhantomData;
+
 use crate::convert::{FixedRead, FromBytes, ToBytes};
 use crate::error::{HookError, Result};
 
@@ -252,6 +254,128 @@ fixed_bytes_type!(
     IouAmount,
     IOU_AMOUNT_LEN
 );
+
+// ---------------------------------------------------------------------------
+// Serialized wire-type markers and typed field codes
+// ---------------------------------------------------------------------------
+//
+// These describe what a *serialized field* holds, which is a property of the
+// wire format rather than of any one API that reads it. They live here, next
+// to the fixed-size buffer newtypes, so the generated `crate::sfield` table
+// depends only on this module: a field constant should not have to know that
+// a slot layer exists. `crate::slot_obj` imports them.
+
+/// Wire-type marker: an `STObject` — a ledger object, a transaction, or
+/// any nested object field. Navigable by [`SField`] in
+/// [`crate::slot_obj`]; has no `value()` of its own (read its fields, or use
+/// the raw byte escapes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct STObject;
+
+/// Wire-type marker: an `STArray`. Navigable by `u32` index, and
+/// [`crate::slot_obj::SlotObject::count`] reports its length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct STArray;
+
+/// Wire-type marker: a serialized `Amount` — 8 bytes native or 48 bytes
+/// IOU. See [`crate::slot_obj::SlotObject::as_xfl`] and the `value()` family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Amount;
+
+/// Wire-type marker: a serialized `Issue` — 20 bytes native or 40 bytes
+/// IOU (currency + issuer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Issue;
+
+/// Wire-type marker: a field this crate models no typed read for — a `Blob`,
+///
+/// A `Blob`, a `PathSet`, a `Hash160` (whose fields mean different things),
+/// or a slot whose type was never established. Still fully usable through
+/// [`crate::slot_obj`]: navigable by either key kind (the host decides at
+/// runtime whether the operation makes sense) and readable through the raw
+/// byte escapes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Opaque;
+
+// ---------------------------------------------------------------------------
+// SField<T>
+// ---------------------------------------------------------------------------
+
+/// A serialized field code that remembers what its value reads back as.
+///
+/// The generated constants in [`crate::sfield`] are the ones you use
+/// (`sfSequence`, `sfAccount`, ...); this type is what they are. `T` is
+/// phantom — an `SField<u32>` is a plain `u32` code at runtime, with the
+/// value type carried entirely at compile time.
+///
+/// `PhantomData<fn() -> T>` rather than `PhantomData<T>` so the field
+/// constant is `Send`/`Sync`/`Copy` regardless of what `T` is: the field
+/// *produces* a `T`, it does not hold one.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SField<T> {
+    code: u32,
+    _t: PhantomData<fn() -> T>,
+}
+
+// Hand-written rather than derived: `#[derive(Copy)]` on a generic struct
+// adds a `T: Copy` bound, which would make `SField<STObject>` non-`Copy` for
+// no reason — the phantom carries no data.
+impl<T> Clone for SField<T> {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for SField<T> {}
+
+impl<T> SField<T> {
+    /// Wraps a raw field code. Called only by the generated constant table
+    /// in [`crate::sfield`].
+    ///
+    /// **`pub(crate)` on purpose.** A public constructor would let safe
+    /// downstream code forge any code/type pair it liked — spelling a
+    /// 20-byte currency field as an `SField<AccountId>` and having
+    /// `.value()` hand back an `AccountId` built from currency bytes,
+    /// bypassing both the generated mapping and the deliberate
+    /// [`crate::slot_obj::SlotObject::assume_type`] escape. Reading a field as something it
+    /// is not stays possible, but only by saying so.
+    #[inline(always)]
+    #[must_use]
+    pub(crate) const fn new(code: u32) -> Self {
+        Self {
+            code,
+            _t: PhantomData,
+        }
+    }
+
+    /// The raw `u32` field code.
+    ///
+    /// `const`, and the reason it exists: `From`/`Into` are not usable in
+    /// const contexts, so anywhere a field code must be a compile-time
+    /// constant — [`crate::txn_template!`]'s field tables, a `const` header
+    /// expression, a `match` arm — this is the bridge. Runtime call sites
+    /// take `impl Into<u32>` and need nothing.
+    ///
+    /// ```
+    /// use hooks_lib::prelude::*;
+    ///
+    /// const SEQUENCE: u32 = sfSequence.code();
+    /// assert_eq!(SEQUENCE, hooks_lib::raw::sfcodes::sfSequence);
+    /// ```
+    #[inline(always)]
+    #[must_use]
+    pub const fn code(self) -> u32 {
+        self.code
+    }
+}
+
+impl<T> From<SField<T>> for u32 {
+    #[inline(always)]
+    fn from(f: SField<T>) -> u32 {
+        f.code
+    }
+}
 
 #[cfg(test)]
 mod tests {

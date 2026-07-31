@@ -18,8 +18,8 @@
 //! parent can be cleared after deriving a child, that `take_*` really frees
 //! a slot. Those are pinned live in `e2e/test/slot-ledger.test.ts`.
 use hooks_lib::prelude::*;
-use hooks_lib::slot_obj::{Amount, Issue, Opaque};
 use hooks_lib::slot_path;
+use hooks_lib::types::{Amount, Issue, Opaque};
 
 const STUB: HookError = HookError::NotImplemented;
 

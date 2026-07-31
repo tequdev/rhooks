@@ -160,6 +160,35 @@ GenesisMint, which bakes in reward.c's own 35-byte zero-filled form).
   (`{}`) plus one `hsfOVERRIDE`'d entry at the voted slot, either
   `CreateCode(empty)` (delete) or `HookHash(the voted hash)` (install).
 
+## Slot API: the typed layer
+
+`action_hook` reads the currently-installed hook hash through
+`hooks_lib::slot_obj` rather than numbered slots:
+
+```rust
+if let Ok(hook_acc) = SlotObject::from_keylet(&Keylet(*keylet)) {
+    if let Ok(hash_slot) = slot_path!(hook_acc[sfHooks][u32::from(n)][sfHookHash]) {
+        // ...compare against the actioned hash...
+    }
+    let _ = hook_acc.clear();
+}
+```
+
+`slot_path!` replaces the `slot_set` → `slot_subfield` → `slot_subarray` →
+`slot_subfield` chain of `== Ok(n)` tests. It clears each intermediate as
+soon as its child exists, so the walk costs one live slot instead of three,
+and — the reason it fits here at all — it flattens to a single `if let`
+where the chain was three nested ones. Any missing step just skips the
+comparison, exactly as before.
+
+**Measured cost: +83 worst-case instructions (44465 → 44548) and +181
+bytes, with block nesting unchanged at 22 of 32.** This hook is the one with
+the least headroom in the repo, so the nesting number is the one that
+mattered; it did not move.
+
+`src/raw.rs` is unchanged — it exists for the `HookError`-decoding problem
+described below, which is not about slots.
+
 ## Toolchain limitation: `HookError` decoding and nesting depth
 
 See `examples/80_reward`'s README for the mechanism this section refers

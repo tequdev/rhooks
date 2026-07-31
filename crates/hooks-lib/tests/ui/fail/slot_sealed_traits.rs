@@ -4,7 +4,7 @@
 //! is expressible outside this crate.
 
 use hooks_lib::prelude::*;
-use hooks_lib::slot_obj::STObject;
+use hooks_lib::types::STObject;
 
 struct MyKey;
 

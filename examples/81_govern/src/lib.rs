@@ -67,9 +67,7 @@ mod keys;
 mod txn;
 
 use hooks_lib::prelude::*;
-// Numbered slot access, by explicit module path: these left the prelude with
-// the typed `SlotObject` layer. This hook manages slot numbers itself.
-use hooks_lib::api::slot::{slot, slot_set, slot_subarray, slot_subfield};
+use hooks_lib::slot_path;
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, otxn_parameter, rollback};
 
@@ -555,17 +553,26 @@ fn action_hook(hook_accid: &AccountId, n: u8, topic_data_zero: bool, topic_data:
     {
         GovernError::AssertionFailed.nope(b"govern: could not build hook keylet");
     }
-    if slot_set(keylet, 5) == Ok(5) && slot_subfield(5, sfHooks, 6) == Ok(6) {
-        let existing = slot_subarray(6, u32::from(n), 7);
-        if existing == Ok(7) && slot_subfield(7, sfHookHash, 8) == Ok(8) {
+    // The already-installed hook's hash, if there is one: the hook account's
+    // `Hooks` array, element `n`, its `HookHash`. `slot_path!` clears each
+    // intermediate as soon as its child exists, so this costs one live slot
+    // rather than three — and it flattens to a single `if let` here, which
+    // matters in a hook this close to the nesting ceiling.
+    //
+    // Any missing step (no `Hooks`, no element `n`, no `HookHash`) simply
+    // skips the comparison, exactly as the chain of `== Ok(..)` tests it
+    // replaces did.
+    if let Ok(hook_acc) = SlotObject::from_keylet(&Keylet(*keylet)) {
+        if let Ok(hash_slot) = slot_path!(hook_acc[sfHooks][u32::from(n)][sfHookHash]) {
             let existing_hook = take_scratch(&EXISTING_HOOK);
-            if slot(existing_hook, 8) != Ok(32) {
+            if hash_slot.raw(existing_hook) != Ok(HASH_LEN) {
                 GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
             }
             if buf_eq_32(existing_hook, topic_data) {
                 done(b"Goverance: Target hook is already the same as actioned hook.");
             }
         }
+        let _ = hook_acc.clear();
     }
 
     if !topic_data_zero {
@@ -584,7 +591,10 @@ fn action_hook(hook_accid: &AccountId, n: u8, topic_data_zero: bool, topic_data:
         {
             GovernError::AssertionFailed.nope(b"govern: could not build hook definition keylet");
         }
-        if slot_set(hdef_keylet, 9) != Ok(9) {
+        // Existence check only — the handle is dropped without reading, and
+        // the slot lives until the hook ends (the C cost model; see
+        // `hooks_lib::slot_obj`).
+        if SlotObject::from_keylet(&Keylet(*hdef_keylet)).is_err() {
             GovernError::BadParameter
                 .nope(b"Goverance: Hook Hash doesn't exist on ledger while actioning hook.");
         }

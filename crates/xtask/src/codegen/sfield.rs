@@ -12,8 +12,10 @@
 //! function of the serialized type ID packed into its own code — so it is
 //! generated rather than hand-maintained, exactly as `sfcodes.rs` is.
 //!
-//! The `SField<T>` type itself is hand-written in `hooks-lib`'s `slot_obj`
-//! module; only the 325 constants are generated here.
+//! The `SField<T>` type and the wire-type markers it names are hand-written
+//! in `hooks-lib`'s `types` module; only the 325 constants are generated
+//! here. That placement is deliberate: a field constant describes the wire
+//! format and must not depend on the slot layer that happens to read it.
 
 use std::fmt::Write as _;
 
@@ -24,15 +26,14 @@ use crate::ir::ConstSpec;
 use crate::render::render_shift_add;
 
 const MODULE_DOC: &str = "\
-//! Typed serialized-field constants ([`SField<T>`](crate::slot_obj::SField)).
+//! Typed serialized-field constants ([`SField<T>`](crate::types::SField)).
 //!
 //! One constant per `sfXxx` code in [`hooks_core::sfcodes`], carrying the
 //! Rust type that field's value reads back as. `sfSequence` is an
 //! `SField<u32>`, `sfAccount` an `SField<AccountId>`, `sfBalance` an
 //! `SField<Amount>` — so
 //! [`SlotObject::get`](crate::slot_obj::SlotObject::get) can hand back an
-//! already-typed handle and
-//! [`value`](crate::slot_obj::SlotObject::value) needs no turbofish:
+//! already-typed handle and its `value()` needs no turbofish:
 //!
 //! ```
 //! use hooks_lib::prelude::*;
@@ -51,12 +52,12 @@ const MODULE_DOC: &str = "\
 //! Every `sfXxx` code packs a serialized type ID in its high bits
 //! (`code >> 16`), and that ID alone decides the Rust type: 2 (`UInt32`) →
 //! `u32`, 8 (`AccountID`) → [`AccountId`](crate::types::AccountId), 14
-//! (`STObject`) → [`STObject`](crate::slot_obj::STObject), and so on.
+//! (`STObject`) → [`STObject`](crate::types::STObject), and so on.
 //!
-//! IDs this layer does not model a typed read for — `Blob`, `PathSet`,
+//! IDs this crate models no typed read for — `Blob`, `PathSet`,
 //! `Vector256`, `Number`, `UInt192`, `XChainBridge`, and `Hash160` (whose
 //! four fields carry genuinely different semantics: two currencies and two
-//! issuers) — map to [`Opaque`](crate::slot_obj::Opaque), which supports
+//! issuers) — map to [`Opaque`](crate::types::Opaque), which supports
 //! navigation and the raw byte escapes but no `value()`. Nothing is lost:
 //! the bytes are still reachable, just not pre-interpreted.
 //!
@@ -82,11 +83,11 @@ fn value_type(type_id: u32) -> Option<&'static str> {
         2 => Some("u32"),
         3 => Some("u64"),
         5 => Some("crate::types::Hash"),
-        6 => Some("crate::slot_obj::Amount"),
+        6 => Some("crate::types::Amount"),
         8 => Some("crate::types::AccountId"),
-        14 => Some("crate::slot_obj::STObject"),
-        15 => Some("crate::slot_obj::STArray"),
-        24 => Some("crate::slot_obj::Issue"),
+        14 => Some("crate::types::STObject"),
+        15 => Some("crate::types::STArray"),
+        24 => Some("crate::types::Issue"),
         26 => Some("crate::types::CurrencyCode"),
         _ => None,
     }
@@ -130,13 +131,13 @@ fn type_id_name(type_id: u32) -> String {
 /// checking).
 pub fn generate(sfcodes: &[ConstSpec]) -> Result<String> {
     let mut body =
-        String::from("\n#![allow(non_upper_case_globals)]\n\nuse crate::slot_obj::SField;\n\n");
+        String::from("\n#![allow(non_upper_case_globals)]\n\nuse crate::types::SField;\n\n");
 
     for d in sfcodes {
         let value = render_shift_add(&d.c_expr)?;
         let type_id = serialized_type_id(&value)
             .with_context(|| format!("deriving the serialized type ID of `{}`", d.name))?;
-        let ty = value_type(type_id).unwrap_or("crate::slot_obj::Opaque");
+        let ty = value_type(type_id).unwrap_or("crate::types::Opaque");
 
         writeln!(
             body,

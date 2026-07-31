@@ -1085,13 +1085,42 @@ Slot numbers never appear in hook source. The decisions behind it:
   (`sfExchangeRate`). `u8`/`u16`/`u32` keep the as-int64 path, where bit 63
   is unreachable.
 
+**Where the types live.** `SField<T>` and the wire-type markers (`Amount`,
+`Issue`, `STObject`, `STArray`, `Opaque`) are hand-written in `types.rs`, not
+in `slot_obj.rs`, and the generated `sfield.rs` names only `crate::types::*`.
+A field constant describes the *wire format*; making it depend on the slot
+layer that happens to read it had the dependency backwards, and would have
+meant a hook could not name a field type without pulling in slot machinery.
+
+**`txn_template!` takes the typed constants** (a user decision superseding
+the earlier raw-`u32`-only grammar). The expansion wraps every field code as
+`($sfcode).code()` — a `const fn` call, legal in the const context the field
+table is built in, where `Into` would not be. The consequence is that a bare
+`u32` expression no longer works there; `hooks_lib::raw::sfcodes` remains
+exported for the const builders that genuinely want a raw code, which write
+`sfXxx.code()`. Both directions are pinned by trybuild fixtures.
+
 **Breaking changes** this introduced: the typed `sfXxx` constants replaced
 the raw `sfcodes` glob in the prelude (raw table at
 `hooks_lib::raw::sfcodes::*`); the numbered slot functions left the prelude
 (explicit `hooks_lib::api::slot::*` / `hooks_lib::api::otxn::otxn_slot`);
 every runtime field-code parameter widened to `impl Into<u32>`, so a bare
-integer literal there now needs a `u32` suffix; and `txn_template!`'s field
-grammar stays raw-`u32`-const-expressions only, since `Into` is not const.
+integer literal there now needs a `u32` suffix; and `txn_template!` takes
+typed constants only.
+
+**Every example uses the typed layer.** No example calls a numbered slot
+function. The two production hooks needed care: `80_reward` measured nesting
+**68** with five typed reads inlined into its entry point (the limit is 32)
+and came back to 26 via an `#[inline(never)]` extraction *plus* replacing a
+4-way tuple `let (Ok(..), ..) = .. else` with sequential ones — the tuple
+pattern lowers to nested matches. `81_govern`, the hook with the least
+headroom in the repo, was unchanged at nesting 22 because `slot_path!`
+flattens a three-hop walk into one `if let` where the raw chain was three
+nested ones. Costs: 80_reward +220 instructions, 81_govern +83, both from
+`Result` plumbing and the 34-byte keylet copy `from_keylet` makes where the
+raw `slot_set` took a slice. `07_xfl-math` and `08_slot-ledger` got
+*cheaper* (−10 and −12), having dropped `slot_clear` calls the consuming
+reads make unnecessary.
 
 ## 6. hooks-build
 

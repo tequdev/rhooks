@@ -21,8 +21,6 @@ use hooks_lib::prelude::*;
 // layer arrived (they address the same 255 registers, and mixing the two
 // silently corrupts handles). This hook uses them directly and by number, so
 // it names the module explicitly — see `hooks_lib::slot_obj`'s module doc.
-use hooks_lib::api::otxn::otxn_slot;
-use hooks_lib::api::slot::{slot_clear, slot_subfield};
 use hooks_lib::{accept, hook, hook_errors, rollback};
 
 /// The percentage this hook computes from the transaction `Amount`: 1%,
@@ -93,13 +91,15 @@ hook_errors! {
 #[allow(clippy::arithmetic_side_effects)]
 fn my_hook() -> i64 {
     // Load the originating transaction into a slot, then navigate to its
-    // `Amount` field's own slot. `slot_subfield`'s `new_slot = 0` means
-    // "auto-assign a slot number" — same convention as `otxn_slot`.
-    let txn_slot = match otxn_slot(0) {
+    // `Amount` field. No slot numbers: the host auto-assigns them and the
+    // handles carry them. `sfAmount` is an `SField<Amount>`, so `.get()`
+    // hands back a `SlotObject<Amount>` — which is the type `as_xfl()`
+    // lives on.
+    let txn = match SlotObject::from_otxn() {
         Ok(s) => s,
         Err(_) => rollback!(b"xfl-math: otxn_slot failed", XflMathError::OtxnSlotFailed),
     };
-    let amount_slot = match slot_subfield(txn_slot, sfAmount, 0) {
+    let amount_slot = match txn.get(sfAmount) {
         Ok(s) => s,
         Err(_) => rollback!(
             b"xfl-math: no Amount field on otxn",
@@ -118,7 +118,7 @@ fn my_hook() -> i64 {
     // `otxn_field(&mut buf, sfAmount)` followed by `XFL::sto_set(&buf[..n])`;
     // `slot_float` is used below because this example is about slot
     // navigation as well as XFL.
-    let amount = match XFL::from_slot(amount_slot) {
+    let amount = match amount_slot.as_xfl() {
         Ok(x) => x,
         // `NotAnAmount` if the field somehow isn't an Amount at all;
         // anything else is an unexpected host-level failure. Either way,
@@ -268,13 +268,17 @@ fn my_hook() -> i64 {
         );
     }
 
-    // Slots are a limited resource (see `docs/DESIGN.md` and the Slot API
-    // reference); free them once this hook is done with them. Cleanup
-    // failure isn't itself a reason to reject the transaction, so its
-    // `Result` is deliberately discarded (not ignored silently — `let _ =`
-    // makes that a visible, reviewed choice) rather than rolled back on.
-    let _ = slot_clear(amount_slot);
-    let _ = slot_clear(txn_slot);
+    // `as_xfl()` above consumed the `Amount` handle without clearing its
+    // slot — the C cost model, and the right default for a hook that reads
+    // once and exits, since the host frees every slot at the end anyway
+    // (`take_xfl()` is the clearing form, for loops). The transaction
+    // handle is the one left; releasing it is optional for the same reason,
+    // and is kept here only because this example previously did.
+    //
+    // Cleanup failure isn't a reason to reject the transaction, so the
+    // `Result` is deliberately discarded — `let _ =` makes that a visible,
+    // reviewed choice rather than a silent one.
+    let _ = txn.clear();
 
     accept!()
 }

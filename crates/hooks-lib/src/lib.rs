@@ -1452,9 +1452,7 @@ pub mod prelude {
     pub use crate::convert::{FixedRead, FromBytes, ToBytes, TypedParamName};
     pub use crate::error::{HookError, Result};
     pub use crate::sfield::*;
-    pub use crate::slot_obj::{
-        AmountBytes, CastTarget, IssueData, SField, STArray, STObject, SlotKey, SlotObject,
-    };
+    pub use crate::slot_obj::{AmountBytes, CastTarget, IssueData, SlotKey, SlotObject};
     pub use crate::state::{
         StateKeyEncode, TypedStateKey, state_delete, state_foreign_get, state_foreign_get_typed,
         state_foreign_set_loose, state_foreign_set_typed, state_foreign_update_loose,

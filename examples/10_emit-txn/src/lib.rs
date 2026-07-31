@@ -38,15 +38,6 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-// `txn_template!` takes raw `u32` const expressions (a const-context table
-// can't call `Into`), so the field codes here are the raw `sfcodes` ones,
-// named explicitly: the prelude's typed `SField` constants use the same
-// names, and an explicit import wins over a glob. Runtime call sites can use
-// either — they take `impl Into<u32>`.
-use hooks_lib::raw::sfcodes::{
-    sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee, sfFirstLedgerSequence, sfFlags,
-    sfLastLedgerSequence, sfSequence, sfSigningPubKey, sfSourceTag,
-};
 use hooks_lib::{accept, cbak, hook, hook_errors, rollback, txn_template};
 
 txn_template! {
