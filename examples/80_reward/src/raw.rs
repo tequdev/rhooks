@@ -1,29 +1,4 @@
-//! Raw `float_*` calls — the *only* Hook API surface this
-//! crate bypasses `hooks_lib`'s ordinary `Result`-based wrappers for.
-//!
-//! Every other Hook API call in this crate goes through `hooks_lib::api`'s
-//! (including its `_exact`/`_buf` convenience) wrappers directly (see
-//! `lib.rs`). XFL is different on purpose: reward.c's own reward-rate math
-//! treats every `float_*` result as a raw `i64` and folds host-level
-//! failure into the *same* validity checks it already needs for
-//! legitimately out-of-range values (`xfl_rr <= 0`, `required_delay < 0`,
-//! ...) — it never asks "did this specific call fail," only "is the
-//! resulting number usable." `hooks_lib::xfl::XFL` intentionally does the
-//! opposite: every method returns `Result<XFL, HookError>` precisely so a
-//! caller can't accidentally treat a raw error code as a value. That's the
-//! right default for hook code in general, but it is extra validation this
-//! particular call chain neither wants nor uses — reproducing reward.c's
-//! math exactly means working with the same raw bit patterns it does at
-//! every step, not converting to `XFL` and back for each intermediate
-//! `float_divide`/`float_multiply`/`float_int` result.
-//!
-//! (This also sidesteps a real but narrower toolchain cost:
-//! `hooks_lib::error::res`'s `HookError::from(i64)` decode, invoked on
-//! every negative return `XFL`'s methods produce, does add measurable wasm
-//! size/nesting per call — see `examples/81_govern/src/lib.rs`'s module
-//! doc comment for the fuller writeup of where that did and didn't end up
-//! mattering for these two crates. It is not, on its own, why this module
-//! exists; the validation semantics above are.)
+//! Raw XFL calls used to preserve the reward calculation's error semantics.
 
 use hooks_lib::raw as hooks_core;
 

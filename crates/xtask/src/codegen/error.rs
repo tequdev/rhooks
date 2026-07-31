@@ -18,11 +18,7 @@ const MODULE_DOC: &str = "\
 //! the error codes below. Kept verbatim (name and value) from the C header.
 ";
 
-/// The one irregular value in `error.h`: `INVALID_FLOAT` is `-10024`, not
-/// the `-24` its position in the sequence would suggest. Both the header
-/// and the hand-authored translation call this out explicitly; the
-/// generator preserves that note verbatim rather than emitting the default
-/// one-line doc for this single item.
+/// `INVALID_FLOAT` has the exceptional value `-10024`.
 fn doc_lines(name: &str) -> Vec<String> {
     if name == "INVALID_FLOAT" {
         vec![

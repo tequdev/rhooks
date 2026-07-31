@@ -1,18 +1,5 @@
 #!/usr/bin/env sh
-# Sync (or verify) all vendored xahaud sources.
-#
-# Several parts of this workspace vendor small groups of files verbatim from
-# xahaud's own source tree, rather than reimplementing or merely referencing
-# them (see docs/DESIGN.md §6.5 and §4):
-#   - guard-checker: the upstream guard checker itself
-#     (crates/hooks-build/vendor/xahaud/VENDOR.md)
-#   - hook-headers: the Hook API C headers, parity-tested against the Rust
-#     translation in hooks-core
-#     (crates/hooks-core/vendor/xahaud-hook/VENDOR.md)
-#
-# Each group has its own vendor directory and its own SHA256SUMS. These files
-# are never hand-edited; this script is the only supported way to update
-# them.
+# Sync or verify vendored xahaud sources and their SHA256 checksums.
 #
 # Usage:
 #   scripts/sync-vendor.sh           # update: download from upstream,
@@ -30,14 +17,6 @@ BRANCH="release"
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Each group is "name:vendor_dir:upstream_path:files..." (space-separated
-# file list as the trailing fields).
-#
-# name          human-readable label used in messages
-# vendor_dir    directory (relative to repo root) holding the vendored files
-#               and that group's own SHA256SUMS
-# upstream_path path (relative to the branch root) the files live under
-
 MODE="update"
 if [ "${1:-}" = "--check" ]; then
     MODE="check"
@@ -46,7 +25,7 @@ elif [ -n "${1:-}" ]; then
     exit 2
 fi
 
-# sha256 <file> — portable across macOS (shasum) and Linux (sha256sum).
+# Print a SHA256 digest on macOS and Linux.
 sha256() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | awk '{print $1}'
@@ -60,7 +39,6 @@ trap 'rm -rf "${TMP_DIR}"' EXIT INT TERM
 
 overall_status=0
 
-# sync_group <name> <vendor_dir> <upstream_path> <files...>
 sync_group() {
     name="$1"
     vendor_dir="${ROOT_DIR}/$2"
@@ -84,7 +62,6 @@ sync_group() {
     if [ "${MODE}" = "check" ]; then
         group_status=0
 
-        # 1. Vendored files must match the upstream release branch.
         for f in ${files}; do
             if ! cmp -s "${group_tmp}/${f}" "${vendor_dir}/${f}"; then
                 echo "DRIFT: [${name}] ${f} differs from upstream ${REPO}@${BRANCH}" >&2
@@ -93,8 +70,6 @@ sync_group() {
             fi
         done
 
-        # 2. SHA256SUMS must match the vendored files on disk (hand-edit
-        #    tripwire; the same file is asserted by the Rust test suite).
         for f in ${files}; do
             want="$(awk -v f="${f}" '$2 == f {print $1}' "${sums_file}")"
             got="$(sha256 "${vendor_dir}/${f}")"
@@ -112,7 +87,6 @@ sync_group() {
         return 0
     fi
 
-    # update mode
     changed=0
     for f in ${files}; do
         if ! cmp -s "${group_tmp}/${f}" "${vendor_dir}/${f}"; then
@@ -124,7 +98,6 @@ sync_group() {
         fi
     done
 
-    # Regenerate this group's SHA256SUMS (two-space separator, sha256sum format).
     : > "${sums_file}"
     for f in ${files}; do
         printf '%s  %s\n' "$(sha256 "${vendor_dir}/${f}")" "${f}" >> "${sums_file}"

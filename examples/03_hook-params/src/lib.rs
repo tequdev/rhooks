@@ -1,76 +1,36 @@
-//! `hook-params` — a Payment filter whose minimum-amount threshold is
-//! configurable via a Hook parameter (`MIN`), falling back to a baked-in
-//! default when the parameter isn't set. Rolls the transaction back if the
-//! originating transaction's native (XRP/XAH) `Amount` is below the
-//! threshold; accepts otherwise.
-//!
-//! Build: `hooks-build build --manifest-path examples/03_hook-params/Cargo.toml`
-
 #![no_std]
 
 use hooks_lib::prelude::*;
 use hooks_lib::{accept, hook, hook_errors, rollback};
 
-/// Name of the Hook parameter carrying the minimum-amount threshold, as 8
-/// raw bytes, big-endian `u64` drops (see the README for the exact hex
-/// encoding and how to pass it in a `SetHook` transaction).
-///
-/// Deliberately **not** migrated to `hook_parameter!`: `MIN`'s value is
-/// **big-endian** (matching the native-`Amount` on-wire convention this
-/// crate reads `sfAmount` as below — the whole point of this example is
-/// that a Hook parameter's byte layout is whatever the hook author
-/// chooses, not necessarily this crate's own little-endian
-/// [`hooks_lib::convert::ToBytes`]/[`hooks_lib::convert::FromBytes`]
-/// convention). `hook_parameter!`'s typed value side always goes through
-/// that (little-endian) convention — a plain `u64` decodes via
-/// `u64::from_le_bytes`, the wrong byte order for this parameter — and no
-/// derive in this crate offers a "big-endian" opt-out. A correct
-/// migration would need a hand-written newtype with its own manual
-/// `ToBytes`/`FromBytes`/`FixedRead` impls decoding via
-/// `from_be_bytes`, which is more code than the 3-line function below
-/// for no behavioral or clarity benefit.
+/// The big-endian minimum-amount parameter name.
 const MIN_PARAM: &[u8] = b"MIN";
 
-/// Threshold used when `MIN` isn't configured: 1,000,000 drops (1 XAH).
+/// The default minimum amount in drops.
 const DEFAULT_MIN_DROPS: u64 = 1_000_000;
 
-/// Bits reserved by the native-Amount serialization format (bit 63: "not an
-/// IOU"; bit 62: sign, always `1` for a native amount since XRP/XAH amounts
-/// are never negative) — see `hooks_lib::txn::codec::encode_native_amount`,
-/// which sets exactly these two bits when encoding a drops value the other
-/// way. Masking them off here recovers the drops magnitude.
+/// Flags excluded from a native amount's drops value.
 const NATIVE_AMOUNT_FLAG_BITS: u64 = 0xC000_0000_0000_0000;
 
 hook_errors! {
-    /// `hook-params` rollback codes.
+    /// Errors returned by the parameterized amount filter.
     pub enum HookParamsError {
-        /// The originating transaction's `Amount` isn't an 8-byte native
-        /// (XRP/XAH) amount.
+        /// The transaction amount is not a native amount.
         UnsupportedAmount = 1,
-        /// The native `Amount` fell below the configured (or default)
-        /// minimum.
+        /// The native amount is below the configured minimum.
         BelowMinimum = 2,
     }
 }
 
-/// Read the configured minimum-amount threshold (in drops) from the `MIN`
-/// Hook parameter, or [`DEFAULT_MIN_DROPS`] if it isn't set (or is the
-/// wrong size to be a valid 8-byte value).
+/// Reads the configured minimum amount, or the default.
 fn min_drops() -> u64 {
     hook_param_exact(MIN_PARAM)
         .map(u64::from_be_bytes)
         .unwrap_or(DEFAULT_MIN_DROPS)
 }
 
-/// Hook entry point. Reads the originating transaction's native `Amount`,
-/// compares it against the configured (or default) minimum, and rolls back
-/// if it falls short.
 #[hook]
 fn my_hook() -> i64 {
-    // Only native (XRP/XAH) amounts are 8 bytes on the wire; a 48-byte IOU
-    // amount would fail this length check and fall into the `Err` arm
-    // below. This example deliberately doesn't handle IOU amounts — see
-    // `examples/07_xfl-math` for reading *any* Amount kind uniformly via XFL.
     let drops = match otxn_field_exact(sfAmount) {
         Ok(raw) => u64::from_be_bytes(raw) & !NATIVE_AMOUNT_FLAG_BITS,
         Err(_) => rollback!(

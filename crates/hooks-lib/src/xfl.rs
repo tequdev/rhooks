@@ -1,122 +1,10 @@
-//! XFL — the Xahau 64-bit decimal floating-point representation used
-//! throughout the Hook API for amounts and other fractional values.
+//! Xahau decimal floating-point values.
 //!
-//! Bit layout (little detail, big consequence — see below), per the
-//! `hook-api` skill's Float API reference:
-//! - bits 0..=53 (54 bits): mantissa (magnitude `10^15` to `10^16 - 1`)
-//! - bits 54..=61 (8 bits): biased exponent (unbiased range `-96` to `+80`,
-//!   bias `97`, so the stored field ranges `1..=177`)
-//! - bit 62: sign (`0` = negative, `1` = positive, per the skill's Float
-//!   API doc)
-//! - bit 63: unused/reserved — always `0` for a valid XFL, because the Hook
-//!   API multiplexes error codes onto the same `i64` return channel as
-//!   negative values, and a valid float must never look like an error code.
+//! [`XFL`] delegates arithmetic and comparisons to the Hook API. Its operators
+//! return [`Result`] because invalid float values are reported by the host.
 //!
-//! This crate does not expose a `float_exponent` host call — none exists in
-//! `extern.h` — so [`XFL::exponent`] decodes the bias-97 exponent field
-//! locally from the raw bit pattern instead of making a host call. It cannot
-//! practically fail, but returns `Result<i64>` for signature uniformity with
-//! [`XFL::mantissa`] (both describe components of the same value).
-//!
-//! Wraps 14 of the 74 Hook API functions privately (never exposed as
-//! separate `api::*` wrappers, only as `XFL`/`XFLUnchecked` methods and
-//! operators, here and in [`crate::xfl_unchecked`]): `float_set`,
-//! `float_multiply`, `float_mulratio`, `float_negate`, `float_compare`,
-//! `float_sum`, `float_invert`, `float_divide`, `float_one`,
-//! `float_mantissa`, `float_sign`, `float_int`, `float_log`, `float_root`.
-//! **`Neg` and comparisons are host round trips, not local bit
-//! manipulation**: this crate treats the host's `float_*` implementations
-//! as the sole authority on XFL bit-pattern semantics and never maintains
-//! a parallel guest-side reimplementation of them, so a guest-side
-//! sign-bit flip or a guest-side bit/order comparison is not a sound
-//! substitute for `float_negate`/`float_compare` — see those impls' doc
-//! comments below for the specifics. The remaining 3 buffer-shaped float functions
-//! (`float_sto`, `float_sto_set`, `slot_float`) live in `api::float` and
-//! are forwarded to by [`XFL::sto`], [`XFL::sto_set`], and
-//! [`XFL::from_slot`].
-//!
-//! # Operators, not methods (for arithmetic)
-//!
-//! `XFL` implements `Add`/`Sub`/`Mul`/`Div`/`Neg`, all with `Output =
-//! Result<XFL, HookError>` (every one of these is a fallible host round
-//! trip — `float_sum`/`float_multiply`/`float_divide`/`float_negate`).
-//! `Sub` is built from `Add` and `Neg`: `self - rhs` is `self + (-rhs)?`,
-//! i.e. one `float_negate` host call plus one `float_sum` host call — there
-//! is no dedicated `float_subtract` host function.
-//!
-//! To keep `?`-free chains ergonomic despite the fallible `Output`, this
-//! module also implements `Add`/`Sub`/`Mul`/`Div` for `Result<XFL,
-//! HookError>` on either side of a plain `XFL` (see the
-//! `xfl_result_chain_ops!` macro below), so `a + b + c` type-checks and
-//! short-circuits on the first error exactly like `(a + b)? + c` would, as
-//! long as the chain alternates a bare `XFL` in at each step. This is
-//! possible without violating Rust's orphan rules only because it happens
-//! inside hooks-lib itself: `impl Add<XFL> for Result<XFL, HookError>` is a
-//! concrete (no impl-level type parameters), non-generic impl of a foreign
-//! trait, permitted because the orphan check finds a locally-headed type
-//! (`XFL` itself) among the impl's `Self` type and the trait's own generic
-//! argument. A downstream hook crate cannot replicate this pattern for its
-//! own types layered over `XFL`/`Result` — that is the normal, expected
-//! orphan-rule boundary; this crate is the one place in the dependency
-//! graph where `XFL` is local, so it is the one place this trick is legal.
-//!
-//! **Not** implemented, and not legal to implement here either: `Add`/
-//! `Sub`/`Mul`/`Div` for `Result<XFL, HookError>` on *both* sides at once
-//! (e.g. combining two independently-fallible values directly, such as the
-//! sum of two separate `mulratio` results). Both sides would then be
-//! headed by the foreign, non-fundamental `core::result::Result`
-//! constructor with no locally-headed type anywhere in the sequence the
-//! orphan check examines — `XFL` only appears nested inside `Result`'s own
-//! generic argument, which the check does not look inside for
-//! non-fundamental foreign types (unlike `Box`/`&`/`&mut`, which are
-//! "fundamental" and are looked into). Confirmed by attempting exactly
-//! that impl and reading rustc's own E0117 diagnostic, not just reasoned
-//! about in the abstract — see `xfl_result_chain_ops!`'s doc comment for
-//! the full explanation. Combining two already-`Result` values needs one
-//! explicit `?` on either side (`a? + b`, or `a + b?`), no worse
-//! ergonomically than the method-call API this module replaces.
-//!
-//! `XFL` deliberately has **no panicking arithmetic**: every fallible op
-//! returns `Result` rather than panicking, so a hook author must handle (or
-//! explicitly `unwrap`/`expect` — both `deny`d workspace-wide — or
-//! propagate with `?`) every failure instead of it silently rolling back
-//! the whole hook via an unhandled panic. See [`crate::xfl_unchecked`] for
-//! `XFLUnchecked`, the deliberately-poisonable hot-path counterpart, for
-//! chains where per-step `Result` handling is itself the measured cost
-//! problem.
-//!
-//! # Comparison: both methods and operators, both via `float_compare`
-//!
-//! [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/[`XFL::compare`] all return
-//! `Result<bool>` — comparison is a fallible `float_compare` host round
-//! trip (an invalid operand is a real, reachable failure mode, e.g.
-//! `INVALID_FLOAT`), and `core::cmp::PartialEq`/`PartialOrd` cannot express
-//! that: their methods return a bare `bool`/`Option<Ordering>`, with no room
-//! for an `Err` case. `XFL` implements both anyway: `PartialEq`/
-//! `PartialOrd` are thin forwarding wrappers over the very same
-//! `float_compare`-backed methods (so `a == b`/`a < b`/... work, still
-//! backed by the real host comparison, not a local bit trick), and on a
-//! `float_compare` failure they fall back to `false`/`None` — the same
-//! convention `f64`'s own `PartialEq`/`PartialOrd` use for `NaN`:
-//! "couldn't establish equality/order" is represented as "not equal"/"not
-//! comparable," not a panic, and not a hidden `rollback!` from inside what
-//! looks like an ordinary boolean expression: `crate::api::control::rollback`
-//! loops forever rather than returning on `not(target_arch = "wasm32")`
-//! (there is no host to actually terminate the process on a host build),
-//! and **every** `float_compare` call fails deterministically on a host
-//! build (per the `NOT_IMPLEMENTED` host stub) — so routing a comparison
-//! failure through `rollback!` would hang every host-target test/doctest
-//! that exercises `==`/`<`/`>`. Use [`XFL::eq`]/[`XFL::lt`]/[`XFL::gt`]/
-//! [`XFL::compare`] directly — not `==`/`<`/`>` — anywhere a
-//! `float_compare` failure needs to be distinguished from a genuine
-//! inequality/incomparability (which, unlike `f64`, never actually happens
-//! between two valid XFLs — every pair of valid XFLs is totally ordered, so
-//! `None`/`false` from the operators is, in practice, always a signal that
-//! one operand was invalid). `core::ops::Neg` does not have this
-//! false/None fallback story at all: unlike `PartialEq`/`PartialOrd`, its
-//! `Output` type is not fixed by the trait — `Result<XFL, HookError>` is a
-//! perfectly valid `Neg::Output`, so a `float_negate` failure propagates as
-//! a real `Err`, the same as every other arithmetic operator here.
+//! Use [`crate::xfl_unchecked::XFLUnchecked`] only when a measured hot path
+//! justifies deferring validation until the end of an arithmetic chain.
 
 use crate::api;
 use crate::error::{Result, res};
@@ -485,25 +373,8 @@ impl PartialOrd for XFL {
 // `XFL` in on one side at each step (`((a + b) + c) + d`, ...) short-
 // circuits on the first error without an explicit `?` between steps.
 //
-// Deliberately does NOT generate `impl $Trait<Result<XFL, HookError>> for
-// Result<XFL, HookError>` (combining two *already-`Result`* values
-// directly, e.g. `mulratio_result_a + mulratio_result_b`): Rust's orphan
-// rule considers, in order, the impl's `Self` type and then the trait's own
-// generic argument, and permits the impl once it finds *some* type in that
-// sequence whose own outer type constructor is local — `Result<XFL,
-// HookError>`'s outer constructor is `core::result::Result`, which is
-// foreign and (unlike `Box`/`&`/`&mut`) not "fundamental", so the orphan
-// check does not look inside it for the locally-defined `XFL` nested in its
-// generic argument. `Result<XFL, HookError>` op `XFL` (or the reverse)
-// finds `XFL` itself sitting directly in that sequence and is fine; `Result
-// <XFL, HookError>` op `Result<XFL, HookError>` never puts a
-// locally-headed type in the sequence at all and is therefore rejected
-// with E0117 — confirmed by attempting exactly that impl here and reading
-// the compiler's own diagnostic, not just reasoned about in the abstract.
-// A genuine two-independently-fallible-values combination needs one
-// explicit `?` on either side (`a? + b`/`a + b?`, both still O(1) and still
-// short-circuiting) — no worse, ergonomically, than the pre-operator
-// method-call API this replaces.
+// Rust's orphan rules do not allow an operator implementation with `Result`
+// on both sides. Combine independently fallible values with `?` first.
 macro_rules! xfl_result_chain_ops {
     ($( $Trait:ident :: $method:ident ),+ $(,)?) => {
         $(

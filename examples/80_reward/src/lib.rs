@@ -1,25 +1,7 @@
-//! `reward` — a behavior-equivalent Rust port of xahaud's genesis
-//! `RewardHook` (`hook/genesis/reward.c`).
+//! Implements the Xahau `RewardHook`.
 //!
-//! `ttCLAIM_REWARD` transactions land on an account that has this hook
-//! installed. This hook computes the account's XAH-hours-accrued reward
-//! since its last claim, converts it through the governance-set reward
-//! rate, and emits a `GenesisMint` transaction (see [`mint_txn`]) crediting
-//! the claimant and every active-validator L1 governance seat. See the
-//! README for the full behavior-equivalence table (input case ->
-//! output/state effect, matched against reward.c's branches) and this
-//! crate's differences from reward.c.
-//!
-//! Every Hook API call in this file goes through `hooks_lib`'s ordinary
-//! `Result`-based wrappers (`otxn_field_exact`, `hook_account_buf`,
-//! `util_keylet`, `emit_buf`, ...) — the
-//! natural one for each call site (an `_exact`/`_buf` convenience where
-//! one exists and fits, the plain wrapper otherwise) — **except** the
-//! small [`raw`] module, scoped to exactly reward.c's `float_*`/
-//! `float_*` calls. See [`raw`]'s doc comment for why XFL specifically
-//! is the one place this crate steps around `hooks_lib::xfl::XFL`.
-//!
-//! Build: `hooks-build build --manifest-path examples/80_reward/Cargo.toml`
+//! On `ClaimReward`, it calculates the claimant's reward and emits a
+//! `GenesisMint` for the claimant and active L1 governance seats.
 
 #![no_std]
 
@@ -28,55 +10,33 @@ mod mint_txn;
 mod raw;
 
 use hooks_lib::prelude::*;
-// Numbered slot access, by explicit module path: these left the prelude with
-// the typed `SlotObject` layer. This hook manages slot numbers itself (see
-// `raw`'s doc comment for why it stays on the raw layer throughout).
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::{accept, guard, hook, hook_errors, hook_state, rollback};
 use mint_txn::{L1_SEATS, MintTxn};
 
-/// `DEFAULT_REWARD_RATE` in reward.c: `0.00333333333` as raw XFL bits, used
-/// only if hook state has no `"RR"` entry (should not happen once governed,
-/// but reward.c falls back gracefully rather than failing outright).
+/// Default reward rate as raw XFL bits.
 const DEFAULT_REWARD_RATE_BITS: i64 = 6_038_156_834_009_797_973;
 
-/// `DEFAULT_REWARD_DELAY` in reward.c: 2,600,000 seconds as raw XFL bits.
+/// Default reward delay as raw XFL bits.
 const DEFAULT_REWARD_DELAY_BITS: i64 = 6_199_553_087_261_802_496;
 
-// `"RR"`/`"RD"` — the same 2-byte real-length keys govern.c/govern.rs write
-// under (see `examples/81_govern/src/keys.rs::REWARD_RATE`/`REWARD_DELAY`)
-// — declared via `hook_state!`'s Form 1 (an entity plus a fully fixed
-// key), read through the entity's own accessor below. Safe under the 32-level guard-checker limit
-// because `crate::state::decode_read` compares the *raw* host-call code
-// against `hooks_core::DOESNT_EXIST` before ever constructing a
-// `HookError` (see DESIGN.md §5.1) — measured nesting depth here is 24/32.
-// `XFL`'s typed-layer decode is little-endian raw-bits, byte-for-byte
-// identical to the raw `state_xfl` this replaces (both require exactly 8
-// stored bytes, which every writer of these keys always provides).
+// Governance-controlled reward settings.
 hook_state!(RewardRate, RewardRateKey = b"RR" => XFL);
 hook_state!(RewardDelay, RewardDelayKey = b"RD" => XFL);
 
-/// `MAXUNL` in reward.c: `UNLReport`'s `ActiveValidators` array is assumed
-/// to hold at most this many entries.
+/// Maximum active validators in `UNLReport`.
 const MAX_UNL: usize = 128;
 
-/// Byte offset of the first validator-owner-account within each
-/// `ActiveValidators` entry, matching reward.c's `av_array + 39`
-/// (`UNLReport`'s per-entry layout: a `PublicKey` field header/payload
-/// precede the 20-byte account).
+/// Validator account offset within an `ActiveValidators` entry.
 const AV_FIRST_KEY_OFFSET: usize = 39;
 
-/// Byte stride between consecutive `ActiveValidators` entries, matching
-/// reward.c's `av_upto += 60U`.
+/// Size of an `ActiveValidators` entry.
 const AV_ENTRY_STRIDE: usize = 60;
 
-/// Worst-case serialized size of the `UNLReport`'s `ActiveValidators`
-/// array, matching reward.c's `av_array[(60 * MAXUNL) + 4]`.
+/// Maximum serialized `ActiveValidators` size.
 const AV_ARRAY_LEN: usize = AV_ENTRY_STRIDE * MAX_UNL + 4;
 
-/// The `UNLReport` ledger object's fixed Keylet — a protocol-level
-/// constant (independent of any account), transcribed verbatim from
-/// reward.c's `unlreport_keylet`.
+/// `UNLReport` ledger keylet.
 const UNLREPORT_KEYLET: [u8; 34] = [
     0x00, 0x52, 0x61, 0xE3, 0x2E, 0x7A, 0x24, 0xA2, 0x38, 0xF1, 0xC6, 0x19, 0xD5, 0xF9, 0xDD, 0xCC,
     0x41, 0xA9, 0x4B, 0x33, 0xB6, 0x6C, 0x01, 0x63, 0xF7, 0xEF, 0xCC, 0x8A, 0x19, 0xC9, 0xFD, 0x6F,
@@ -84,13 +44,7 @@ const UNLREPORT_KEYLET: [u8; 34] = [
 ];
 
 hook_errors! {
-    /// `reward`'s rollback reasons. reward.c itself rolls back with
-    /// `__LINE__` as the code (meaningful only for its own source, not a
-    /// stable protocol value) — this hook instead uses a small stable
-    /// enum, per this repo's convention (see `examples/04_errors`). Only
-    /// `accept`/`rollback` outcomes and messages are behavior-equivalence
-    /// targets (see the README's differences table), not the numeric
-    /// code.
+    /// `reward` rollback reasons.
     pub enum RewardError {
         /// Governance has disabled rewards (`RR`/`RD` state <= 0).
         RewardsDisabled = -101,
@@ -189,17 +143,9 @@ fn read_reward_fields(keylet: &Keylet) -> RewardFieldRead {
 
     RewardFieldRead::Read(RewardFields {
         accumulator: accumulator_slot.value().unwrap_or(0) as i64,
-        // `sfRewardLgrFirst`/`sfRewardLgrLast`/`sfRewardTime` are UInt32
-        // fields, so the typed reads hand back `u32` where the previous
-        // `slot_u64` calls handed back a widened `u64`. Widening here keeps
-        // the arithmetic in `my_hook` byte-for-byte what it was.
         first: i64::from(first_slot.value().unwrap_or(0)),
         last: i64::from(last_slot.value().unwrap_or(0)),
-        // `sfBalance` is an `Amount`, and what this hook wants is the native
-        // amount's raw 64-bit wire encoding (it masks the flag bits off), not
-        // a classified `AmountBytes`. `assume_type` is the documented escape
-        // for exactly that: the `u64` read decodes the same eight big-endian
-        // bytes the previous `slot_u64` call did.
+        // Read the native amount's raw wire encoding.
         raw_balance: balance_slot.assume_type::<u64>().value().unwrap_or(0),
         last_claim_time: u64::from(time_slot.value().unwrap_or(0)),
     })

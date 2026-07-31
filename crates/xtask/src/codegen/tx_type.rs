@@ -1,15 +1,4 @@
-//! Generates `crates/hooks-lib/src/tx_type.rs`: a typed `TxType` enum
-//! mirroring `hooks_core::tts`'s raw `tt*` transaction-type constants, from
-//! `tts.h`'s parsed [`ConstSpec`]s (`crates/xtask/src/ir.rs`, `hook_api.json`)
-//! — the same source data [`super::tts`] renders as hooks-core's raw `u16`
-//! constants. Unlike every other generator in this module, the output
-//! lands in `hooks-lib`, not `hooks-core`: `TxType` is a typed,
-//! Rust-idiomatic mirror (the `hooks-lib` layer's job, per `docs/DESIGN.md`
-//! §5), not a mechanical 1:1 header translation (`hooks-core`'s job, per
-//! §4) — but it is still fully mechanical *within* that typed layer (every
-//! variant name is a pure function of its `tt*` name, no hand-authored
-//! per-variant text), so it is generated rather than hand-maintained, the
-//! same way `tts.rs` itself is.
+//! Generates the typed `hooks-lib::TxType` model from `tts.h` constants.
 
 use std::fmt::Write as _;
 
@@ -31,13 +20,7 @@ const MODULE_DOC: &str = "\
 ";
 
 /// Converts a C `tt*` constant name (e.g. `ttNFTOKEN_MINT`) into a
-/// PascalCase enum variant name (`NftokenMint`): strips the `tt` prefix,
-/// splits the remainder on `_`, and capitalizes each segment's first
-/// letter while lowercasing the rest. Deliberately does not special-case
-/// acronyms (upstream's own preferred `NFToken`/`URIToken`/`XChain`
-/// capitalization) — one unconditional mechanical rule, not a lookup
-/// table of exceptions, matches `hooks-core`'s own "no renaming" principle
-/// applied one layer up.
+/// PascalCase enum variant name (`NftokenMint`) using a mechanical conversion.
 fn variant_name(const_name: &str) -> Result<String> {
     let rest = const_name
         .strip_prefix("tt")

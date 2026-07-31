@@ -3,7 +3,7 @@
 // from: `${process.cwd()}/build/<name>.wasm` (see
 // node_modules/@transia/hooks-toolkit/dist/npm/src/utils.js). Copying
 // keeps every test's Hook-building code on the toolkit's own file-reading
-// helper (matching the sibling repos' pattern) instead of bypassing it.
+// helper instead of bypassing it.
 //
 // Run before `vitest run` (wired as the `pretest` script). Requires
 // `examples/*/out/*.wasm` to already exist - run `mise run build-examples`

@@ -1,12 +1,3 @@
-// e2e: examples/07_xfl-math against a standalone Xahau node.
-//
-// `hook()` reads the originating Payment's `Amount` as an XFL (via
-// `otxn_slot`/`slot_subfield`/`XFL::from_slot` - native amounts decode as
-// their XAH value, not raw drops), computes 1% of it with `mulratio`, and
-// rolls back with `XflMathError::BelowMinimum` (code 7) if that share is
-// below the fixed `0.000001` (1e-6) XAH minimum - i.e. if the Amount is
-// below 100 drops (1% of 100 drops = 1 drop = 0.000001 XAH exactly);
-// accepts otherwise. HookOn is Payment.
 import {
   ExecutionUtility,
   Xrpld,
@@ -22,16 +13,9 @@ import {
   type iHook,
 } from '@transia/hooks-toolkit'
 import { calculateHookOn, type TransactionMetadata } from 'xahau'
-// HookFlags isn't re-exported from the package root in xahau@4.x - only
-// reachable via this deep import (same path hooks-toolkit's own source
-// uses internally for the same enum).
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-xfl-math'
-// hooks-build's printed worst case for xfl_math.wasm (`mise run build-examples`).
-// See the example's README's "Zero-cost check" section for the breakdown:
-// the core mulratio-and-compare logic alone measures 162; the remainder
-// comes from the Sub/XFLUnchecked/`==`/`<`/`>` demonstration sections.
 const WORST_CASE_INSTRUCTIONS = 357
 
 describe('xfl-math', () => {
@@ -93,16 +77,9 @@ describe('xfl-math', () => {
     )
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
-    // HookReturnCode is a 64-bit int field, serialized as a *hex* string
-    // over RPC (same convention as HookInstructionCount below) even
-    // though the toolkit's `iHookExecution` type declares it as `number`
-    // - only matters here because the asserted codes are single-digit,
-    // which read identically whether parsed as decimal or hex (see
-    // slot-ledger.test.ts for a case where it doesn't).
     expect(Number(execution.HookReturnCode)).toBe(0)
     expect(execution.HookReturnString).toBe('')
-    // HookInstructionCount is a *hex* string over RPC (confirmed by direct
-    // inspection - e.g. "d" = 13).
+    // Hook instruction counts are hexadecimal RPC values.
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_INSTRUCTIONS,
     )

@@ -1,31 +1,11 @@
-//! Byte-exact encoders for the two transactions govern.c ever emits:
-//!
-//! - **L1-vote-forward `Invoke`** (govern.c's inline hex-constant
-//!   builder, L401-472): an L2 table forwards a member's L1-topic vote up
-//!   to the L1 (genesis) table, carrying `T`/`V` (and no `L`, since it's
-//!   always addressed *to* L1) `Invoke` parameters.
-//! - **`HookSet`** (govern.c's `PREPARE_HOOKSET` macro, `macro.h`): action
-//!   a hook-topic vote by installing or deleting one of the table's own
-//!   10 hook slots.
-//!
-//! Both reuse the same small `push`/`push_field_header` cursor-builder
-//! idiom as `examples/80_reward/src/mint_txn.rs` (see that module's doc
-//! comment for why: `#[inline(always)]` + `Iterator::zip` instead of
-//! `copy_from_slice`, `const` `HDR_*` headers instead of runtime
-//! `codec::field_header` calls — both empirically required to stay under
-//! the Hook API's 32-level block/loop/if nesting limit once
-//! `hooks-build`'s Guard-type pipeline inlines every function in this
-//! crate into `hook()`). Every Hook API call here goes through
-//! `hooks_lib::api`'s ordinary `Result`-based wrappers (`etxn_fee_base`,
-//! `etxn_details`, `emit_buf`) — see `crate`'s module doc comment.
+//! Encodes governance `Invoke` and `HookSet` emissions.
 
 use hooks_lib::prelude::*;
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::txn::codec;
 use hooks_lib::{guard, rollback};
 
-/// Rolls the hook back — every failure path in this module funnels here.
-/// `-204` matches `crate::GovernError::EmitFailed`'s code.
+/// Rolls back an emission failure.
 #[inline(always)]
 fn fail(msg: &[u8]) -> ! {
     rollback!(msg, -204);
@@ -46,15 +26,7 @@ const HDR_FLAGS_INNER: ([u8; 3], usize) = codec::field_header(sfFlags);
 const HDR_CREATE_CODE: ([u8; 3], usize) = codec::field_header(sfCreateCode);
 const HDR_HOOK_HASH: ([u8; 3], usize) = codec::field_header(sfHookHash);
 
-// Single/double-byte field headers, `const`-extracted from the `HDR_*`
-// tuples above (so they stay traceably derived from `codec::field_header`
-// rather than hand-transcribed) — used to build several fields as one
-// combined `push` call each below. Reducing the *count* of `push` calls
-// (not just each one's own cost) turned out to matter: this crate's
-// nesting budget is sensitive to how many distinct fallible append calls
-// a single function makes once every function in the crate is inlined
-// into `hook()` — see `crate`'s and `examples/80_reward`'s module doc
-// comments for the full nesting-limit story.
+// Compact field-header forms used by the encoders.
 const H_TT: u8 = HDR_TRANSACTION_TYPE.0[0];
 const H_FLAGS: u8 = HDR_FLAGS.0[0];
 const H_SEQUENCE: u8 = HDR_SEQUENCE.0[0];

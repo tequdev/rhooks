@@ -1,23 +1,7 @@
-//! `hooks-core` — zero-logic FFI layer for Xahau Hooks.
+//! Low-level, `no_std` Hook API bindings.
 //!
-//! A faithful, mechanical translation of the xahaud `hook/` C headers into
-//! Rust: raw Hook API declarations (`api.rs`) and every constant from
-//! `error.h`, `sfcodes.h`, `tts.h`, `ls_flags.h`, `tx_flags.h`, and the
-//! constant-like defines of `hookapi.h`/`macro.h` (`consts.rs`).
-//!
-//! Upstream source: `Xahau/xahaud`, branch `release`, directory `hook/`,
-//! vendored verbatim at `crates/hooks-core/vendor/xahaud-hook/` (see that
-//! directory's `VENDOR.md`) and parity-tested against this translation in
-//! `tests/`.
-//!
-//! `#![no_std]`, zero dependencies, zero logic — this crate is a translation
-//! layer, not an ergonomic API; see `hooks-lib` for the idiomatic wrapper
-//! that Hook developers are expected to use directly.
-//!
-//! Names are kept verbatim from C (`sfAccount`, `ttPAYMENT`,
-//! `lsfGlobalFreeze`, `OUT_OF_BOUNDS`, ...) so hook source can be grepped
-//! against the official docs and existing C hooks. All C-verbatim items are
-//! re-exported at the crate root.
+//! This crate exposes C-compatible API declarations and protocol constants.
+//! Use `hooks-lib` for ergonomic Rust wrappers.
 
 #![no_std]
 #![allow(non_upper_case_globals)]

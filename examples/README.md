@@ -32,9 +32,6 @@ directory is prefixed) and matches what its own README, `Cargo.toml`, and
 | 14 | [`account-id-macro`](14_account-id-macro) | `hooks_lib::account_id!`: compile-time r-address -> `AccountId` decode, cross-checked against `hook_account`/`util_accid`/`util_raddr` |
 | 15 | [`slot-objects`](15_slot-objects) | the typed slot layer's live acceptance harness: account-root walk, native-amount drops round-trip, parent-clear/child-read, and two 300-iteration loops proving `take_*` recycling and leak-free `slot_path!` failures |
 
-(11 is reserved for other in-flight work — see git history/other
-branches — hence the jump from `10` to `12`.)
-
 ## 80+: Production hooks in Rust
 
 Unlike `01`-`10` (one concept each, in suggested reading order), the

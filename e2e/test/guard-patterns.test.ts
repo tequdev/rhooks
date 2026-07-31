@@ -1,13 +1,3 @@
-// e2e: examples/06_guard-patterns against a standalone Xahau node.
-//
-// `hook()` reads the otxn sender and a 20-byte blocked AccountId from the
-// `BL` HookParameter (same idiom as `firewall`), rolling back with
-// `GuardPatternsError::BlockedAccount` (code 2) on a match; accepts
-// otherwise with `"guard-patterns: accepted"` and an accept code that is
-// a non-meaningful sum of two demonstration loops (see the source) - not
-// asserted here beyond "present", since its value depends on the test
-// wallets' generated AccountIds. HookOn is Invoke (this hook only reads
-// `sfAccount`, present on every transaction type).
 import {
   ExecutionUtility,
   Xrpld,
@@ -28,13 +18,9 @@ import {
   decodeAccountID,
   type TransactionMetadata,
 } from 'xahau'
-// HookFlags isn't re-exported from the package root in xahau@4.x - only
-// reachable via this deep import (same path hooks-toolkit's own source
-// uses internally for the same enum).
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-guard-patterns'
-// hooks-build's printed worst case for guard_patterns.wasm (`mise run build-examples`).
 const WORST_CASE_INSTRUCTIONS = 615
 
 function accountIdHex(classicAddress: string): string {
@@ -107,8 +93,7 @@ describe('guard-patterns', () => {
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
     expect(execution.HookReturnString).toBe('guard-patterns: accepted')
-    // HookInstructionCount is a *hex* string over RPC (confirmed by direct
-    // inspection - e.g. "d" = 13).
+    // Hook instruction counts are hexadecimal RPC values.
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_INSTRUCTIONS,
     )
