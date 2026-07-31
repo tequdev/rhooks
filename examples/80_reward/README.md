@@ -147,7 +147,7 @@ wraps each call:
   rollback-directly-on-failure (see `mint_txn.rs`'s module doc comment —
   this by itself fixes the analogous "return ladder" problem for
   ordinary, non-panicking early returns);
-- replacing `codec::field_header(sfcode)` runtime calls (whose internal
+- replacing `codec::field_header(sfXxx)` runtime calls (whose internal
   range-check `assert!`s are only documented as safe to elide in a
   `const` context) with precomputed `const` headers (`HDR_*` in
   `mint_txn.rs`);

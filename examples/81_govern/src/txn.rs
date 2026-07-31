@@ -31,21 +31,20 @@ fn fail(msg: &[u8]) -> ! {
     rollback!(msg, -204);
 }
 
-const HDR_TRANSACTION_TYPE: ([u8; 3], usize) = codec::field_header(sfTransactionType.code());
-const HDR_FLAGS: ([u8; 3], usize) = codec::field_header(sfFlags.code());
-const HDR_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfSequence.code());
-const HDR_FIRST_LEDGER_SEQUENCE: ([u8; 3], usize) =
-    codec::field_header(sfFirstLedgerSequence.code());
-const HDR_LAST_LEDGER_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfLastLedgerSequence.code());
-const HDR_FEE: ([u8; 3], usize) = codec::field_header(sfFee.code());
-const HDR_SIGNING_PUB_KEY: ([u8; 3], usize) = codec::field_header(sfSigningPubKey.code());
-const HDR_ACCOUNT: ([u8; 3], usize) = codec::field_header(sfAccount.code());
-const HDR_DESTINATION: ([u8; 3], usize) = codec::field_header(sfDestination.code());
-const HDR_HOOKS: ([u8; 3], usize) = codec::field_header(sfHooks.code());
-const HDR_HOOK: ([u8; 3], usize) = codec::field_header(sfHook.code());
-const HDR_FLAGS_INNER: ([u8; 3], usize) = codec::field_header(sfFlags.code());
-const HDR_CREATE_CODE: ([u8; 3], usize) = codec::field_header(sfCreateCode.code());
-const HDR_HOOK_HASH: ([u8; 3], usize) = codec::field_header(sfHookHash.code());
+const HDR_TRANSACTION_TYPE: ([u8; 3], usize) = codec::field_header(sfTransactionType);
+const HDR_FLAGS: ([u8; 3], usize) = codec::field_header(sfFlags);
+const HDR_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfSequence);
+const HDR_FIRST_LEDGER_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfFirstLedgerSequence);
+const HDR_LAST_LEDGER_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfLastLedgerSequence);
+const HDR_FEE: ([u8; 3], usize) = codec::field_header(sfFee);
+const HDR_SIGNING_PUB_KEY: ([u8; 3], usize) = codec::field_header(sfSigningPubKey);
+const HDR_ACCOUNT: ([u8; 3], usize) = codec::field_header(sfAccount);
+const HDR_DESTINATION: ([u8; 3], usize) = codec::field_header(sfDestination);
+const HDR_HOOKS: ([u8; 3], usize) = codec::field_header(sfHooks);
+const HDR_HOOK: ([u8; 3], usize) = codec::field_header(sfHook);
+const HDR_FLAGS_INNER: ([u8; 3], usize) = codec::field_header(sfFlags);
+const HDR_CREATE_CODE: ([u8; 3], usize) = codec::field_header(sfCreateCode);
+const HDR_HOOK_HASH: ([u8; 3], usize) = codec::field_header(sfHookHash);
 
 // Single/double-byte field headers, `const`-extracted from the `HDR_*`
 // tuples above (so they stay traceably derived from `codec::field_header`

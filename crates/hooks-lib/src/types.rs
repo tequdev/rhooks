@@ -311,7 +311,7 @@ pub struct Opaque;
 /// `PhantomData<fn() -> T>` rather than `PhantomData<T>` so the field
 /// constant is `Send`/`Sync`/`Copy` regardless of what `T` is: the field
 /// *produces* a `T`, it does not hold one.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct SField<T> {
     code: u32,
     _t: PhantomData<fn() -> T>,
@@ -328,6 +328,26 @@ impl<T> Clone for SField<T> {
 }
 
 impl<T> Copy for SField<T> {}
+
+// Comparison is on the code alone, *across* type parameters — hand-written
+// rather than derived for both halves of that. Derived `PartialEq` would
+// compare only `SField<T>` with `SField<T>` and would carry a needless
+// `T: PartialEq` bound; this impl instead lets an erased field code (what
+// [`crate::slot_obj::SlotObject::field_code`] hands back, an
+// `SField<Opaque>`) be compared directly against any generated constant, in
+// either direction: `slot.field_code()? == sfBalance`.
+//
+// Two `SField`s with the same code always name the same field, so equality
+// that ignores `T` is the right relation — `T` records how the value reads
+// back, not which field it is.
+impl<A, B> PartialEq<SField<B>> for SField<A> {
+    #[inline(always)]
+    fn eq(&self, other: &SField<B>) -> bool {
+        self.code == other.code
+    }
+}
+
+impl<T> Eq for SField<T> {}
 
 impl<T> SField<T> {
     /// Wraps a raw field code. Called only by the generated constant table
@@ -352,10 +372,11 @@ impl<T> SField<T> {
     /// The raw `u32` field code.
     ///
     /// `const`, and the reason it exists: `From`/`Into` are not usable in
-    /// const contexts, so anywhere a field code must be a compile-time
-    /// constant — [`crate::txn_template!`]'s field tables, a `const` header
-    /// expression, a `match` arm — this is the bridge. Runtime call sites
-    /// take `impl Into<u32>` and need nothing.
+    /// const contexts, so anywhere a raw code must be a compile-time
+    /// constant — [`crate::txn_template!`]'s generated field table, a `match`
+    /// arm — this is the bridge. Runtime call sites take `impl Into<u32>`
+    /// and need nothing, and [`crate::txn::codec`]'s `const fn`s take the
+    /// `SField` itself, so writing `.code()` there is not required either.
     ///
     /// ```
     /// use hooks_lib::prelude::*;
@@ -457,6 +478,17 @@ mod tests {
         let mut buf = [0u8; ACC_ID_LEN];
         assert_eq!(id.write(&mut buf), ACC_ID_LEN);
         assert_eq!(AccountId::read(&buf), Ok(id));
+    }
+
+    // An erased field code — what `SlotObject::field_code` hands back —
+    // compares equal to the generated constant naming the same field, in
+    // both directions, even though the two disagree about `T`.
+    #[test]
+    fn sfield_equality_ignores_the_type_parameter() {
+        let erased: SField<Opaque> = SField::new(crate::sfield::sfAccount.code());
+        assert!(erased == crate::sfield::sfAccount);
+        assert!(crate::sfield::sfAccount == erased);
+        assert!(erased != crate::sfield::sfBalance);
     }
 
     #[test]

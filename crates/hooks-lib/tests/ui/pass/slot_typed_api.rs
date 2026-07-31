@@ -46,6 +46,14 @@ fn reads(root: SlotObject<STObject>) -> Result<()> {
     let _count = untyped.count()?;
     let _: XFL = untyped.assume_type::<Amount>().as_xfl()?;
 
+    // `field_code` hands back an erased `SField`, comparable against a
+    // generated constant either way round, and still unwrappable to a code.
+    let balance = root.get(sfBalance)?;
+    let code: SField<Opaque> = balance.field_code()?;
+    let _ = code == sfBalance;
+    let _ = sfBalance == code;
+    let _: u32 = code.code();
+
     // Raw escapes.
     let mut buf = [0u8; 32];
     let _n = root.get(sfLedgerHash)?.raw(&mut buf)?;

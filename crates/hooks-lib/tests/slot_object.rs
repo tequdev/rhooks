@@ -48,6 +48,11 @@ fn surface() {
     let _: SField<Opaque> = sfSigningPubKey;
     let _: SField<Opaque> = sfTakerPaysCurrency;
 
+    // Field codes compare across type parameters, which is what makes an
+    // erased `field_code()` result usable against the constants.
+    assert!(sfAccount == sfAccount);
+    assert!(sfSigningPubKey != sfAccount);
+
     // code() const bridge + parity
     const SEQ: u32 = sfSequence.code();
     assert_eq!(SEQ, hooks_lib::raw::sfcodes::sfSequence);

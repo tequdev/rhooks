@@ -1084,6 +1084,17 @@ Slot numbers never appear in hook source. The decisions behind it:
   bit 63 set in as-int64 mode, and legitimate 64-bit fields set it
   (`sfExchangeRate`). `u8`/`u16`/`u32` keep the as-int64 path, where bit 63
   is unreachable.
+- **`field_code` returns an erased `SField<Opaque>`, not a `u32`**, so
+  `slot.field_code()? == sfBalance` reads as a field comparison rather than
+  arithmetic. `Opaque` because the value type genuinely is not known here —
+  this is a code to compare or unwrap with `.code()`, not a licence to read.
+  `SField`'s `PartialEq` is hand-written and cross-parameter (`impl<A, B>
+  PartialEq<SField<B>> for SField<A>`, comparing codes alone) so the erased
+  result matches a constant of any `T`, in either direction; a derived impl
+  would only ever compare `SField<T>` with itself. Root slots report
+  10001–10004 codes, which name no ordinary field and so compare unequal to
+  every constant in `sfield`. `try_cast` keeps comparing raw `u32`s
+  internally, where the serialized type ID is being extracted anyway.
 
 **Where the types live.** `SField<T>` and the wire-type markers (`Amount`,
 `Issue`, `STObject`, `STArray`, `Opaque`) are hand-written in `types.rs`, not
@@ -1092,13 +1103,25 @@ A field constant describes the *wire format*; making it depend on the slot
 layer that happens to read it had the dependency backwards, and would have
 meant a hook could not name a field type without pulling in slot machinery.
 
-**`txn_template!` takes the typed constants** (a user decision superseding
-the earlier raw-`u32`-only grammar). The expansion wraps every field code as
-`($sfcode).code()` — a `const fn` call, legal in the const context the field
-table is built in, where `Into` would not be. The consequence is that a bare
-`u32` expression no longer works there; `hooks_lib::raw::sfcodes` remains
-exported for the const builders that genuinely want a raw code, which write
-`sfXxx.code()`. Both directions are pinned by trybuild fixtures.
+**`txn_template!` and `txn::codec` take the typed constants** (a user
+decision superseding the earlier raw-`u32`-only grammar). `field_header`,
+`write_field_header` and the four `*_field_size` helpers are generic over
+`SField<T>` and take the constant itself — `SField` is a `u32` at runtime, so
+this costs nothing, and it is the *only* signature they have: `SField::new`
+is `pub(crate)`, so a raw-`u32` overload would be the one way to build a
+header for a code no generated constant names. Nothing in the repo needs a
+computed code; if an internal caller ever does, it gets a private helper
+rather than a public `_raw` variant.
+
+Inside the macro the same constants flow straight through to those
+functions. `.code()` survives only where the expansion genuinely stores or
+compares a `u32` *value* — the `order = [...]` canonical-order array and the
+`FIELDS` table rows that `field_present`/`field_kind_ok`/`field_offset_or`
+look codes up in — which is invisible to the declaration site. The
+consequence for callers is that a bare `u32` expression no longer works as a
+field code, in a template or in a const builder; both directions are pinned
+by trybuild fixtures. `hooks_lib::raw::sfcodes` stays exported, but nothing
+in the repo reads it outside tests.
 
 **Breaking changes** this introduced: the typed `sfXxx` constants replaced
 the raw `sfcodes` glob in the prelude (raw table at

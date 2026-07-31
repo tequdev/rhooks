@@ -12,7 +12,7 @@
 //! `COPY_20` shared):
 //!
 //! 1. [`codec`] — generic, panic-free encoding primitives: STObject
-//!    field-header derivation from an `sfXxx` code, native-amount encoding
+//!    field-header derivation from an `sfXxx` constant, native-amount encoding
 //!    (62-bit check + the `0x40` native bit), and both `const fn`
 //!    (compile-time, used by the macro) and runtime (`Result`-returning,
 //!    usable standalone) byte writers.
@@ -40,18 +40,24 @@
 /// entirely out of these.
 pub mod codec {
     use crate::error::{HookError, Result};
-    use crate::types::{ACC_ID_LEN, AccountId};
+    use crate::types::{ACC_ID_LEN, AccountId, SField};
 
     /// Native (XRP/XAH) amounts reserve their top 2 bits for control flags;
     /// a drops value must fit in the remaining 62 bits.
     pub const MAX_NATIVE_DROPS: u64 = 1u64 << 62;
 
-    /// Derives the STObject field-id prefix bytes for an `sfXxx` code.
+    /// Derives the STObject field-id prefix bytes for a field.
     ///
-    /// `sfcode` encodes `type = code >> 16` and `field = code & 0xFFFF`.
-    /// Returns the prefix bytes (only the first `N` of the 3 are
-    /// meaningful) and `N`, the number of meaningful bytes, per rippled's
-    /// canonical field-id encoding:
+    /// Takes the typed [`SField`] constant itself (`sfAccount`, `sfFee`,
+    /// ...), not a raw code, and is the only signature this takes: `SField`
+    /// is a `u32` at runtime, so passing one costs nothing, and since
+    /// `SField`'s constructor is crate-private a raw-`u32` overload would be
+    /// the one way to build a header for a code no generated constant names.
+    ///
+    /// A field's code encodes `type = code >> 16` and
+    /// `field = code & 0xFFFF`. Returns the prefix bytes (only the first `N`
+    /// of the 3 are meaningful) and `N`, the number of meaningful bytes, per
+    /// rippled's canonical field-id encoding:
     ///
     /// - `type < 16 && field < 16`: **1 byte**, `(type << 4) | field`.
     /// - `type < 16 && field >= 16`: **2 bytes**, `[type << 4, field]`.
@@ -66,7 +72,8 @@ pub mod codec {
     /// hypothetical `>= 256` code into a compile error rather than silent
     /// truncation).
     #[must_use]
-    pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+    pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+        let sfcode = f.code();
         let ty = sfcode.wrapping_shr(16);
         let field = sfcode & 0xFFFF;
         if ty < 16 && field < 16 {
@@ -94,22 +101,22 @@ pub mod codec {
     /// Header + value size of an STI_UINT16 `TransactionType` field (the
     /// only field `txn_template!`'s `transaction_type = ttXXX` key emits).
     #[must_use]
-    pub const fn transaction_type_field_size(sfcode: u32) -> usize {
-        field_header(sfcode).1.wrapping_add(2)
+    pub const fn transaction_type_field_size<T>(f: SField<T>) -> usize {
+        field_header(f).1.wrapping_add(2)
     }
 
     /// Header + value size of an STI_UINT32 field (`txn_template!`'s
     /// `u32_field` kind).
     #[must_use]
-    pub const fn u32_field_size(sfcode: u32) -> usize {
-        field_header(sfcode).1.wrapping_add(4)
+    pub const fn u32_field_size<T>(f: SField<T>) -> usize {
+        field_header(f).1.wrapping_add(4)
     }
 
     /// Header + value size of an STI_AMOUNT field encoded as a native
     /// (XRP/XAH) amount (`txn_template!`'s `native_amount` kind).
     #[must_use]
-    pub const fn native_amount_field_size(sfcode: u32) -> usize {
-        field_header(sfcode).1.wrapping_add(8)
+    pub const fn native_amount_field_size<T>(f: SField<T>) -> usize {
+        field_header(f).1.wrapping_add(8)
     }
 
     /// Header + value size, in bytes, of an STI_ACCOUNT field: header + a
@@ -117,11 +124,8 @@ pub mod codec {
     /// length form) + the 20-byte payload (`txn_template!`'s `account_id`
     /// kind).
     #[must_use]
-    pub const fn account_id_field_size(sfcode: u32) -> usize {
-        field_header(sfcode)
-            .1
-            .wrapping_add(1)
-            .wrapping_add(ACC_ID_LEN)
+    pub const fn account_id_field_size<T>(f: SField<T>) -> usize {
+        field_header(f).1.wrapping_add(1).wrapping_add(ACC_ID_LEN)
     }
 
     /// Header + value size, in bytes, of an STI_VL field encoded as an
@@ -129,8 +133,8 @@ pub mod codec {
     /// (`txn_template!`'s `empty_vl` kind — e.g. `SigningPubKey` on an
     /// emitted transaction).
     #[must_use]
-    pub const fn empty_vl_field_size(sfcode: u32) -> usize {
-        field_header(sfcode).1.wrapping_add(1)
+    pub const fn empty_vl_field_size<T>(f: SField<T>) -> usize {
+        field_header(f).1.wrapping_add(1)
     }
 
     /// Writes an STObject field-header (see [`field_header`]) into `bytes`
@@ -142,12 +146,12 @@ pub mod codec {
     /// only ever called from a `const` context (`txn_template!`'s generated
     /// `new()`), where a panic is a compile error, never a runtime one.
     #[allow(clippy::indexing_slicing)] // in-bounds per the assert above; const-only, see the Panics note
-    pub const fn write_field_header<const N: usize>(
+    pub const fn write_field_header<const N: usize, T>(
         bytes: &mut [u8; N],
         offset: usize,
-        sfcode: u32,
+        f: SField<T>,
     ) {
-        let (hdr, hdr_len) = field_header(sfcode);
+        let (hdr, hdr_len) = field_header(f);
         let mut i = 0;
         while i < hdr_len {
             let dst = offset.wrapping_add(i);
@@ -349,6 +353,11 @@ pub mod codec {
         /// `hooks_core::sfcodes`), plus `sfCloseResolution`/`sfTickSize`
         /// (real `type >= 16` codes) to exercise the two- and three-byte
         /// forms.
+        ///
+        /// Raw codes, wrapped in an erased `SField` where they are passed:
+        /// the table stays spelled as `(type, field)` arithmetic so it is an
+        /// independent transcription of the wire format rather than a
+        /// re-read of the generated constants.
         #[rustfmt::skip]
         const KNOWN_HEADERS: &[(u32, &[u8])] = &[
             ((1 << 16) + 2, &[0x12]),           // TransactionType (1,2)
@@ -370,7 +379,7 @@ pub mod codec {
         #[test]
         fn field_header_matches_known_patterns() {
             for &(sfcode, expected) in KNOWN_HEADERS {
-                let (hdr, hdr_len) = field_header(sfcode);
+                let (hdr, hdr_len) = field_header(SField::<crate::types::Opaque>::new(sfcode));
                 assert_eq!(
                     &hdr[..hdr_len],
                     expected,
@@ -917,19 +926,19 @@ macro_rules! txn_template {
             name = $Name,
             meta = [$(#[$meta])*],
             vis = $vis,
-            order = [$crate::raw::sfcodes::sfTransactionType],
+            order = [$crate::sfield::sfTransactionType.code()],
             setters = [],
             emit_region = [],
             buf = [__bytes],
             init = [
-                $crate::txn::codec::write_field_header(&mut __bytes, 0usize, $crate::raw::sfcodes::sfTransactionType);
+                $crate::txn::codec::write_field_header(&mut __bytes, 0usize, $crate::sfield::sfTransactionType);
                 $crate::txn::codec::write_const_bytes(
                     &mut __bytes,
-                    $crate::txn::codec::field_header($crate::raw::sfcodes::sfTransactionType).1,
+                    $crate::txn::codec::field_header($crate::sfield::sfTransactionType).1,
                     &(($crate::raw::tts::$tt) as u16).to_be_bytes(),
                 );
             ],
-            prev = [ $crate::txn::codec::transaction_type_field_size($crate::raw::sfcodes::sfTransactionType) ],
+            prev = [ $crate::txn::codec::transaction_type_field_size($crate::sfield::sfTransactionType) ],
             table = [],
             emit_details = [false, 0usize],
             fields = [ $($($fields)*)? ]
@@ -998,7 +1007,7 @@ macro_rules! __txn_template_step {
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds by construction: `Self::LEN` sums these same field sizes
                 $vis fn [<set_ $field>](&mut self, value: u32) {
-                    const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1);
+                    const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1);
                     self.bytes[OFF..OFF.wrapping_add(4)].copy_from_slice(&value.to_be_bytes());
                 }
             ],
@@ -1006,17 +1015,17 @@ macro_rules! __txn_template_step {
             buf = [$($buf)*],
             init = [
                 $($init)*
-                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), ($sfcode).code());
+                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), $sfcode);
                 $crate::txn::codec::write_const_bytes(
                     &mut $($buf)*,
-                    ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1),
+                    ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1),
                     &(($default) as u32).to_be_bytes(),
                 );
             ],
-            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::u32_field_size(($sfcode).code())) ],
+            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::u32_field_size($sfcode)) ],
             table = [
                 $($table)*
-                (($sfcode).code(), $crate::txn::codec::KIND_U32_FIELD, ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1)),
+                (($sfcode).code(), $crate::txn::codec::KIND_U32_FIELD, ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1)),
             ],
             emit_details = [$($emit_details)*],
             fields = [ $($($rest)*)? ]
@@ -1049,7 +1058,7 @@ macro_rules! __txn_template_step {
                 #[inline(always)]
                 #[allow(clippy::indexing_slicing)] // in-bounds as above; only `drops` itself is runtime-fallible
                 $vis fn [<set_ $field>](&mut self, drops: u64) -> $crate::error::Result<()> {
-                    const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1);
+                    const OFF: usize = ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1);
                     $crate::txn::codec::encode_native_amount(&mut self.bytes[OFF..OFF.wrapping_add(8)], drops)
                 }
             ],
@@ -1057,17 +1066,17 @@ macro_rules! __txn_template_step {
             buf = [$($buf)*],
             init = [
                 $($init)*
-                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), ($sfcode).code());
+                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), $sfcode);
                 $crate::txn::codec::write_const_bytes(
                     &mut $($buf)*,
-                    ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1),
+                    ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1),
                     &$crate::txn::codec::encode_native_amount_const($default),
                 );
             ],
-            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::native_amount_field_size(($sfcode).code())) ],
+            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::native_amount_field_size($sfcode)) ],
             table = [
                 $($table)*
-                (($sfcode).code(), $crate::txn::codec::KIND_NATIVE_AMOUNT, ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1)),
+                (($sfcode).code(), $crate::txn::codec::KIND_NATIVE_AMOUNT, ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1)),
             ],
             emit_details = [$($emit_details)*],
             fields = [ $($($rest)*)? ]
@@ -1095,7 +1104,7 @@ macro_rules! __txn_template_step {
                 #[allow(clippy::indexing_slicing)] // in-bounds by construction, as above
                 $vis fn [<set_ $field>](&mut self, value: &$crate::types::AccountId) {
                     const OFF: usize = ($($prev)*)
-                        .wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1)
+                        .wrapping_add($crate::txn::codec::field_header($sfcode).1)
                         .wrapping_add(1);
                     self.bytes[OFF..OFF.wrapping_add($crate::types::ACC_ID_LEN)].copy_from_slice(value.as_ref());
                 }
@@ -1104,17 +1113,17 @@ macro_rules! __txn_template_step {
             buf = [$($buf)*],
             init = [
                 $($init)*
-                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), ($sfcode).code());
+                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), $sfcode);
                 $crate::txn::codec::write_const_bytes(
                     &mut $($buf)*,
-                    ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1),
+                    ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1),
                     &[$crate::types::ACC_ID_LEN as u8],
                 );
             ],
-            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::account_id_field_size(($sfcode).code())) ],
+            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::account_id_field_size($sfcode)) ],
             table = [
                 $($table)*
-                (($sfcode).code(), $crate::txn::codec::KIND_ACCOUNT_ID, ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1).wrapping_add(1)),
+                (($sfcode).code(), $crate::txn::codec::KIND_ACCOUNT_ID, ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1).wrapping_add(1)),
             ],
             emit_details = [$($emit_details)*],
             fields = [ $($($rest)*)? ]
@@ -1139,17 +1148,17 @@ macro_rules! __txn_template_step {
             buf = [$($buf)*],
             init = [
                 $($init)*
-                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), ($sfcode).code());
+                $crate::txn::codec::write_field_header(&mut $($buf)*, ($($prev)*), $sfcode);
                 $crate::txn::codec::write_const_bytes(
                     &mut $($buf)*,
-                    ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1),
+                    ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1),
                     &[0u8],
                 );
             ],
-            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::empty_vl_field_size(($sfcode).code())) ],
+            prev = [ ($($prev)*).wrapping_add($crate::txn::codec::empty_vl_field_size($sfcode)) ],
             table = [
                 $($table)*
-                (($sfcode).code(), $crate::txn::codec::KIND_EMPTY_VL, ($($prev)*).wrapping_add($crate::txn::codec::field_header(($sfcode).code()).1)),
+                (($sfcode).code(), $crate::txn::codec::KIND_EMPTY_VL, ($($prev)*).wrapping_add($crate::txn::codec::field_header($sfcode).1)),
             ],
             emit_details = [$($emit_details)*],
             fields = [ $($($rest)*)? ]
@@ -1297,7 +1306,7 @@ macro_rules! __txn_template_step {
                 {
                     const OFF: usize = $crate::txn::codec::field_offset_or(
                         $Name::FIELDS,
-                        $crate::raw::sfcodes::sfFirstLedgerSequence,
+                        $crate::sfield::sfFirstLedgerSequence.code(),
                         0usize,
                     );
                     self.bytes[OFF..OFF.wrapping_add(4)].copy_from_slice(&__fls.to_be_bytes());
@@ -1305,7 +1314,7 @@ macro_rules! __txn_template_step {
                 {
                     const OFF: usize = $crate::txn::codec::field_offset_or(
                         $Name::FIELDS,
-                        $crate::raw::sfcodes::sfLastLedgerSequence,
+                        $crate::sfield::sfLastLedgerSequence.code(),
                         0usize,
                     );
                     self.bytes[OFF..OFF.wrapping_add(4)].copy_from_slice(&__fls.wrapping_add(4).to_be_bytes());
@@ -1313,7 +1322,7 @@ macro_rules! __txn_template_step {
                 {
                     const OFF: usize = $crate::txn::codec::field_offset_or(
                         $Name::FIELDS,
-                        $crate::raw::sfcodes::sfAccount,
+                        $crate::sfield::sfAccount.code(),
                         0usize,
                     );
                     $crate::api::hook_ctx::hook_account(
@@ -1335,7 +1344,7 @@ macro_rules! __txn_template_step {
                 {
                     const OFF: usize = $crate::txn::codec::field_offset_or(
                         $Name::FIELDS,
-                        $crate::raw::sfcodes::sfFee,
+                        $crate::sfield::sfFee.code(),
                         0usize,
                     );
                     $crate::txn::codec::encode_native_amount(&mut self.bytes[OFF..OFF.wrapping_add(8)], __fee)?;
@@ -1381,27 +1390,27 @@ macro_rules! __txn_template_step {
         // check for `emit_details` (which has no sfcode, so it is tracked
         // via its own accumulator instead of the table).
         const _: () = assert!(
-            $crate::txn::codec::field_present($Name::FIELDS, $crate::raw::sfcodes::sfSequence),
+            $crate::txn::codec::field_present($Name::FIELDS, $crate::sfield::sfSequence.code()),
             "txn_template!: missing required `sfSequence` field — declare a field as `<name>: u32_field(sfSequence) = 0,`"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_present($Name::FIELDS, $crate::raw::sfcodes::sfFirstLedgerSequence),
+            $crate::txn::codec::field_present($Name::FIELDS, $crate::sfield::sfFirstLedgerSequence.code()),
             "txn_template!: missing required `sfFirstLedgerSequence` field — declare a field as `<name>: u32_field(sfFirstLedgerSequence) = 0,`"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_present($Name::FIELDS, $crate::raw::sfcodes::sfLastLedgerSequence),
+            $crate::txn::codec::field_present($Name::FIELDS, $crate::sfield::sfLastLedgerSequence.code()),
             "txn_template!: missing required `sfLastLedgerSequence` field — declare a field as `<name>: u32_field(sfLastLedgerSequence) = 0,`"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_present($Name::FIELDS, $crate::raw::sfcodes::sfFee),
+            $crate::txn::codec::field_present($Name::FIELDS, $crate::sfield::sfFee.code()),
             "txn_template!: missing required `sfFee` field — declare a field as `<name>: native_amount(sfFee) = 0,`"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_present($Name::FIELDS, $crate::raw::sfcodes::sfSigningPubKey),
+            $crate::txn::codec::field_present($Name::FIELDS, $crate::sfield::sfSigningPubKey.code()),
             "txn_template!: missing required `sfSigningPubKey` field — declare a field as `<name>: empty_vl(sfSigningPubKey),`"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_present($Name::FIELDS, $crate::raw::sfcodes::sfAccount),
+            $crate::txn::codec::field_present($Name::FIELDS, $crate::sfield::sfAccount.code()),
             "txn_template!: missing required `sfAccount` field — declare a field as `<name>: account_id(sfAccount),`"
         );
         #[allow(clippy::assertions_on_constants)] // `$ed_p` is a literal `true`/`false` baked in at macro-expansion time, not a runtime condition
@@ -1410,27 +1419,27 @@ macro_rules! __txn_template_step {
             "txn_template!: missing required `emit_details` field — declare a field as `<name>: emit_details,` (must be the last declared field)"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::raw::sfcodes::sfSequence, $crate::txn::codec::KIND_U32_FIELD),
+            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::sfield::sfSequence.code(), $crate::txn::codec::KIND_U32_FIELD),
             "txn_template!: `sfSequence` must be declared as `u32_field(sfSequence)` — prepare_for_emit would corrupt the template with any other kind"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::raw::sfcodes::sfFirstLedgerSequence, $crate::txn::codec::KIND_U32_FIELD),
+            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::sfield::sfFirstLedgerSequence.code(), $crate::txn::codec::KIND_U32_FIELD),
             "txn_template!: `sfFirstLedgerSequence` must be declared as `u32_field(sfFirstLedgerSequence)` — prepare_for_emit would corrupt the template with any other kind"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::raw::sfcodes::sfLastLedgerSequence, $crate::txn::codec::KIND_U32_FIELD),
+            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::sfield::sfLastLedgerSequence.code(), $crate::txn::codec::KIND_U32_FIELD),
             "txn_template!: `sfLastLedgerSequence` must be declared as `u32_field(sfLastLedgerSequence)` — prepare_for_emit would corrupt the template with any other kind"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::raw::sfcodes::sfFee, $crate::txn::codec::KIND_NATIVE_AMOUNT),
+            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::sfield::sfFee.code(), $crate::txn::codec::KIND_NATIVE_AMOUNT),
             "txn_template!: `sfFee` must be declared as `native_amount(sfFee)` — prepare_for_emit would corrupt the template with any other kind (it writes an 8-byte native amount)"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::raw::sfcodes::sfSigningPubKey, $crate::txn::codec::KIND_EMPTY_VL),
+            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::sfield::sfSigningPubKey.code(), $crate::txn::codec::KIND_EMPTY_VL),
             "txn_template!: `sfSigningPubKey` must be declared as `empty_vl(sfSigningPubKey)` — any other kind would encode the wrong wire representation"
         );
         const _: () = assert!(
-            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::raw::sfcodes::sfAccount, $crate::txn::codec::KIND_ACCOUNT_ID),
+            $crate::txn::codec::field_kind_ok($Name::FIELDS, $crate::sfield::sfAccount.code(), $crate::txn::codec::KIND_ACCOUNT_ID),
             "txn_template!: `sfAccount` must be declared as `account_id(sfAccount)` — prepare_for_emit would corrupt the template with any other kind (it writes a 20-byte AccountId)"
         );
     };

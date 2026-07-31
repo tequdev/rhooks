@@ -21,6 +21,13 @@
 //! source. The field constant carries the value type, so `value()` needs no
 //! turbofish and `account.get(0)` — indexing an object — is a compile error.
 //!
+//! Field codes stay [`SField`]s in the other direction too:
+//! [`field_code`](SlotObject::field_code) hands back an
+//! `SField<Opaque>` — erased, because a slot's field code says nothing this
+//! layer can type — which compares directly against any generated constant
+//! (`slot.field_code()? == sfBalance`) and unwraps with `.code()` when a raw
+//! `u32` is what is wanted.
+//!
 //! # Affine handles: no `Copy`, no `Clone`, no `Drop`
 //!
 //! A [`SlotObject`] is an **affine** resource: it can be used at most once
@@ -308,7 +315,25 @@ impl<T> SlotObject<T> {
         api::slot::slot_size(self.no)
     }
 
-    /// The slot's serialized field code (`slot_type(no, 0)`).
+    /// The slot's serialized field code (`slot_type(no, 0)`), as an
+    /// [`SField`] you can compare against the generated constants:
+    ///
+    /// ```
+    /// use hooks_lib::prelude::*;
+    ///
+    /// # fn f(txn: &SlotObject<STObject>) -> Result<()> {
+    /// let amount = txn.get(sfAmount)?;
+    /// assert!(amount.field_code()? == sfAmount);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// The type parameter is [`Opaque`] because the value type is *not*
+    /// statically known here — this is an erased code, good for comparison
+    /// (`SField` equality is on the code alone, across type parameters, so it
+    /// matches a constant of any `T`) and for `.code()` extraction, not for
+    /// deciding how to read the slot. Use [`try_cast`](Self::try_cast) or
+    /// [`assume_type`](Self::assume_type) for that.
     ///
     /// A slot derived by navigation reports the field it came from. A **root**
     /// slot — `from_otxn`, `from_meta`, `from_keylet`, `from_txn_hash` —
@@ -317,10 +342,12 @@ impl<T> SlotObject<T> {
     /// code, but its serialized type ID (`code >> 16`) lands in the
     /// 10001–10004 range (`sfTransaction`, `sfLedgerEntry`, ...) rather than
     /// among the ordinary 1–26 type IDs. [`try_cast::<STObject>`](Self::try_cast)
-    /// accepts those codes for exactly that reason.
+    /// accepts those codes for exactly that reason; note that a root slot's
+    /// code therefore compares *unequal* to every constant in
+    /// [`crate::sfield`], all of which are ordinary field codes.
     #[inline(always)]
-    pub fn field_code(&self) -> Result<u32> {
-        api::slot::slot_type(self.no, 0)
+    pub fn field_code(&self) -> Result<SField<Opaque>> {
+        api::slot::slot_type(self.no, 0).map(SField::new)
     }
 
     /// Navigates to a child slot, auto-assigning its number.

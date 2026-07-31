@@ -66,25 +66,25 @@ const ARRAY_END: u8 = 0xF1;
 /// computed the same way reward.c's own "34 bytes per entry" comment
 /// arrives at the number, just derived from [`codec`] instead of counted
 /// by hand.
-const ENTRY_LEN: usize = codec::field_header(sfGenesisMint.code()).1
-    + codec::native_amount_field_size(sfAmount.code())
-    + codec::account_id_field_size(sfDestination.code())
+const ENTRY_LEN: usize = codec::field_header(sfGenesisMint).1
+    + codec::native_amount_field_size(sfAmount)
+    + codec::account_id_field_size(sfDestination)
     + 1;
 
 /// Upper bound on the whole encoded transaction: every fixed-size field up
 /// to and including `Account`, the worst-case (with-callback)
 /// `EmitDetails` region, the `GenesisMints` array header, every possible
 /// entry, and the array's own end marker.
-const MAX_LEN: usize = codec::transaction_type_field_size(sfTransactionType.code())
-    + codec::u32_field_size(sfFlags.code())
-    + codec::u32_field_size(sfSequence.code())
-    + codec::u32_field_size(sfFirstLedgerSequence.code())
-    + codec::u32_field_size(sfLastLedgerSequence.code())
-    + codec::native_amount_field_size(sfFee.code())
+const MAX_LEN: usize = codec::transaction_type_field_size(sfTransactionType)
+    + codec::u32_field_size(sfFlags)
+    + codec::u32_field_size(sfSequence)
+    + codec::u32_field_size(sfFirstLedgerSequence)
+    + codec::u32_field_size(sfLastLedgerSequence)
+    + codec::native_amount_field_size(sfFee)
     + PUBKEY_FIELD_LEN
-    + codec::account_id_field_size(sfAccount.code())
+    + codec::account_id_field_size(sfAccount)
     + EMIT_DETAILS_MAX_LEN
-    + codec::field_header(sfGenesisMints.code()).1
+    + codec::field_header(sfGenesisMints).1
     + ENTRY_LEN * MAX_ENTRIES
     + 1;
 
@@ -96,25 +96,24 @@ const MAX_LEN: usize = codec::transaction_type_field_size(sfTransactionType.code
 /// switched to the shorter form, since both this hook's emitted-
 /// transaction bytes and its worst-case size are meant to match reward.c
 /// exactly.
-const PUBKEY_FIELD_LEN: usize = codec::field_header(sfSigningPubKey.code()).1 + 1 + 33;
+const PUBKEY_FIELD_LEN: usize = codec::field_header(sfSigningPubKey).1 + 1 + 33;
 
 // Every STObject/STArray field header this module ever writes, computed
 // once at compile time — see `MintTxn::push_field_header`'s doc comment
-// for why these are `const`s rather than plain `codec::field_header(sfXxx.code())`
+// for why these are `const`s rather than plain `codec::field_header(sfXxx)`
 // calls at each use site.
-const HDR_TRANSACTION_TYPE: ([u8; 3], usize) = codec::field_header(sfTransactionType.code());
-const HDR_FLAGS: ([u8; 3], usize) = codec::field_header(sfFlags.code());
-const HDR_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfSequence.code());
-const HDR_FIRST_LEDGER_SEQUENCE: ([u8; 3], usize) =
-    codec::field_header(sfFirstLedgerSequence.code());
-const HDR_LAST_LEDGER_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfLastLedgerSequence.code());
-const HDR_FEE: ([u8; 3], usize) = codec::field_header(sfFee.code());
-const HDR_SIGNING_PUB_KEY: ([u8; 3], usize) = codec::field_header(sfSigningPubKey.code());
-const HDR_ACCOUNT: ([u8; 3], usize) = codec::field_header(sfAccount.code());
-const HDR_GENESIS_MINTS: ([u8; 3], usize) = codec::field_header(sfGenesisMints.code());
-const HDR_GENESIS_MINT: ([u8; 3], usize) = codec::field_header(sfGenesisMint.code());
-const HDR_AMOUNT: ([u8; 3], usize) = codec::field_header(sfAmount.code());
-const HDR_DESTINATION: ([u8; 3], usize) = codec::field_header(sfDestination.code());
+const HDR_TRANSACTION_TYPE: ([u8; 3], usize) = codec::field_header(sfTransactionType);
+const HDR_FLAGS: ([u8; 3], usize) = codec::field_header(sfFlags);
+const HDR_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfSequence);
+const HDR_FIRST_LEDGER_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfFirstLedgerSequence);
+const HDR_LAST_LEDGER_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfLastLedgerSequence);
+const HDR_FEE: ([u8; 3], usize) = codec::field_header(sfFee);
+const HDR_SIGNING_PUB_KEY: ([u8; 3], usize) = codec::field_header(sfSigningPubKey);
+const HDR_ACCOUNT: ([u8; 3], usize) = codec::field_header(sfAccount);
+const HDR_GENESIS_MINTS: ([u8; 3], usize) = codec::field_header(sfGenesisMints);
+const HDR_GENESIS_MINT: ([u8; 3], usize) = codec::field_header(sfGenesisMint);
+const HDR_AMOUNT: ([u8; 3], usize) = codec::field_header(sfAmount);
+const HDR_DESTINATION: ([u8; 3], usize) = codec::field_header(sfDestination);
 
 /// Rolls the hook back — every failure path in this module funnels here
 /// (see the module doc comment for why). `-104` matches
@@ -224,15 +223,15 @@ impl MintTxn {
     /// array-start marker uniformly, since all three are just a field
     /// header whose `(type, field)` happen to fall in the object/array
     /// ranges). Takes the header **already computed** (see the `HDR_*`
-    /// constants below) rather than an `sfcode` to look up at runtime:
-    /// `field_header` is only documented as safe to call from a `const`
-    /// context (its internal range checks become compile-time assertions
-    /// there, never runtime code) — calling it at runtime here as
-    /// `field_header(sfcode)` compiled to a genuine, unreachable-in-
+    /// constants below) rather than an `sfXxx` constant to derive one from
+    /// at runtime: `field_header` is only documented as safe to call from a
+    /// `const` context (its internal range checks become compile-time
+    /// assertions there, never runtime code) — calling it at runtime here as
+    /// `field_header(sfXxx)` compiled to a genuine, unreachable-in-
     /// practice assertion-failure path whose panic-message formatting
     /// pulled in enough machinery to blow this hook's nesting budget once
     /// inlined (see `crate`'s module doc comment). Every header this
-    /// module ever writes is for a compile-time-constant `sfcode`, so
+    /// module ever writes is for a compile-time-constant field, so
     /// precomputing them as `const`s has no runtime cost either way.
     #[inline(always)]
     fn push_field_header(&mut self, header: ([u8; 3], usize)) -> usize {

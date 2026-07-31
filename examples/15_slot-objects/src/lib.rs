@@ -390,7 +390,7 @@ fn check_root_cast() -> bool {
     let Ok(code) = root.field_code() else {
         return false;
     };
-    let id = code >> 16;
+    let id = code.code() >> 16;
     let is_root_code = (10001..=10004).contains(&id);
     // The cast must accept it...
     let Ok(cast) = root.try_cast::<STObject>() else {
