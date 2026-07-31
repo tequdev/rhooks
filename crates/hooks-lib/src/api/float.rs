@@ -22,8 +22,9 @@ pub fn float_sto<B: AsMut<[u8]> + ?Sized>(
     currency: Option<&CurrencyCode>,
     issuer: Option<&AccountId>,
     amount: XFL,
-    field_code: u32,
+    field_code: impl Into<u32>,
 ) -> Result<usize> {
+    let field_code = field_code.into();
     let out = out.as_mut();
     let (cptr, clen, iptr, ilen) = match (currency, issuer) {
         (Some(c), Some(i)) => (
@@ -73,7 +74,7 @@ mod tests {
         let mut out = [0u8; 48];
         let one = XFL::one();
         assert_eq!(
-            float_sto(&mut out, None, None, one, 0),
+            float_sto(&mut out, None, None, one, 0u32),
             Err(HookError::NotImplemented)
         );
         // `XFL` has no `PartialEq` by design, so `Result<XFL, _>` can't use
@@ -91,7 +92,7 @@ mod tests {
         let currency = CurrencyCode::default();
         let one = XFL::one();
         assert_eq!(
-            float_sto(&mut out, Some(&currency), None, one, 0),
+            float_sto(&mut out, Some(&currency), None, one, 0u32),
             Err(HookError::InvalidArgument)
         );
     }

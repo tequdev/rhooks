@@ -96,6 +96,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "slot-objects"
+version = "0.1.0"
+dependencies = [
+ "hooks-lib",
+]
+
+[[package]]
 name = "state-counter"
 version = "0.1.0"
 dependencies = [

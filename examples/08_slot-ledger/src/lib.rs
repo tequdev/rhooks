@@ -1,10 +1,25 @@
-//! `slot-ledger` — walks the originating transaction through the Slot API:
-//! `otxn_slot` loads the whole transaction into a slot, then
-//! `slot_subfield` navigates to individual fields (`sfAmount`,
-//! `sfDestination`), each read out with `slot_exact`. Demonstrates
-//! slot-based field access as an alternative to `otxn_field`, useful when a
-//! hook needs to navigate into nested/array structure that `otxn_field`
-//! alone can't reach.
+//! `slot-ledger` — walks the originating transaction through the **typed**
+//! Slot API: [`SlotObject::from_otxn`] loads the whole transaction into a
+//! slot, then `.get(..)` navigates to individual fields (`sfAmount`,
+//! `sfDestination`), each read out with `.value()`. Demonstrates slot-based
+//! field access as an alternative to `otxn_field`, useful when a hook needs
+//! to navigate into nested/array structure that `otxn_field` alone can't
+//! reach.
+//!
+//! # What the typed layer changes
+//!
+//! Slot numbers never appear. `SlotObject::from_otxn()` hands back a
+//! `SlotObject<STObject>`; `.get(sfDestination)` hands back a
+//! `SlotObject<AccountId>` — the field constant carries the value type, so
+//! `.value()` needs no turbofish and no `slot_exact::<AccountId>` guess. The
+//! handle is affine: `.take_value()` below both reads *and* releases the
+//! slot, which is why nothing here calls `slot_clear` by number.
+//!
+//! It costs nothing: every wrapper is `#[inline(always)]` over the same host
+//! call. Measured against a raw version making the *same* calls with the
+//! *same* (no-clear) cleanup policy, this hook is byte-identical — 197
+//! instructions, 925 bytes either way. See the README's "Typed vs raw"
+//! table, which also shows the clearing variants.
 //!
 //! Build: `hooks-build build --manifest-path examples/08_slot-ledger/Cargo.toml`
 
@@ -16,37 +31,33 @@ use hooks_lib::{accept, hook, hook_errors, rollback};
 hook_errors! {
     /// `slot-ledger` rollback codes.
     pub enum SlotLedgerError {
-        /// `otxn_slot` failed to load the originating transaction into a
-        /// slot.
+        /// Loading the originating transaction into a slot failed.
         OtxnSlotFailed = 1,
-        /// `slot_subfield` found no `Destination` field on the originating
-        /// transaction.
+        /// The originating transaction has no `Destination` field.
         NoDestinationField = 2,
         /// `Destination`'s slot didn't serialize to exactly 20 bytes.
         UnexpectedDestinationSize = 3,
-        /// `slot_subfield` found no `Amount` field on the originating
-        /// transaction.
+        /// The originating transaction has no `Amount` field.
         NoAmountField = 4,
         /// `Amount` isn't an 8-byte native (XRP/XAH) amount.
         UnsupportedAmount = 5,
-        /// `slot_size` failed for the `Amount` slot.
+        /// Reading the `Amount` slot's size failed.
         SlotSizeFailed = 6,
-        /// Reading `Amount` out of its slot failed after `slot_size`
-        /// already reported the native-amount length.
+        /// Reading `Amount` out of its slot failed after its size already
+        /// reported the native-amount length.
         AmountReadFailed = 7,
     }
 }
 
 /// Hook entry point. Reads `sfDestination` and `sfAmount` off the
-/// originating transaction via slot navigation; accepts if both are
+/// originating transaction via typed slot navigation; accepts if both are
 /// present and `Amount` is a native (8-byte) amount, rolling back
 /// otherwise.
 #[hook]
 fn my_hook() -> i64 {
-    // `slot_into = 0` auto-assigns a slot number; the return value is that
-    // assigned number, used as the `parent_slot` for every subfield lookup
-    // below.
-    let txn_slot = match otxn_slot(0) {
+    // No slot number anywhere: the host auto-assigns one and the handle
+    // carries it. `SlotObject<STObject>` — a transaction is an object.
+    let txn = match SlotObject::from_otxn() {
         Ok(s) => s,
         Err(_) => rollback!(
             b"slot-ledger: otxn_slot failed",
@@ -54,7 +65,10 @@ fn my_hook() -> i64 {
         ),
     };
 
-    let dest_slot = match slot_subfield(txn_slot, sfDestination, 0) {
+    // `.get` borrows `txn`, so the same handle keeps working for the second
+    // field below. `sfDestination` is an `SField<AccountId>`, which is what
+    // makes the binding's type inferable rather than annotated.
+    let dest_slot = match txn.get(sfDestination) {
         Ok(s) => s,
         // Not every transaction type has a `Destination` field; a `Payment`
         // does, but e.g. an `AccountSet` doesn't.
@@ -63,7 +77,19 @@ fn my_hook() -> i64 {
             SlotLedgerError::NoDestinationField
         ),
     };
-    let dest: AccountId = match slot_exact(dest_slot) {
+    // `value()` consumes the handle and does **not** clear the slot: the
+    // slot stays loaded until the hook returns, at which point the host
+    // frees it. That is deliberate, and it is what the C idiom costs — a C
+    // `slot_subfield` + `slot()` read leaks the slot identically, and an
+    // implicit clear would bill every read for a host call C never pays.
+    // The raw version of this example *did* call `slot_clear` three times at
+    // the end; dropping those is why the typed rewrite measures **cheaper**
+    // (see the README's "Typed vs raw" table).
+    //
+    // A loop that derives a slot per iteration is the case that needs the
+    // other form: `take_value()`/`take_xfl()`/`take_raw_exact()` read and
+    // release in one go, keeping a long loop inside the 255-slot budget.
+    let dest: AccountId = match dest_slot.value() {
         Ok(d) => d,
         Err(_) => rollback!(
             b"slot-ledger: Destination has unexpected size",
@@ -71,7 +97,7 @@ fn my_hook() -> i64 {
         ),
     };
 
-    let amount_slot = match slot_subfield(txn_slot, sfAmount, 0) {
+    let amount_slot = match txn.get(sfAmount) {
         Ok(s) => s,
         Err(_) => rollback!(
             b"slot-ledger: no Amount field on otxn",
@@ -79,13 +105,13 @@ fn my_hook() -> i64 {
         ),
     };
 
-    // `slot_size` reports the serialized size *without* copying anything
-    // out yet — a native amount is 8 bytes on the wire, an IOU amount 48.
-    // Checking this first means the buffer below only ever needs to be
-    // sized for the native case this example actually supports (see
-    // `examples/07_xfl-math` for handling both uniformly via XFL), rather
-    // than always allocating room for the larger IOU encoding.
-    match slot_size(amount_slot) {
+    // `size()` *borrows*, which is the whole reason it does: it reports the
+    // serialized size without copying anything out and without spending the
+    // handle, so the consuming read below still has one. A native amount is
+    // 8 bytes on the wire, an IOU 48 — checking first means the read only
+    // ever handles the native case this example supports (see
+    // `examples/07_xfl-math` for handling both uniformly via XFL).
+    match amount_slot.size() {
         Ok(n) if n as usize == NATIVE_AMOUNT_LEN => {}
         Ok(_) => rollback!(
             b"slot-ledger: unsupported (non-native) Amount",
@@ -97,21 +123,24 @@ fn my_hook() -> i64 {
         ),
     }
 
-    let amount_buf: NativeAmount = match slot_exact(amount_slot) {
-        Ok(a) => a,
+    // The size is already known to be `NATIVE_AMOUNT_LEN`, so this reads
+    // exactly that many bytes — the same single `slot` call the raw version
+    // made, into the same 8-byte stack buffer.
+    //
+    // `.value()` is the more typed spelling: `sfAmount` is an
+    // `SField<Amount>`, so it reads back as an `AmountBytes` classified by
+    // length (`Native` or `Iou`, never a guess). It is *not* the same
+    // operation, though — it reads into a 48-byte buffer, because an IOU
+    // amount has to fit, and then branches on the length, which is redundant
+    // once `size()` has already answered that question. Measured at +12
+    // instructions here; the README's "Typed vs raw" table has both.
+    let amount_buf: NativeAmount = match amount_slot.raw_exact::<NATIVE_AMOUNT_LEN>() {
+        Ok(a) => NativeAmount(a),
         Err(_) => rollback!(
             b"slot-ledger: reading Amount from its slot failed",
             SlotLedgerError::AmountReadFailed
         ),
     };
-
-    // Slots are a limited resource; free them once done with them (see
-    // `docs/DESIGN.md`'s Slot API notes). Cleanup failure doesn't itself
-    // warrant a rollback, so each `Result` is explicitly discarded rather
-    // than silently ignored.
-    let _ = slot_clear(amount_slot);
-    let _ = slot_clear(dest_slot);
-    let _ = slot_clear(txn_slot);
 
     // `dest`'s and `amount_buf`'s first bytes, folded into the accept code
     // purely to prove both were actually read (real hook logic would

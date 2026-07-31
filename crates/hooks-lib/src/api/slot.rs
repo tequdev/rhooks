@@ -1,10 +1,36 @@
 //! Memory slot operations: loading ledger objects into numbered slots and
-//! navigating/serializing them.
+//! navigating/serializing them — the **raw** layer, mirroring the host API
+//! one function per host call.
 //!
-//! Slot numbers and field/array indices are plain `u32` in v1 (no newtype
+//! Slot numbers and field/array indices are plain `u32` here (no newtype
 //! ceremony, per DESIGN.md §5.2). Functions that report a count or size
 //! (`slot_count`, `slot_size`) consistently return `Result<u32>` in this
 //! module.
+//!
+//! # This module vs. [`crate::slot_obj`]
+//!
+//! [`crate::slot_obj`] is the typed layer over exactly these calls:
+//! `SlotObject<T>` carries the slot number, the field constants carry the
+//! value types, and the reads are the same host calls behind
+//! `#[inline(always)]` wrappers. Measured against raw code making the same
+//! calls with the same cleanup policy, the typed version is byte-identical —
+//! 197 instructions and 925 bytes either way (see
+//! `examples/08_slot-ledger`'s README, which tabulates the clearing variants
+//! too). Reach for the typed layer by
+//! default; reach for this one when a hook genuinely wants to place things
+//! in specific numbered slots and manage them itself, which
+//! `examples/80_reward` and `examples/81_govern` both do.
+//!
+//! **Do not mix the two.** Both address the same 255 registers. A
+//! `slot_clear(3)` here while a `SlotObject` happens to hold slot 3 leaves
+//! that handle looking valid while describing whatever lands there next —
+//! a logic hazard, not a memory-safety one (no `unsafe` on either side), so
+//! nothing prevents it. Pick one layer per hook.
+//!
+//! That is also why these functions are **not in the prelude**: reaching for
+//! them takes an explicit `hooks_lib::api::slot::` path (and
+//! `hooks_lib::api::otxn::otxn_slot` for the transaction loader), so mixing
+//! is at least always visible at the call site.
 
 use crate::convert::FixedRead;
 use crate::error::{Result, res};
@@ -90,7 +116,8 @@ pub fn slot_subarray(parent_slot: u32, array_id: u32, new_slot: u32) -> Result<u
 /// Extract field `field_id` of the object in `parent_slot` into `new_slot`
 /// (`0` auto-assigns). Returns the assigned slot number.
 #[inline(always)]
-pub fn slot_subfield(parent_slot: u32, field_id: u32, new_slot: u32) -> Result<u32> {
+pub fn slot_subfield(parent_slot: u32, field_id: impl Into<u32>, new_slot: u32) -> Result<u32> {
+    let field_id = field_id.into();
     res(unsafe { hooks_core::slot_subfield(parent_slot, field_id, new_slot) }).map(|v| v as u32)
 }
 
@@ -130,7 +157,7 @@ mod tests {
         assert_eq!(slot_set(&out, 0), Err(HookError::NotImplemented));
         assert_eq!(slot_size(1), Err(HookError::NotImplemented));
         assert_eq!(slot_subarray(1, 0, 0), Err(HookError::NotImplemented));
-        assert_eq!(slot_subfield(1, 0, 0), Err(HookError::NotImplemented));
+        assert_eq!(slot_subfield(1, 0u32, 0), Err(HookError::NotImplemented));
         assert_eq!(slot_type(1, 0), Err(HookError::NotImplemented));
         assert_eq!(meta_slot(0), Err(HookError::NotImplemented));
         assert_eq!(xpop_slot(1, 2), Err(HookError::NotImplemented));

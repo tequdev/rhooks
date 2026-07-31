@@ -12,11 +12,11 @@
 //!
 //! Every Hook API call in this file goes through `hooks_lib`'s ordinary
 //! `Result`-based wrappers (`otxn_field_exact`, `hook_account_buf`,
-//! `slot_subfield`, `slot_u64`, `util_keylet`, `emit_buf`, ...) — the
+//! `util_keylet`, `emit_buf`, ...) — the
 //! natural one for each call site (an `_exact`/`_buf` convenience where
 //! one exists and fits, the plain wrapper otherwise) — **except** the
 //! small [`raw`] module, scoped to exactly reward.c's `float_*`/
-//! `slot_float` calls. See [`raw`]'s doc comment for why XFL specifically
+//! `float_*` calls. See [`raw`]'s doc comment for why XFL specifically
 //! is the one place this crate steps around `hooks_lib::xfl::XFL`.
 //!
 //! Build: `hooks-build build --manifest-path examples/80_reward/Cargo.toml`
@@ -28,6 +28,9 @@ mod mint_txn;
 mod raw;
 
 use hooks_lib::prelude::*;
+// Numbered slot access, by explicit module path: these left the prelude with
+// the typed `SlotObject` layer. This hook manages slot numbers itself (see
+// `raw`'s doc comment for why it stays on the raw layer throughout).
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::{accept, guard, hook, hook_errors, hook_state, rollback};
 use mint_txn::{L1_SEATS, MintTxn};
@@ -128,6 +131,80 @@ static AV_BUF: HookStatic<[u8; AV_ARRAY_LEN]> = HookStatic::new([0u8; AV_ARRAY_L
 /// buffers") — unrelated to which API wraps `util_keylet` itself.
 static ACCOUNT_KEYLET: HookStatic<[u8; KEYLET_LEN]> = HookStatic::new([0u8; KEYLET_LEN]);
 
+/// The five account-root fields this hook reads, and which of the three
+/// "cannot proceed" outcomes applies instead.
+enum RewardFieldRead {
+    /// Every field was present.
+    Read(RewardFields),
+    /// The sender's account root could not be loaded at all.
+    NoAccountSlot,
+    /// No `sfRewardAccumulator`: this is a reward *setup* transaction, which
+    /// the hook passes rather than rejects.
+    SetupTxn,
+    /// The accumulator is there but the rest of the accounting is not.
+    MissingFields,
+}
+
+/// The account-root values the reward calculation needs.
+struct RewardFields {
+    accumulator: i64,
+    first: i64,
+    last: i64,
+    raw_balance: u64,
+    last_claim_time: u64,
+}
+
+/// Reads the sender's reward accounting off their account root.
+///
+/// `#[inline(never)]`, and that is load-bearing rather than stylistic: this
+/// hook sits near the Hook API's 32-level block-nesting ceiling (22 of 32
+/// before this change), and five `Result`-returning typed reads inlined into
+/// `my_hook` measured **68**. In its own frame the same code costs nesting
+/// the entry point never sees. `examples/81_govern` and
+/// `examples/15_slot-objects` use the identical escape hatch; see
+/// `docs/DESIGN.md` §5.8.
+#[inline(never)]
+fn read_reward_fields(keylet: &Keylet) -> RewardFieldRead {
+    let Ok(account) = SlotObject::from_keylet(keylet) else {
+        return RewardFieldRead::NoAccountSlot;
+    };
+    let Ok(accumulator_slot) = account.get(sfRewardAccumulator) else {
+        return RewardFieldRead::SetupTxn;
+    };
+    // Four sequential `let else`s rather than one tuple pattern: a 4-way
+    // tuple `let (Ok(..), Ok(..), Ok(..), Ok(..)) = .. else` lowers to
+    // nested matches, and this hook has no nesting to spare.
+    let Ok(first_slot) = account.get(sfRewardLgrFirst) else {
+        return RewardFieldRead::MissingFields;
+    };
+    let Ok(last_slot) = account.get(sfRewardLgrLast) else {
+        return RewardFieldRead::MissingFields;
+    };
+    let Ok(balance_slot) = account.get(sfBalance) else {
+        return RewardFieldRead::MissingFields;
+    };
+    let Ok(time_slot) = account.get(sfRewardTime) else {
+        return RewardFieldRead::MissingFields;
+    };
+
+    RewardFieldRead::Read(RewardFields {
+        accumulator: accumulator_slot.value().unwrap_or(0) as i64,
+        // `sfRewardLgrFirst`/`sfRewardLgrLast`/`sfRewardTime` are UInt32
+        // fields, so the typed reads hand back `u32` where the previous
+        // `slot_u64` calls handed back a widened `u64`. Widening here keeps
+        // the arithmetic in `my_hook` byte-for-byte what it was.
+        first: i64::from(first_slot.value().unwrap_or(0)),
+        last: i64::from(last_slot.value().unwrap_or(0)),
+        // `sfBalance` is an `Amount`, and what this hook wants is the native
+        // amount's raw 64-bit wire encoding (it masks the flag bits off), not
+        // a classified `AmountBytes`. `assume_type` is the documented escape
+        // for exactly that: the `u64` read decodes the same eight big-endian
+        // bytes the previous `slot_u64` call did.
+        raw_balance: balance_slot.assume_type::<u64>().value().unwrap_or(0),
+        last_claim_time: u64::from(time_slot.value().unwrap_or(0)),
+    })
+}
+
 #[hook]
 fn my_hook() -> i64 {
     if etxn_reserve(1).is_err() {
@@ -207,24 +284,23 @@ fn my_hook() -> i64 {
         Ok(n) => n,
         Err(_) => RewardError::AssertionFailed.rollback(b"reward: could not build account keylet"),
     };
-    let Some(kl) = kl_buf.get(..kl_len) else {
+    // An account keylet is always the full 34 bytes; checking rather than
+    // assuming keeps the copy inside `read_reward_fields` honest.
+    if kl_len != KEYLET_LEN {
         RewardError::AssertionFailed.rollback(b"reward: could not build account keylet");
+    }
+    let fields = match read_reward_fields(&Keylet(*kl_buf)) {
+        RewardFieldRead::Read(f) => f,
+        RewardFieldRead::NoAccountSlot => {
+            RewardError::AssertionFailed.rollback(b"reward: could not slot sender account")
+        }
+        RewardFieldRead::SetupTxn => accept!(b"Reward: Passing reward setup txn", 0),
+        RewardFieldRead::MissingFields => {
+            RewardError::AssertionFailed.rollback(b"reward: missing reward accounting fields")
+        }
     };
-    if slot_set(kl, 1).is_err() {
-        RewardError::AssertionFailed.rollback(b"reward: could not slot sender account");
-    }
-    if slot_subfield(1, sfRewardAccumulator, 2) != Ok(2) {
-        accept!(b"Reward: Passing reward setup txn", 0);
-    }
-    let has_first = slot_subfield(1, sfRewardLgrFirst, 3) == Ok(3);
-    let has_last = slot_subfield(1, sfRewardLgrLast, 4) == Ok(4);
-    let has_balance = slot_subfield(1, sfBalance, 5) == Ok(5);
-    let has_time = slot_subfield(1, sfRewardTime, 6) == Ok(6);
-    if !(has_first & has_last & has_balance & has_time) {
-        RewardError::AssertionFailed.rollback(b"reward: missing reward accounting fields");
-    }
+    let last_claim_time = fields.last_claim_time;
 
-    let last_claim_time = slot_u64(6).unwrap_or(0);
     let time_elapsed = ledger_last_time().wrapping_sub(last_claim_time);
     let required_delay = required_delay as u64;
     if time_elapsed < required_delay {
@@ -232,10 +308,10 @@ fn my_hook() -> i64 {
         rollback!(&message::wait_message(remaining), 0);
     }
 
-    let accumulator = slot_u64(2).unwrap_or(0) as i64;
-    let first = slot_u64(3).unwrap_or(0) as i64;
-    let last = slot_u64(4).unwrap_or(0) as i64;
-    let raw_balance = slot_u64(5).unwrap_or(0);
+    let accumulator = fields.accumulator;
+    let first = fields.first;
+    let last = fields.last;
+    let raw_balance = fields.raw_balance;
 
     if (first <= 0) | (last <= 0) {
         RewardError::AssertionFailed.rollback(b"Reward: Assertion failure.");
@@ -287,17 +363,18 @@ fn my_hook() -> i64 {
     #[allow(clippy::arithmetic_side_effects)]
     let l1_drops = base_reward_drops.wrapping_div(L1_SEATS as u64);
 
-    let otxn_slot_num = otxn_slot(10);
-    if otxn_slot_num != Ok(10) {
+    let Ok(otxn) = SlotObject::from_otxn() else {
         RewardError::AssertionFailed.rollback(b"reward: could not slot otxn");
-    }
-    if slot_subfield(10, sfFee, 11) != Ok(11) {
+    };
+    let Ok(fee_slot) = otxn.get(sfFee) else {
         RewardError::AssertionFailed.rollback(b"reward: could not slot otxn Fee");
-    }
-    // reward.c: `int64_t xfl_fee = slot_float(11);` — also unchecked; see
-    // [`raw`]'s doc comment for why this reads the slot as a raw XFL bit
-    // pattern instead of through `XFL::from_slot`.
-    let xfl_fee = raw::slot_float(11);
+    };
+    // reward.c: `int64_t xfl_fee = slot_float(11);` — unchecked, folding a
+    // failed call into the same `> 0` test the value needs anyway (see
+    // [`raw`]'s doc comment). `as_xfl()` is the checked spelling, so the
+    // fold happens here instead: a failure becomes `0`, which fails the same
+    // test a negative error code did.
+    let xfl_fee = fee_slot.as_xfl().map(XFL::raw_bits).unwrap_or(0);
     let rewardee_drops = if xfl_fee > 0 {
         let fee_drops = raw::float_int(xfl_fee, 6, 1);
         base_reward_drops.wrapping_add(fee_drops as u64)
@@ -331,24 +408,28 @@ fn my_hook() -> i64 {
 /// which treats the whole `UNLReport`-driven L1 distribution as
 /// best-effort and always proceeds to emit at least the rewardee entry).
 fn push_l1_seat_entries(txn: &mut MintTxn, l1_drops: u64) {
-    if slot_set(&UNLREPORT_KEYLET, 1) != Ok(1) {
+    let Ok(unl_report) = SlotObject::from_keylet(&Keylet(UNLREPORT_KEYLET)) else {
         return;
-    }
-    if slot_subfield(1, sfActiveValidators, 1) != Ok(1) {
+    };
+    // `sfActiveValidators` is an `STArray`, so the handle knows it has a
+    // `count()`.
+    let Ok(validators) = unl_report.get(sfActiveValidators) else {
         return;
-    }
+    };
     let Some(av_buf) = AV_BUF.take() else {
         return;
     };
-    let Ok(read_len) = slot(av_buf, 1) else {
+    // `count()` borrows, so it must come before the consuming `raw()` read —
+    // which is exactly the ordering the borrowing pre-checks exist for.
+    let Ok(count) = validators.count() else {
+        return;
+    };
+    let Ok(read_len) = validators.raw(av_buf) else {
         return;
     };
     if read_len == 0 {
         return;
     }
-    let Ok(count) = slot_count(1) else {
-        return;
-    };
     let av_size = (count as usize).min(MAX_UNL);
 
     // Flattened with `let-else` + `continue` throughout (rather than

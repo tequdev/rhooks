@@ -1,4 +1,4 @@
-//! Raw `float_*`/`slot_float` calls — the *only* Hook API surface this
+//! Raw `float_*` calls — the *only* Hook API surface this
 //! crate bypasses `hooks_lib`'s ordinary `Result`-based wrappers for.
 //!
 //! Every other Hook API call in this crate goes through `hooks_lib::api`'s
@@ -60,11 +60,4 @@ pub fn float_one() -> i64 {
 /// `float_compare(a, b, mode)`, raw.
 pub fn float_compare(a: i64, b: i64, mode: u32) -> i64 {
     unsafe { hooks_core::float_compare(a, b, mode) }
-}
-
-/// `slot_float(slot_no)`, raw — reward.c's `int64_t xfl_fee =
-/// slot_float(11);`, used unchecked exactly like every other `float_*`
-/// result here (see the module doc comment).
-pub fn slot_float(slot_no: u32) -> i64 {
-    unsafe { hooks_core::slot_float(slot_no) }
 }

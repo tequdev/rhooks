@@ -223,15 +223,15 @@ impl MintTxn {
     /// array-start marker uniformly, since all three are just a field
     /// header whose `(type, field)` happen to fall in the object/array
     /// ranges). Takes the header **already computed** (see the `HDR_*`
-    /// constants below) rather than an `sfcode` to look up at runtime:
-    /// `field_header` is only documented as safe to call from a `const`
-    /// context (its internal range checks become compile-time assertions
-    /// there, never runtime code) — calling it at runtime here as
-    /// `field_header(sfcode)` compiled to a genuine, unreachable-in-
+    /// constants below) rather than an `sfXxx` constant to derive one from
+    /// at runtime: `field_header` is only documented as safe to call from a
+    /// `const` context (its internal range checks become compile-time
+    /// assertions there, never runtime code) — calling it at runtime here as
+    /// `field_header(sfXxx)` compiled to a genuine, unreachable-in-
     /// practice assertion-failure path whose panic-message formatting
     /// pulled in enough machinery to blow this hook's nesting budget once
     /// inlined (see `crate`'s module doc comment). Every header this
-    /// module ever writes is for a compile-time-constant `sfcode`, so
+    /// module ever writes is for a compile-time-constant field, so
     /// precomputing them as `const`s has no runtime cost either way.
     #[inline(always)]
     fn push_field_header(&mut self, header: ([u8; 3], usize)) -> usize {

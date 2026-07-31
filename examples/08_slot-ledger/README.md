@@ -2,53 +2,101 @@
 
 ## What you'll learn
 
-How to navigate a transaction's fields through the **Slot API**
-(`otxn_slot` → `slot_subfield` → `slot`) instead of `otxn_field` directly —
-useful once a hook needs to reach into structure `otxn_field` can't address
-on its own (arrays, nested objects), and a good warm-up for those cases
-even though this example only reads two top-level scalar fields.
+How to navigate a transaction's fields through the **typed Slot API**
+(`SlotObject::from_otxn` → `.get(sfXxx)` → `.value()`) instead of
+`otxn_field` directly — useful once a hook needs to reach into structure
+`otxn_field` can't address on its own (arrays, nested objects), and a good
+warm-up for those cases even though this example only reads two top-level
+scalar fields.
 
 ## Code walkthrough
 
 ```rust
-let txn_slot = otxn_slot(0)?;                              // whole otxn → a slot
-let dest_slot = slot_subfield(txn_slot, sfDestination, 0)?; // navigate to a field
-let dest: AccountId = slot_exact(dest_slot)?;                // serialize that field out
+let txn = SlotObject::from_otxn()?;             // whole otxn → a slot
+let dest_slot = txn.get(sfDestination)?;        // navigate to a field
+let dest: AccountId = dest_slot.value()?;       // read it out
 ```
 
 (the real code matches on each `Result` individually and rolls back with a
 specific message per failure; shown compressed here with `?` for the
 walkthrough.)
 
-`otxn_slot(0)` loads the whole originating transaction into a new,
-auto-assigned slot (`slot_into = 0` means "auto-assign", used consistently
-across the Slot API — see `slot_set`, `slot_subarray`, `slot_subfield`
-too). `slot_subfield(parent_slot, field_id, 0)` then extracts one field
-from the object in `parent_slot` into its *own* new slot;
-`slot_exact(slot_no)` (`hooks_lib::api::slot::slot_exact`) finally
-serializes whatever's in a slot into any `hooks_lib::convert::FixedRead`
-type — here `AccountId`, inferred from the `let dest: AccountId = ...`
-annotation, no turbofish — requiring the result to be exactly that type's
-length (`ACC_ID_LEN` for `AccountId`): the same exact-length convention as
-`otxn_field_exact`/`state_exact`/`hook_param_exact`, all of which now infer
-their return type from context the same way instead of a `::<N>`
-turbofish.
+**No slot numbers appear anywhere.** `SlotObject::from_otxn()` asks the host
+to load the whole originating transaction into an auto-assigned slot and
+hands back a `SlotObject<STObject>` holding that number. `.get(key)` derives
+a child slot the same way — and the key decides the child's type:
+`sfDestination` is an `SField<AccountId>`, so `.get(sfDestination)` yields a
+`SlotObject<AccountId>` and `.value()` needs no turbofish and no annotation.
+An index (`.get(0u32)`) works on an array and yields a `SlotObject<STObject>`;
+using the wrong key kind for the parent is a compile error, not a runtime
+surprise.
 
-This example does that twice from the same `txn_slot`: once for
-`sfDestination` (always exactly 20 bytes — an `AccountId`), once for
-`sfAmount`. For `Amount`, `slot_size(amount_slot)` is checked *before*
-reading anything out: it reports the serialized size (8 bytes for a
+The handle is **affine**: no `Copy`, no `Clone`, and every operation that
+ends the slot's life takes `self`. `.value()` consumes the handle and
+deliberately does *not* clear the slot — see "Why there are no `slot_clear`
+calls" below.
+
+This example does that twice from the same `txn` handle — `.get()` borrows,
+so one parent yields several children: once for `sfDestination` (always
+exactly 20 bytes — an `AccountId`), once for `sfAmount`. For `Amount`,
+`.size()` is checked *before* reading anything out (`.size()` borrows, which
+is exactly why it does — sizing must not spend the handle the read still
+needs): it reports the serialized size (8 bytes for a
 native amount, 48 for an IOU one) without copying any data, so the actual
 read buffer only ever needs to be sized for the native case this example
 supports (rejecting an IOU `Amount` as out of scope, rather than always
 allocating room for the larger encoding just to check its length after the
-fact). Every one of `otxn_slot`, `slot_subfield`, `slot_size`, and
-`slot_exact` returns a `Result`, each handled with its own
+fact). Every step returns a `Result`, each handled with its own
 [`hooks_lib::hook_errors!`] rollback code and message.
 
-Slots are freed with `slot_clear` once no longer needed — not strictly
-required for a single-invocation hook this small, but shown here as the
-hygienic default (see the Slot API's "up to 255 slots available" limit).
+## Why there are no `slot_clear` calls
+
+`.value()` consumes its handle and leaves the slot loaded. The host frees
+every slot when the hook returns, so for a hook that reads a few fields once
+and exits, clearing is pure overhead — and it is exactly what the C idiom
+costs: a C `slot_subfield` followed by a `slot()` read leaks the slot
+identically. Making the typed read clear implicitly would bill every read
+for a host call C never pays.
+
+The case that *does* need clearing is a loop deriving a slot per iteration:
+255 is the per-execution budget, and `take_value()`/`take_xfl()`/
+`take_raw_exact()` read and release in one step for exactly that. A
+multi-hop `slot_path!` clears its intermediates automatically.
+
+## Typed vs raw: measured
+
+This example was rewritten from the raw numbered API (`otxn_slot` →
+`slot_subfield` → `slot_exact`) to the typed one. Four variants, all built
+through `hooks-build` at this workspace's `opt-level = 3`:
+
+| version | worst-case instructions | wasm size |
+|---|---|---|
+| raw, numbered slots, no clears | 197 | 925 bytes |
+| **typed, no clears — as committed** | **197** | **925 bytes** |
+| raw, numbered slots + 3 `slot_clear` | 209 | 965 bytes |
+| typed + 3 clears via `take_*` | 219 | 980 bytes |
+
+**The first two rows are the zero-cost result**, and they are the only pair
+that is apples-to-apples: the same host calls, in the same order, with the
+same cleanup policy (none). They are **identical** — every wrapper is
+`#[inline(always)]` over the same call, so the typed layer adds no
+instructions and no bytes at all.
+
+The bottom two rows compare the *clearing* variants, and they are **not**
+equivalent to each other: `take_*` clears on the failure path as well as the
+success path, while the raw code's three `slot_clear` calls sit after every
+rollback and so run only on success. The +10 instructions buy that stronger
+cleanup; they are not overhead the typed layer imposes on the same
+behavior. If you want raw's exact semantics through the typed API, read with
+`value()`/`raw_exact()` and clear explicitly — that is the first two rows.
+
+Why the committed version clears nothing at all is the previous section.
+
+One more measured note, in the source as a comment: reading the amount with
+`.value()` → `AmountBytes` instead of `raw_exact::<8>()` costs +12
+instructions, because it reads into a 48-byte buffer (an IOU amount has to
+fit) and branches on the length. That is a different operation, not layer
+overhead — and it is the right one when the size *isn't* already known.
 
 ## Build
 
@@ -78,10 +126,10 @@ compiler-generated `bcmp`-style loop to guard.
 
 | variant | code | meaning |
 |---|---|---|
-| `OtxnSlotFailed` | 1 | `otxn_slot` failed to load the originating transaction into a slot |
-| `NoDestinationField` | 2 | `slot_subfield` found no `Destination` field on the originating transaction |
+| `OtxnSlotFailed` | 1 | loading the originating transaction into a slot failed |
+| `NoDestinationField` | 2 | the originating transaction has no `Destination` field |
 | `UnexpectedDestinationSize` | 3 | `Destination`'s slot didn't serialize to exactly 20 bytes |
-| `NoAmountField` | 4 | `slot_subfield` found no `Amount` field on the originating transaction |
+| `NoAmountField` | 4 | the originating transaction has no `Amount` field |
 | `UnsupportedAmount` | 5 | `Amount` isn't an 8-byte native (XRP/XAH) amount |
-| `SlotSizeFailed` | 6 | `slot_size` failed for the `Amount` slot |
-| `AmountReadFailed` | 7 | reading `Amount` out of its slot failed after `slot_size` already reported the native-amount length |
+| `SlotSizeFailed` | 6 | reading the `Amount` slot's size failed |
+| `AmountReadFailed` | 7 | reading `Amount` out of its slot failed after its size already reported the native-amount length |

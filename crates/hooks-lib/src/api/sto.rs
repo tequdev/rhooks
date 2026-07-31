@@ -21,7 +21,8 @@ pub fn sto_validate(sto: &[u8]) -> Result<bool> {
 /// Locate field `field_id` within the STO `sto`. Returns the raw packed
 /// `(offset, length)` value; see the module doc comment.
 #[inline(always)]
-pub fn sto_subfield(sto: &[u8], field_id: u32) -> Result<i64> {
+pub fn sto_subfield(sto: &[u8], field_id: impl Into<u32>) -> Result<i64> {
+    let field_id = field_id.into();
     res(unsafe { hooks_core::sto_subfield(sto.as_ptr() as u32, sto.len() as u32, field_id) })
 }
 
@@ -72,10 +73,11 @@ fn range_from_packed(packed: i64) -> Result<(usize, usize)> {
 /// use hooks_lib::error::HookError;
 ///
 /// let sto = [0u8; 4];
-/// assert_eq!(sto_subfield_range(&sto, 0), Err(HookError::NotImplemented));
+/// assert_eq!(sto_subfield_range(&sto, 0u32), Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn sto_subfield_range(sto: &[u8], field_id: u32) -> Result<(usize, usize)> {
+pub fn sto_subfield_range(sto: &[u8], field_id: impl Into<u32>) -> Result<(usize, usize)> {
+    let field_id = field_id.into();
     range_from_packed(sto_subfield(sto, field_id)?)
 }
 
@@ -100,10 +102,11 @@ pub fn sto_subarray_range(array: &[u8], index: u32) -> Result<(usize, usize)> {
 /// use hooks_lib::error::HookError;
 ///
 /// let sto = [0u8; 4];
-/// assert_eq!(sto_subfield_slice(&sto, 0), Err(HookError::NotImplemented));
+/// assert_eq!(sto_subfield_slice(&sto, 0u32), Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn sto_subfield_slice(sto: &[u8], field_id: u32) -> Result<&[u8]> {
+pub fn sto_subfield_slice(sto: &[u8], field_id: impl Into<u32>) -> Result<&[u8]> {
+    let field_id = field_id.into();
     let (offset, length) = sto_subfield_range(sto, field_id)?;
     let end = offset.checked_add(length).ok_or(HookError::OutOfBounds)?;
     sto.get(offset..end).ok_or(HookError::OutOfBounds)
@@ -127,8 +130,9 @@ pub fn sto_emplace<B: AsMut<[u8]> + ?Sized>(
     out: &mut B,
     source: &[u8],
     field: &[u8],
-    field_id: u32,
+    field_id: impl Into<u32>,
 ) -> Result<usize> {
+    let field_id = field_id.into();
     let out = out.as_mut();
     res(unsafe {
         hooks_core::sto_emplace(
@@ -150,8 +154,9 @@ pub fn sto_emplace<B: AsMut<[u8]> + ?Sized>(
 pub fn sto_erase<B: AsMut<[u8]> + ?Sized>(
     out: &mut B,
     source: &[u8],
-    field_id: u32,
+    field_id: impl Into<u32>,
 ) -> Result<usize> {
+    let field_id = field_id.into();
     let out = out.as_mut();
     res(unsafe {
         hooks_core::sto_erase(
@@ -175,16 +180,25 @@ mod tests {
         let sto = [0u8; 4];
         let mut out = [0u8; 8];
         assert_eq!(sto_validate(&sto), Err(HookError::NotImplemented));
-        assert_eq!(sto_subfield(&sto, 0), Err(HookError::NotImplemented));
+        assert_eq!(sto_subfield(&sto, 0u32), Err(HookError::NotImplemented));
         assert_eq!(sto_subarray(&sto, 0), Err(HookError::NotImplemented));
         assert_eq!(
-            sto_emplace(&mut out, &sto, &sto, 0),
+            sto_emplace(&mut out, &sto, &sto, 0u32),
             Err(HookError::NotImplemented)
         );
-        assert_eq!(sto_erase(&mut out, &sto, 0), Err(HookError::NotImplemented));
-        assert_eq!(sto_subfield_range(&sto, 0), Err(HookError::NotImplemented));
+        assert_eq!(
+            sto_erase(&mut out, &sto, 0u32),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            sto_subfield_range(&sto, 0u32),
+            Err(HookError::NotImplemented)
+        );
         assert_eq!(sto_subarray_range(&sto, 0), Err(HookError::NotImplemented));
-        assert_eq!(sto_subfield_slice(&sto, 0), Err(HookError::NotImplemented));
+        assert_eq!(
+            sto_subfield_slice(&sto, 0u32),
+            Err(HookError::NotImplemented)
+        );
         assert_eq!(sto_subarray_slice(&sto, 0), Err(HookError::NotImplemented));
     }
 
