@@ -1,10 +1,3 @@
-// e2e: examples/04_errors against a standalone Xahau node.
-//
-// `hook()` runs a short chain of policy checks on the originating Payment
-// (blocked SourceTag, native-only Amount, a spend-limit cap) and rolls
-// back through `hooks_lib::hook_errors!`-defined `RejectReason` codes
-// (see examples/04_errors/README.md's HookReturnCode table) the first
-// time one fails; accepts otherwise. HookOn is Payment.
 import {
   ExecutionUtility,
   Xrpld,
@@ -20,15 +13,10 @@ import {
   type iHook,
 } from '@transia/hooks-toolkit'
 import { calculateHookOn, type TransactionMetadata } from 'xahau'
-// HookFlags isn't re-exported from the package root in xahau@4.x - only
-// reachable via this deep import (same path hooks-toolkit's own source
-// uses internally for the same enum).
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-errors'
-// hooks-build's printed worst case for errors.wasm (`mise run build-examples`).
 const WORST_CASE_INSTRUCTIONS = 200
-// Matches examples/04_errors/src/lib.rs's BLOCKED_SOURCE_TAG/MAX_DROPS.
 const BLOCKED_SOURCE_TAG = 13
 const MAX_DROPS = 100_000_000
 
@@ -105,16 +93,9 @@ describe('errors', () => {
     )
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
-    // HookReturnCode is a 64-bit int field, serialized as a *hex* string
-    // over RPC (same convention as HookInstructionCount below) even
-    // though the toolkit's `iHookExecution` type declares it as `number`
-    // - only matters here because the asserted codes are single-digit,
-    // which read identically whether parsed as decimal or hex (see
-    // slot-ledger.test.ts for a case where it doesn't).
     expect(Number(execution.HookReturnCode)).toBe(0)
     expect(execution.HookReturnString).toBe('')
-    // HookInstructionCount is a *hex* string over RPC (confirmed by direct
-    // inspection - e.g. "d" = 13).
+    // Hook instruction counts are hexadecimal RPC values.
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_INSTRUCTIONS,
     )

@@ -34,11 +34,8 @@ fn rust_signature(f: &FunctionSpec) -> Result<(String, String)> {
     Ok((params.join(", "), ret_ty.to_string()))
 }
 
-/// clippy's `too_many_arguments` lint fires once a function has more
-/// parameters than its threshold; the hand-authored `api.rs` silences it
-/// (`#[allow(clippy::too_many_arguments)]`) on every declaration with 7 or
-/// more parameters (`sto_emplace` through `util_keylet`) — verified against
-/// every one of `extern.h`'s 75 prototypes.
+/// `clippy::too_many_arguments` applies to functions with seven or more
+/// parameters, so generated declarations at that threshold receive an allow.
 fn needs_too_many_arguments_allow(f: &FunctionSpec) -> bool {
     f.params.len() >= 7
 }

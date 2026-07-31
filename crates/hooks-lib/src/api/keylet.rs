@@ -42,13 +42,8 @@
 //! [`hooks_core::consts`] (itself generated from the vendored
 //! `hook/hookapi.h` — see `hooks-core`'s own module doc comment), and every
 //! function below is named `keylet_xxx` for the constant `KEYLET_XXX` it
-//! wraps — `keylet_account` for `KEYLET_ACCOUNT`, `keylet_hook_state` for
-//! `KEYLET_HOOK_STATE`, and so on, with the one deliberate exception that
-//! the constant historically named `KEYLET_EMITTED` (not
-//! `KEYLET_EMITTED_TXN`) backs [`keylet_emitted`] — kept aligned with the
-//! constant's actual name rather than a more descriptive alternative, so
-//! the `KEYLET_*` constant and its typed helper are always a mechanical,
-//! one-to-one lookup.
+//! wraps. [`keylet_emitted`] is the corresponding helper for
+//! `KEYLET_EMITTED`.
 
 use crate::api::util::util_keylet_buf;
 use crate::error::Result;

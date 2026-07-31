@@ -1,34 +1,8 @@
-//! The flatten (full-inlining) pass: `docs/DESIGN.md` §6.2b.
+//! Full inlining for Hook API version 0 modules.
 //!
-//! Runs for api-version 0 only, after the cleaner and before the guard pass.
-//! It exists to satisfy two rules of the real (vendored) checker that the
-//! Rust reimplementation originally missed:
-//!
-//! - **R1**: every api-version-0 module must import `_g`, even if it
-//!   contains no loop at all.
-//! - **R2**: every entry in the type section must be the type of an import
-//!   or the `(i32) -> i64` entry-point type — a defined helper function with
-//!   any other signature (notably `compiler_builtins` `memset`/`memcpy`/
-//!   `bcmp`, `(i32,i32,i32) -> i32`, which rustc emits under fat LTO even
-//!   with `#![no_builtins]`) makes the whole module invalid.
-//!
-//! The fix for R2 is to inline every defined non-entry function into its
-//! callers (bottom-up, in reverse topological order over the call graph —
-//! which is acyclic, since recursion is a hard error checked before
-//! flattening even starts) and then drop them, leaving only the entry
-//! functions (`hook`, and `cbak` if present) as defined functions. The type
-//! section is then rebuilt to contain exactly the types imports need plus
-//! the entry-point type, which trivially satisfies R2. R1 is handled in the
-//! same rebuild: `_g` is added as an import if not already present (and,
-//! being an import from here on, can never be GC'd away by anything
-//! downstream).
-//!
-//! # Precondition
-//!
-//! `wasm` is expected to already be cleaner-shaped (single `hook` export,
-//! optional `cbak`, no tables/elements). This module does not re-run the
-//! cleaner's reachability GC; it only concerns itself with the function
-//! index space.
+//! The pass inlines non-entry functions, ensures `_g` is imported, and
+//! rebuilds the type section so only import and entry-point types remain.
+//! Input must already have passed the cleaner.
 
 use std::collections::HashMap;
 

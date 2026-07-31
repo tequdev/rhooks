@@ -1461,10 +1461,8 @@ mod tests {
     };
 
     crate::txn_template! {
-        /// Reproduces the pre-`txn_template!` `PaymentTemplate` field-for-
-        /// field, to prove the macro's output is byte-identical to the
-        /// hand-written original it replaces. Every field uses the same
-        /// uniform kinds; the six required fields (`Sequence`,
+        /// Defines a payment template used to verify serialized field order.
+        /// The six required fields (`Sequence`,
         /// `FirstLedgerSequence`, `LastLedgerSequence`, `Fee`,
         /// `SigningPubKey`, `Account`) plus `emit_details` are detected by
         /// `sfcode` value, not by any special syntax — see

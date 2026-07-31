@@ -1,65 +1,7 @@
-//! `govern` — a behavior-equivalent Rust port of xahaud's genesis
-//! `GovernanceHook` (`hook/genesis/govern.c`).
+//! Implements a 20-seat L1/L2 governance Hook.
 //!
-//! A 20-seat round-table governance hook. Installed on the genesis
-//! (L1) account it is the *L1 table*; installed on any other
-//! (blackholed) account it is an *L2 table*. Members vote on topics
-//! (seats, hooks, reward rate/delay); once a topic's votes cross a
-//! threshold, the vote is "actioned" — a seat/hook/reward-parameter
-//! change is applied, or (for an L2 table voting on an L1 topic) the
-//! vote is forwarded to L1 as an `Invoke`. See the README for the state
-//! layout, hook-parameter table, and full behavior-equivalence table
-//! (govern.c branch -> Rust here -> observable outcome).
-//!
-//! Every Hook API call in this crate goes through `hooks_lib`'s ordinary
-//! `Result`-based wrappers (`otxn_field_exact`, `hook_account_buf`,
-//! `hook_param`, `otxn_param`, `state`, `state_u64`, `state_set`,
-//! `slot_subfield`, `util_keylet`, `emit_buf`, ...) — this crate has no
-//! `raw` module at all, unlike `examples/80_reward` (which keeps one,
-//! narrowly, for `float_*`/`slot_float` — see that crate's `src/raw.rs`
-//! doc comment for why XFL specifically is different). govern.c has no
-//! XFL arithmetic of its own to port, so there is nothing here that needs
-//! the same treatment.
-//!
-//! An earlier version of this crate *did* route every Hook API call
-//! through a `raw` module, on the theory that `hooks_lib::error::res`'s
-//! `HookError::from(i64)` decode (see `examples/80_reward/src/raw.rs`'s
-//! doc comment) would otherwise push `hook()`'s block/loop/if nesting
-//! past the Hook API's 32-level limit once every function in the crate
-//! is inlined into it. That turned out to be broader than necessary:
-//! with the *structural* mitigations below in place — none of which
-//! involve bypassing `hooks_lib::api` — the ordinary `Result`-based
-//! wrappers fit comfortably (see the measurements at the end of this
-//! comment). The structural mitigations, kept:
-//!
-//! - a per-package `opt-level = 3` override for this crate specifically
-//!   (`examples/Cargo.toml`) — `opt-level = "z"` (every other example's
-//!   default) leaves more dead error-decoding code in place;
-//! - [`txn`]'s transaction encoders build each emitted transaction from a
-//!   handful of large, combined `push` calls (concatenating adjacent
-//!   constant/semi-constant byte fragments) instead of one call per
-//!   field, and skip placeholder-then-patch round trips for fields
-//!   already known at write time — see `txn.rs`'s `write_common_header`;
-//! - `HookStatic` scratch buffers (below) instead of stack locals for
-//!   every 32-byte-and-up buffer, and `#[inline(always)]` on the small
-//!   hot helpers that touch them;
-//! - loops are written as manual `while`s (guard call literally first)
-//!   rather than `for x in range`, and a `guard!` bound that must hold
-//!   for a whole hook execution (not just one loop entry) uses the wider
-//!   bound even when the loop's own body would justify a tighter one —
-//!   see [`garbage_collect_votes`]'s doc comment;
-//! - exactly one `Result` is ever matched against a *specific*
-//!   `HookError` variant in this whole crate ([`my_hook`]'s
-//!   `member_count` read) — see the comment right there for why that
-//!   one call site, and only that one, has to avoid it.
-//!
-//! Measured (`hooks-build check examples/81_govern/out/govern.wasm`):
-//! worst-case instructions 44465, max nesting depth 22 (limit 32) — see
-//! the README's "Toolchain limitation" section for the fuller writeup,
-//! including the live `GUARD_VIOLATION` the guard-bound point above
-//! fixes.
-//!
-//! Build: `hooks-build build --manifest-path examples/81_govern/Cargo.toml`
+//! Members vote on seats, hooks, and reward settings. Reaching the voting
+//! threshold applies the change or forwards an L2 vote to L1.
 
 #![no_std]
 
@@ -71,62 +13,19 @@ use hooks_lib::slot_path;
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, otxn_parameter, rollback};
 
-// `IS{seat}` — the per-seat initial-member-account hook parameter `setup`
-// reads (`this_seat` runtime-varying, 0..SEAT_COUNT — see `setup` below).
-// `hook_parameter!`'s Form 4 ties the entity (and its `MemberParamName`
-// key component) to `AccountId` at the type level, byte-for-byte identical
-// to the raw `hook_param_exact(&member_pkey)`
-// call it replaces: `TypedParamName::with_name_bytes`'s composite-form
-// override allocates exactly `Self::MAX_LEN` (3) bytes, not a 32-byte
-// scratch buffer (see `hooks_lib::convert::TypedParamName`'s doc
-// comment) — measured zero-cost against the raw baseline: 44560
-// worst-case instructions / 14373 bytes, both exact matches, nesting
-// depth unchanged (22/32).
+// Per-seat initial member parameter.
 hook_parameter!(MemberParam, MemberParamName [u8; 3] => AccountId);
 
-// `IMC`/`IRR`/`IRD` — setup-only hook parameters (initial member count,
-// reward rate, reward delay). Migrated to `hook_parameter!` with an
-// **intentional behavior difference from govern.c**: govern.c checks
-// these three for existence only (`hook_param(...) < 0`), not exact
-// length, so a parameter present but shorter than expected (e.g. an
-// explicit empty `IMC` value) is silently accepted, its unwritten
-// remainder reading as zero — unlike `IS{seat}` above (`hook_param`'s
-// only other caller in this file), which govern.c itself checks with
-// `!= 20`. `hook_param_typed` enforces an exact-length read for all
-// three instead, rejecting a too-short value as `HookError::TooSmall` —
-// judged the better behavior to ship rather than reproduce what reads
-// as a latent govern.c bug. See the README's "Parameter read semantics"
-// section for the full argument and `setup`'s doc comment for the read
-// call sites. `XFL` gained a `FixedRead` impl for this
-// (`crates/hooks-lib/src/convert.rs`), reusing `<[u8; 8]>::read_exact`'s
-// exact-length machinery and the same little-endian raw bit pattern
-// `ToBytes`/`FromBytes` for `XFL` already use.
+// Setup parameters.
 hook_parameter!(InitialMemberCount, InitialMemberCountParamName = b"IMC" => [u8; 1]);
 hook_parameter!(InitialRewardRate, InitialRewardRateParamName = b"IRR" => XFL);
 hook_parameter!(InitialRewardDelay, InitialRewardDelayParamName = b"IRD" => XFL);
 
-// `T`/`L` — the topic-selector/layer-selector `Invoke` parameters
-// `my_hook` reads per vote (see below). Migrated to `otxn_parameter!`:
-// `otxn_param` (unlike `hook_param`) explicitly returns `TOO_SMALL` when
-// the actual value is longer than the destination buffer (confirmed by
-// reading xahaud's own `otxn_param`/`WRITE_WASM_MEMORY_AND_RETURN`
-// implementation in `src/xrpld/app/hook/detail/HookAPI.cpp`/
-// `applyHook.cpp`), so a buffer-mode read into an exactly-`N`-byte
-// buffer can only ever return exactly `N` or fail. govern.c's own
-// checks for both (`otxn_param(SBUF(topic), "T", 1)` against `!= 2`;
-// `otxn_param(&l, 1, "L", 1)` against `!= 1`) are already exact-length,
-// matching `otxn_param_typed`'s contract exactly — this migration
-// changes nothing observable (unlike `IMC`/`IRR`/`IRD` above). `[u8; N]`
-// implements `FixedRead`/`ToBytes` via this crate's blanket array impl;
-// `L`'s value is `[u8; 1]`, not `u8`, since a bare `u8` doesn't
-// implement `FixedRead` itself.
+// Per-vote topic and layer parameters.
 otxn_parameter!(TopicParam, TopicParamName = b"T" => [u8; 2]);
 otxn_parameter!(LayerParam, LayerParamName = b"L" => [u8; 1]);
 
-/// `genesis[20]` in govern.c: the network genesis account (see
-/// `examples/80_reward/src/mint_txn.rs::GENESIS_ACCOUNT`'s doc comment
-/// for how this was verified — `secp256k1
-/// calcAccountID(generateSeed("masterpassphrase"))`).
+/// Network genesis account.
 const GENESIS_ACCOUNT: AccountId = AccountId([
     0xB5, 0xF7, 0x62, 0x79, 0x8A, 0x53, 0xD5, 0x43, 0xA0, 0x14, 0xCA, 0xF8, 0xB2, 0x97, 0xCF, 0xF8,
     0xF2, 0xF9, 0x37, 0xE8,
@@ -159,13 +58,7 @@ hook_errors! {
     }
 }
 
-// Scratch buffers for 32-byte-and-up values used at various points below,
-// each a `HookStatic` rather than a stack local: `wasm32v1-none`'s
-// codegen starts lowering a zero-initialized stack array of this size to
-// an unguarded `memset`-style loop (see `examples/README.md`'s "Statics
-// for templates and large buffers", and `examples/80_reward/src/lib.rs`'s
-// `ACCOUNT_KEYLET` for the same fix there) — unrelated to which API wraps
-// the calls that fill them.
+// Scratch buffers for transaction and state data.
 static TOPIC_DATA: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 static PREVIOUS_TOPIC_DATA: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 static HOOK_KEYLET: HookStatic<[u8; 34]> = HookStatic::new([0u8; 34]);
@@ -174,9 +67,7 @@ static EXISTING_HOOK: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 static PREVIOUS_MEMBER: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 static VOTE_VALUE: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 
-/// Takes a scratch [`HookStatic`] buffer, rolling back if it was somehow
-/// already taken (never happens in practice — each one is taken exactly
-/// once per hook execution).
+/// Takes a scratch buffer.
 #[inline(always)]
 fn take_scratch<T>(cell: &'static HookStatic<T>) -> &'static mut T {
     let Some(buf) = cell.take() else {
@@ -559,9 +450,7 @@ fn action_hook(hook_accid: &AccountId, n: u8, topic_data_zero: bool, topic_data:
     // rather than three — and it flattens to a single `if let` here, which
     // matters in a hook this close to the nesting ceiling.
     //
-    // Any missing step (no `Hooks`, no element `n`, no `HookHash`) simply
-    // skips the comparison, exactly as the chain of `== Ok(..)` tests it
-    // replaces did.
+    // Missing hook data skips the comparison.
     if let Ok(hook_acc) = SlotObject::from_keylet(&Keylet(*keylet)) {
         if let Ok(hash_slot) = slot_path!(hook_acc[sfHooks][u32::from(n)][sfHookHash]) {
             let existing_hook = take_scratch(&EXISTING_HOOK);

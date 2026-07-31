@@ -1,38 +1,3 @@
-// e2e: examples/80_reward against a standalone Xahau node.
-//
-// Reproduces a subset of xahaud's XahauGenesis_test.cpp `ClaimReward`
-// coverage. Test <-> XahauGenesis_test.cpp correspondence:
-//
-//   | This suite                                    | XahauGenesis_test.cpp                     |
-//   |------------------------------------------------|--------------------------------------------|
-//   | 'passes through a non-ClaimReward txn'          | (implicit - reward.c's own early-out; not |
-//   |                                                  | separately asserted in the C++ suite)     |
-//   | 'passes through the hook's own outgoing txn'    | (same)                                    |
-//
-// **Not reproduced, with reasons** (documented per the task's own
-// fallback policy rather than silently omitted):
-//
-// - The full `ClaimReward` accrual/payout flow (delay-not-elapsed
-//   rejection with the digit-patched wait message, matured-claim
-//   `GenesisMint` payout amount, L1-seat distribution). `ttCLAIM_REWARD`
-//   only does anything once an account's `RewardAccumulator`/
-//   `RewardLgrFirst`/`RewardLgrLast`/`RewardTime` AccountRoot fields have
-//   already been populated by the *protocol's own* (non-Hook,
-//   transactor-level) reward-opt-in bookkeeping - on real Xahau this
-//   happens automatically for every active account once the
-//   `featureXahauGenesis`/reward-related amendments are live and the
-//   account has accrued ledger history; reproducing that native
-//   bookkeeping from scratch against a fresh standalone node (which
-//   starts every account without any reward history) was out of scope
-//   for the time available. `examples/80_reward/README.md`'s behavior-
-//   equivalence table documents the intended behavior for every branch
-//   this would exercise; only live-node confirmation is missing.
-// - `GenesisMint`'s own transactor-level acceptance (`Account` must be
-//   the network's *real* genesis account for a `GenesisMint` to validate)
-//   is not exercised for the same reason as above - the standalone
-//   node's genesis/master account (see `govern.test.ts`'s header comment)
-//   is under our control, but driving it through the *native* reward
-//   accrual state needed to reach a real `emit()` call was out of scope.
 import {
   ExecutionUtility,
   Xrpld,
@@ -51,7 +16,6 @@ import { calculateHookOn } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-reward'
-// hooks-build's printed worst case for reward.wasm (`mise run build-examples`).
 const WORST_CASE_HOOK_INSTRUCTIONS = 13269
 
 describe('reward', () => {

@@ -1,56 +1,16 @@
-//! Byte-exact `GenesisMint` (`ttGENESIS_MINT` = 96) transaction encoding.
-//!
-//! Mirrors the wire format xahaud's `hook/genesis/reward.c` builds by hand
-//! into its `txn_mint`/`template` byte arrays, but composed here from
-//! [`hooks_lib::txn::codec`]'s generic, reusable field-encoding primitives
-//! (the same ones [`hooks_lib::txn_template!`] itself is built from)
-//! instead of a hand-transcribed constant byte table — see this crate's
-//! README ("Behavior parity with `reward.c`") for the field-by-field
-//! mapping and why a `GenesisMint`'s variable-length `GenesisMints` array
-//! rules out `txn_template!` itself (it only supports a fixed field list).
-//!
-//! Field order matches rippled's canonical STObject rule (ascending `(type,
-//! field)`) and reward.c's own layout: `TransactionType`, `Flags`,
-//! `Sequence`, `FirstLedgerSequence`, `LastLedgerSequence`, `Fee`,
-//! `SigningPubKey`, `Account`, `EmitDetails`, then the `GenesisMints` array.
-//!
-//! # Why these methods roll back instead of returning `Result`
-//!
-//! Every offset [`MintTxn`] ever writes to is bounded by [`MAX_LEN`],
-//! which is computed (not guessed) to fit the worst-case transaction this
-//! hook ever builds — a write past it can only mean a bug in this module,
-//! never a legitimate runtime condition. Given that, threading `Result`/
-//! `?` through every one of these small append calls, only to have the
-//! single caller in `lib.rs` roll back on any `Err` anyway, does not just
-//! add ceremony: once `hooks-build`'s Guard-type pipeline inlines every
-//! function in this crate into `hook()` (see `docs/DESIGN.md` §6.2c), a
-//! chain of a dozen-plus `?`-propagating calls compiles to a "return
-//! ladder" whose `block` nesting grows with the number of checks — and
-//! the Hook API's guard checker rejects a module whose nesting exceeds 32
-//! levels. Calling straight through to `rollback!` at the one place a
-//! write could fail avoids the ladder entirely (each check's failure tail
-//! is a self-contained "call the host, then trap," which the checker's
-//! own ladder-flattening pass — `unnest.rs`, `docs/DESIGN.md` §6.2c —
-//! collapses away) while keeping the exact same "impossible in practice,
-//! not `unsafe`" guarantee `Result` gave.
+//! Encodes `GenesisMint` transactions.
 
 use hooks_lib::prelude::*;
 use hooks_lib::rollback;
 use hooks_lib::txn::codec;
 
-/// The network genesis account: `secp256k1` `calcAccountID(generateSeed(
-/// "masterpassphrase"))`, matching both `reward.c`'s hardcoded `txn_mint`
-/// source-account bytes and `govern.c`'s `genesis[20]`. `GenesisMint` is
-/// only ever valid when submitted by this exact account (checked at the
-/// transactor level, not by this hook), so a `reward` deployment only
-/// produces an accepted emission when installed there.
+/// Network genesis account.
 pub const GENESIS_ACCOUNT: AccountId = AccountId([
     0xB5, 0xF7, 0x62, 0x79, 0x8A, 0x53, 0xD5, 0x43, 0xA0, 0x14, 0xCA, 0xF8, 0xB2, 0x97, 0xCF, 0xF8,
     0xF2, 0xF9, 0x37, 0xE8,
 ]);
 
-/// `L1SEATS` in reward.c: the L1 governance round table has 20 seats, each
-/// of which may receive one `GenesisMint` entry alongside the rewardee.
+/// Number of L1 governance seats.
 pub const L1_SEATS: usize = 20;
 
 /// Rewardee entry, plus up to one entry per L1 seat.
@@ -88,20 +48,10 @@ const MAX_LEN: usize = codec::transaction_type_field_size(sfTransactionType)
     + ENTRY_LEN * MAX_ENTRIES
     + 1;
 
-/// `SigningPubKey` field length: header, then a 1-byte VL length prefix
-/// (`33`), then a 33-byte all-zero payload. reward.c bakes this exact
-/// 35-byte shape into its `txn_mint` template (unlike govern.c's
-/// emissions, which use macro.h's more compact 2-byte empty-
-/// `SigningPubKey` encoding) — kept byte-for-byte here rather than
-/// switched to the shorter form, since both this hook's emitted-
-/// transaction bytes and its worst-case size are meant to match reward.c
-/// exactly.
+/// Length of the zero-filled `SigningPubKey` field.
 const PUBKEY_FIELD_LEN: usize = codec::field_header(sfSigningPubKey).1 + 1 + 33;
 
-// Every STObject/STArray field header this module ever writes, computed
-// once at compile time — see `MintTxn::push_field_header`'s doc comment
-// for why these are `const`s rather than plain `codec::field_header(sfXxx)`
-// calls at each use site.
+// Precomputed field headers.
 const HDR_TRANSACTION_TYPE: ([u8; 3], usize) = codec::field_header(sfTransactionType);
 const HDR_FLAGS: ([u8; 3], usize) = codec::field_header(sfFlags);
 const HDR_SEQUENCE: ([u8; 3], usize) = codec::field_header(sfSequence);
@@ -115,31 +65,16 @@ const HDR_GENESIS_MINT: ([u8; 3], usize) = codec::field_header(sfGenesisMint);
 const HDR_AMOUNT: ([u8; 3], usize) = codec::field_header(sfAmount);
 const HDR_DESTINATION: ([u8; 3], usize) = codec::field_header(sfDestination);
 
-/// Rolls the hook back — every failure path in this module funnels here
-/// (see the module doc comment for why). `-104` matches
-/// `crate::RewardError::EmitFailed`'s code.
+/// Rolls back an emission failure.
 #[inline(always)]
 fn fail(msg: &[u8]) -> ! {
     rollback!(msg, -104);
 }
 
-/// Encodes `drops` as an 8-byte native (XAH) amount into `dst` (top byte
-/// `0x40 | ((drops >> 56) & 0x3F)`, remaining 7 bytes big-endian — the
-/// same layout as [`codec::encode_native_amount`]). Written by hand with
-/// `dst[i] = ...` over a fixed 8-byte local array and copied out
-/// element-wise, rather than calling `codec::encode_native_amount`
-/// directly: that function's own `copy_from_slice` panics if `dst.len()`
-/// differs from 8, and the compiler cannot prove `dst.len() == 8` purely
-/// from its `&mut [u8]` type — so callers here would keep that
-/// unreachable-in-practice panic's message-formatting machinery linked
-/// in (see [`MintTxn::push`]'s doc comment for the identical issue and
-/// why `Iterator::zip` — which has no such panicking case — replaces it).
+/// Encodes drops as a native XAH amount.
 #[inline(always)]
 fn write_native_amount(dst: &mut [u8], drops: u64) {
     let bytes = drops.to_be_bytes();
-    // Literal indices into a fixed `[u8; 8]`: provably in bounds at
-    // compile time, so no bounds-check/panic path exists to begin with
-    // (unlike `dst`, whose length isn't known to be 8 from its type).
     let out: [u8; 8] = [
         0x40 | (bytes[0] & 0x3F),
         bytes[1],

@@ -1,48 +1,3 @@
-// e2e: examples/81_govern against a standalone Xahau node.
-//
-// Reproduces a subset of xahaud's XahauGenesis_test.cpp governance
-// coverage. Test <-> XahauGenesis_test.cpp correspondence:
-//
-//   | This suite                                   | XahauGenesis_test.cpp                        |
-//   |-----------------------------------------------|-----------------------------------------------|
-//   | 'setup: first Invoke populates the seat table' | XahauGenesis (initial member/seat setup via   |
-//   |                                                 | the SetHook-time HookParameters, IMC/IS*)     |
-//   | 'seat vote: reaches threshold and actions'     | testVotableValue / seat-change voting cases    |
-//   | 'seat vote: below threshold just records'      | same, pre-threshold assertions                 |
-//   | 'reward vote: L1 table actions RR directly'    | RR/RD voting cases (genesis account only)      |
-//   | 'rejects a too-short IRR value...'             | none — pins a *deliberate* divergence, see below |
-//
-// Two deliberate scope reductions from XahauGenesis_test.cpp, both
-// documented here rather than silently skipped:
-//
-// 1. XahauGenesis_test.cpp drives the *real* genesis bootstrap (the
-//    `featureXahauGenesis` amendment installing govern.c/reward.c on the
-//    protocol's hardcoded genesis account and blackholing it) via JTX,
-//    which a standalone xahaud node run through `xrpld-netgen` does not
-//    replicate. What a standalone node's own bootstrap *does* replicate
-//    is ordinary: ledger 1's master/genesis account, funded with the
-//    full native-currency supply, derived from the well-known
-//    `masterpassphrase` seed (`snoPBrXtMeMyMHUVTgbuqAfg1SUTb`,
-//    secp256k1) - which is *exactly* `GENESIS_ACCOUNT` in both this
-//    crate and `examples/80_reward` (verified: `Wallet.fromSeed(...)`'s
-//    resulting `AccountID` matches the hardcoded bytes byte-for-byte -
-//    see `examples/81_govern/README.md`'s Testing section). This is also
-//    exactly `@transia/hooks-toolkit`'s own `MASTER_WALLET`/
-//    `testContext.master`, and the toolkit's own `initGovernTable`/
-//    `setGovernTable` helpers (`fundSystem.js`) already use this account
-//    for governance testing the same way. So: this suite *can* and does
-//    install `govern`/`reward` on the real genesis account and exercise
-//    true L1-table behavior (unlike a from-scratch reimplementation of
-//    the amendment's ledger manipulation, which is out of scope) - but
-//    the account starts as an ordinary (non-blackholed, master-key-
-//    active) funded account, not mid-amendment-activation, so anything
-//    that depends on the *amendment's own* one-time ledger effects
-//    (`GenesisMints`/`NonGovernanceDistribution` initial balances, the
-//    master-key-disable/blackhole, `TestL1Membership`) is not reproduced
-//    - only govern.c/reward.c's own hook logic is under test.
-// 2. Most seat/hook-vote scenarios below use ordinary funded accounts as
-//    an L2 table instead, which needs no genesis control at all and
-//    exercises the same voting/threshold/actioning state machine.
 import {
   ExecutionUtility,
   Xrpld,
@@ -60,14 +15,9 @@ import {
 import { calculateHookOn, convertStringToHex, decodeAccountID } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-// `@transia/hooks-toolkit` depends on `@transia/xrpl` (a separate fork
-// from the `xahau` package used elsewhere in this suite) but doesn't
-// re-export its `Wallet` type; derive it from `XrplIntegrationTestContext`
-// itself instead of adding a direct dependency on `@transia/xrpl`.
 type Wallet = XrplIntegrationTestContext['alice']
 
 const namespace = 'rhooks-e2e-govern'
-// hooks-build's printed worst case for govern.wasm (`mise run build-examples`).
 const WORST_CASE_HOOK_INSTRUCTIONS = 41510
 
 function accountIdHex(classicAddress: string): string {
@@ -83,7 +33,6 @@ function hookParam(name: string, valueHex: string) {
   }
 }
 
-/** `{'I','S',seat}` -> the member's 20-byte AccountId, hex. */
 function isParam(seat: number, wallet: Wallet) {
   return {
     HookParameter: {
@@ -203,7 +152,6 @@ describe('govern: L2 table seat voting', () => {
   })
 
   it('a single vote below the 80% seat threshold (2 of 3) just records', async () => {
-    // Seat 2 (carol) -> dave, layer 2 (an L2 table's own seat topic).
     const response = await invoke(testContext, testContext.alice, testContext.hook1, [
       topicParam('S', 2),
       voteParam(accountIdHex(testContext.dave.classicAddress)),
@@ -235,10 +183,6 @@ describe('govern: L2 table seat voting', () => {
     ])
     const meta = response.meta as any
     const hookExecutions = await ExecutionUtility.getHookExecutionsFromMeta(testContext.client, meta)
-    // dave now holds seat 2 (from the previous test), so bob voting for
-    // dave again on the same topic is an identical-vote no-op - but bob
-    // himself never re-votes in this suite otherwise, so this exercises
-    // the "already cast this way" path deterministically.
     expect(hookExecutions.executions[0].HookReturnString).toBe(
       'Governance: Your vote is already cast this way for this topic.',
     )
@@ -261,9 +205,6 @@ describe('govern: L1 table (real genesis account) reward-rate vote', () => {
   })
 
   it('installs on the real genesis account and completes L1 setup', async () => {
-    // `testContext.master` (`@transia/hooks-toolkit`'s `MASTER_WALLET`,
-    // seed `snoPBrXtMeMyMHUVTgbuqAfg1SUTb`) is `GENESIS_ACCOUNT` - see
-    // this file's header comment.
     await installGovern(
       testContext,
       testContext.master,
@@ -283,10 +224,6 @@ describe('govern: L1 table (real genesis account) reward-rate vote', () => {
   })
 
   it('a unanimous RR vote (3 of 3, 100% required at L1) actions the reward rate', async () => {
-    // A recognizable nonzero XFL bit pattern - this test only checks
-    // that the vote is *actioned*, not the specific rate; see
-    // examples/80_reward's own state-layout table for how "RR" is
-    // interpreted.
     const rrValue = '0100000000000000'
     await invoke(testContext, testContext.alice, testContext.master, [
       topicParam('R', 'R'.charCodeAt(0)),
@@ -308,16 +245,6 @@ describe('govern: L1 table (real genesis account) reward-rate vote', () => {
   })
 })
 
-// `IMC`/`IRR`/`IRD` are read via `hook_parameter!`'s typed accessors,
-// which enforce an *exact*-length read — **a deliberate, documented
-// divergence from govern.c**, not a bug: govern.c's own check for these
-// three (`hook_param(...) < 0`) is existence-only, so a parameter present
-// but shorter than expected (e.g. a 3-byte `IRR` instead of 8) is
-// silently accepted there, unlike `IS{seat}` (`hook_param`'s only other
-// caller in govern.c), which already checks for an exact length. See
-// `examples/81_govern/src/lib.rs`'s `setup`/
-// `setup_initial_reward_rate_and_delay` doc comments and the README's
-// "Parameter read semantics" section for the full argument.
 describe('govern: L1 table (real genesis account) — intentional IRR/IRD length-strictness divergence', () => {
   let testContext: XrplIntegrationTestContext
 

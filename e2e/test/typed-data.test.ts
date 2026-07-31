@@ -1,31 +1,3 @@
-// e2e: examples/12_typed-data against a standalone Xahau node.
-//
-// `hook()` maintains a per-account deposit ledger through the
-// `DepositState` entity, whose key component is a `#[derive(HookKey)]`-shaped
-// struct and whose value is a `#[derive(HookData)]`-shaped one
-// (`DepositKey`/`DepositValue` - see examples/12_typed-data/src/lib.rs and
-// its README). Every Invoke carries its own `Instruction` (action +
-// amount, `#[derive(ParamValue)]`) as an `INS` Hook parameter attached to
-// the transaction itself (read via `otxn_param`), separate from the
-// hook's installed `Config` (`CFG`, read via `hook_param`). An operator
-// can also pause new deposits via a **composite**, struct-shaped
-// `#[derive(ParamName)]` parameter name (`AdminName`, wrapped by the
-// `AdminPause` entity) - see the last
-// nested `describe` block below.
-//
-// Every `#[derive(HookData)]`/`#[derive(ParamValue)]` struct's wire layout
-// is "every field, in declaration order, little-endian, back-to-back" -
-// see the README's "Hook parameter hex encoding" section for the worked
-// byte layouts this suite's `cfgHex`/`insHex` helpers reproduce.
-//
-// A full withdrawal **deletes** the depositor's state entry (the hook
-// calls `key.delete_state()`, i.e. `hooks_lib::state::state_delete`, a
-// zero-length `state_set`) rather than storing an all-zero record. This
-// suite is the only place that distinction is observable: on a host build
-// every Hook API call is a stub, so the Rust-side tests can prove the call
-// is routed and typed but never that the host really removed the entry.
-// `depositEntryExists` below reads the account's namespace directory over
-// RPC to check presence/absence directly.
 import {
   ExecutionUtility,
   StateUtility,
@@ -47,34 +19,18 @@ import {
   decodeAccountID,
   type TransactionMetadata,
 } from 'xahau'
-// HookFlags isn't re-exported from the package root in xahau@4.x - only
-// reachable via this deep import (same path hooks-toolkit's own source
-// uses internally for the same enum).
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-typed-data'
-// hooks-build's printed worst case for typed_data.wasm (`mise run build-examples`),
-// at this workspace's opt-level = 3 default (docs/DESIGN.md's §2 C6) - includes
-// the composite `AdminName`/`PauseSwitch` pause-switch path (see the README's
-// "Measured cost of a composite name" section for the with/without comparison).
 const WORST_CASE_INSTRUCTIONS = 504
 
 const ACTION_DEPOSIT = 1
 const ACTION_WITHDRAW = 2
 
-// `DepositState { tag: u8, owner: AccountId }`'s constant discriminant
-// (`DEPOSIT_TAG` in src/lib.rs).
 const DEPOSIT_TAG = 1
 
-// `Config { min_amount: u64, lock_ledgers: u32 }` - 12 bytes, LE.
 const MIN_DROPS = 5_000_000n // 5 XAH
-// Deliberately large: the standalone node auto-advances the ledger by more
-// than one between successive submitted transactions (observed: ~2 per
-// `Xrpld.submit` round trip), so a small `lock_ledgers` would already have
-// elapsed by the very next Invoke. Comfortably larger than that keeps
-// "rejects a withdraw before the lock window elapses" (below) genuinely
-// still-locked, and "accepts a withdraw once the lock window has elapsed"
-// explicitly fast-forwards past it with repeated `ledger_accept` calls.
+// Keep the lock window above the ledger advance between submissions.
 const LOCK_LEDGERS = 30
 
 function u64LEHex(value: bigint): string {
@@ -93,42 +49,19 @@ function cfgHex(minAmount: bigint, lockLedgers: number): string {
   return u64LEHex(minAmount) + u32LEHex(lockLedgers)
 }
 
-// `Instruction { action: u8, amount: u64 }` - 9 bytes, LE.
 function insHex(action: number, amount: bigint): string {
   const actionByte = Buffer.from([action]).toString('hex').toUpperCase()
   return actionByte + u64LEHex(amount)
 }
 
-// The on-ledger HookState key for `DepositState { tag, owner }`.
-//
-// The hook sends the key at its own real length - 1 tag byte + a 20-byte
-// AccountId = 21 bytes, never locally padded (see `hooks_lib::state`'s
-// module doc comment, "Key length and padding") - and the *host* left-pads
-// it to its fixed 32-byte storage width. So the stored key is 11 zero
-// bytes, then the tag, then the account.
+// The host left-pads this 21-byte state key to 32 bytes.
 function depositStateKeyHex(address: string): string {
   const owner = Buffer.from(decodeAccountID(address)).toString('hex')
   const tag = DEPOSIT_TAG.toString(16).padStart(2, '0')
   return (tag + owner).toUpperCase().padStart(64, '0')
 }
 
-// Whether `owner`'s deposit record currently exists on-ledger.
-//
-// Reads the namespace *directory* (`account_namespace`) rather than
-// `ledger_entry` for the one state key: listing the directory checks the
-// key we computed against the keys that actually exist, whereas an
-// assertion built on "`ledger_entry` threw `entryNotFound`" cannot
-// distinguish a deleted entry from a typo in the key.
-//
-// One wrinkle: when the *last* entry in a namespace is deleted, the
-// namespace directory itself leaves the ledger, and `account_namespace`
-// then reports that as an error rather than as an empty list. Since this
-// hook keeps exactly one entry per depositor, deleting alice's record
-// empties the namespace - so "Namespace not found" is the strongest
-// possible form of "absent," and is translated to `false` here. Only that
-// one error is: anything else (a dropped connection, a malformed request)
-// re-throws, so a broken query can never masquerade as a passing deletion
-// assertion.
+// A missing namespace after its final entry is deleted means no deposit exists.
 async function depositEntryExists(
   testContext: XrplIntegrationTestContext,
   address: string,

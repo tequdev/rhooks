@@ -1,32 +1,8 @@
-//! `xtask` — repo-maintenance automation for rhooks.
+//! Repository-maintenance commands.
 //!
-//! `cargo xtask gen-core` regenerates `hooks-core`'s translated Rust
-//! sources (`error.rs`, `tts.rs`, `ls_flags.rs`, `tx_flags.rs`,
-//! `sfcodes.rs`, `consts.rs`, `api.rs`, `host.rs`) from the vendored xahaud
-//! `hook/*.h` headers (`docs/DESIGN.md` §4), so the hand-translation step is
-//! automated: vendor sync -> parse -> [`ir::HookApiSpec`] ->
-//! `crates/hooks-core/hook_api.json` -> per-file codegen -> test -> commit.
-//! [`ir`] holds the intermediate representation every generator in
-//! [`codegen`] consumes; nothing downstream of it touches header text or
-//! [`parse`] types directly.
-//!
-//! This is a host-side, repo-maintenance CLI tool, not guest-facing wasm
-//! code (`docs/DESIGN.md` §4/§8): a panic here means a build/dev-loop
-//! failure, not a reachable guest-facing bug, so — like `hooks-build`
-//! (`crates/hooks-build/src/lib.rs`) — it relaxes two of the workspace's
-//! panic-freedom lints:
-//!
-//! - `clippy::arithmetic_side_effects`: the header parsers in
-//!   [`parse`] do plain byte-offset bookkeeping over small (sub-megabyte),
-//!   locally-vendored header files, nowhere near `usize::MAX`.
-//! - `clippy::indexing_slicing`: those same parsers slice on offsets they
-//!   just computed from `find`/`rfind` on the same string, so an
-//!   out-of-bounds index would itself be a generator bug worth panicking
-//!   on immediately, not a guest-facing failure mode to design around.
-//!
-//! `clippy::unwrap_used`, `clippy::expect_used`, and `clippy::panic` remain
-//! denied, as inherited from the workspace; this crate uses `anyhow`
-//! throughout instead.
+//! `cargo xtask gen-core` parses vendored Hook headers and regenerates the
+//! translated `hooks-core` sources. This host-side tool permits bounded
+//! parser arithmetic and indexing.
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 #![allow(clippy::print_stderr)]
 
@@ -47,11 +23,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Regenerate hooks-core's translated sources from the vendored xahaud
-    /// headers.
+    /// Regenerate `hooks-core` sources from vendored Hook headers.
     GenCore {
-        /// Verify the generated sources are up to date without writing
-        /// anything (CI mode); exits 1 and lists mismatches if not.
+        /// Check whether generated sources are up to date without writing them.
         #[arg(long)]
         check: bool,
     },

@@ -1,73 +1,7 @@
-//! `slot-objects` — the live acceptance harness for the **typed slot layer**
-//! (`hooks_lib::slot_obj`).
+//! Exercises typed slot-object reads, navigation, casts, and cleanup.
 //!
-//! Every check here exists because a host build *cannot* prove it. The
-//! integration tests in `crates/hooks-lib/tests/slot_object.rs` cover typing,
-//! inference and reachability; the host stubs there return `NotImplemented`
-//! for every call, so nothing about real slot behavior can be observed. These
-//! run against a real node and answer the questions the design had to assume:
-//!
-//! 1. **Account-root walk.** `SlotObject::from_keylet` on an account keylet,
-//!    then typed reads of `sfBalance`/`sfSequence`/`sfAccount`.
-//! 2. **The drops round-trip.** `as_xfl()` on a *native* amount yields XAH
-//!    units, not drops — mantissa = drops, exponent −6, normalized. So
-//!    `XFL::to_int(6, false)` (the host`s `float_int`) must recover the drop
-//!    count exactly. This is
-//!    the fact round 1 of the design review corrected by a factor of 10⁶.
-//! 3. **Parent-clear then child-read.** `slot_path!` clears each intermediate
-//!    as soon as its child exists, which is only sound if the host *copies*
-//!    the parent's storage into the child slot. Verified here rather than
-//!    assumed.
-//! 4. **`take_*` recycling beyond the 255-slot budget.** A loop that derives
-//!    a child per iteration and reads it with `take_value()` must survive
-//!    more than 255 iterations; the same loop with a plain `value()` would
-//!    exhaust the slots. Proves the recycling family actually frees.
-//! 5. **Mid-hop failure leaks nothing.** A `slot_path!` walk over the
-//!    sender's *SignerList* whose first two hops succeed — allocating two
-//!    owned intermediates — and whose third fails, repeated past the budget.
-//!    The ladder clears each intermediate unconditionally, so this must not
-//!    exhaust slots. (An earlier version of this check walked a field absent
-//!    from the account root: the *first*, borrowed-root hop failed, no owned
-//!    intermediate was ever allocated, and the check was vacuous. The
-//!    e2e installs a SignerList precisely so the hops before the failure are
-//!    real.)
-//! 6. **Repeated successful deep navigation.** The same SignerList walk
-//!    taken to a real leaf, 300 times: the success path must recycle too.
-//! 7. **Failure-path `take_*` cleanup.** `take_value()` on a slot whose read
-//!    fails still clears, so a loop of *failing* reads must not exhaust the
-//!    budget either — the half of the `take_*` contract the success loop
-//!    cannot show.
-//! 8. **Failed `try_cast` cleans up and the slot is reusable.** A cast that
-//!    does not hold consumes the handle and clears the slot; repeating it
-//!    past the budget proves the clear really happened.
-//! 9. **A root slot casts to `STObject`.** `from_otxn()` reports a
-//!    high-level object code (serialized type ID 10001–10004), not the
-//!    ordinary 14, so `try_cast::<STObject>()` must accept it.
-//! 10. **An IOU `as_xfl`.** The native round-trip above only exercises one
-//!     half of `slot_float`. This reads the sender's *trust line* balance —
-//!     a non-native amount — checks `is_native()` reports `false` on it, and
-//!     round-trips the value back to the integer the e2e paid in. Together
-//!     with check 2 that covers both branches of the amount path live.
-//! 11. **A `u64` reads identically through `value()` and raw bytes.** The
-//!     typed read decodes the eight wire bytes big-endian rather than using
-//!     as-int64 mode, because the host rejects a bit-63 value there and
-//!     `sfExchangeRate` legitimately sets it. The account root has no such
-//!     field, so this pins the two paths agreeing on a real serialized value;
-//!     the bit-63 typing itself is pinned in the trybuild fixtures.
-//!
-//! Each check contributes one bit to the accept code, so the e2e test can
-//! see exactly which passed. Triggered by `Invoke`.
-//!
-//! # One check group per invocation
-//!
-//! Every recycling loop runs more than 255 iterations — that is the point,
-//! 255 being the per-execution slot budget — and running all of them in one
-//! execution needs roughly 130,000 instructions against the Hook API's
-//! 65,535 ceiling. So the originating transaction carries a `CHK` parameter
-//! naming one group, and the e2e submits one `Invoke` per group and ORs the
-//! accept codes. Absent `CHK` runs group 0, everything that needs no loop.
-//!
-//! Build: `hooks-build build --manifest-path examples/15_slot-objects/Cargo.toml`
+//! Each invocation runs the check group selected by its `CHK` parameter and
+//! returns the passing checks as bits in the accept code.
 
 #![no_std]
 
@@ -87,50 +21,33 @@ hook_errors! {
     }
 }
 
-/// How many iterations each recycling loop runs.
-///
-/// 260, not a rounder 300: the number only has to exceed the Hook API's
-/// 255-slot-per-execution budget, and the guard checker's worst-case
-/// accounting sums every loop in the module (a `match` over check groups
-/// does not make them alternatives to it), so the total has to stay under
-/// the 65,535-instruction ceiling. 260 clears the budget by five slots and
-/// leaves room for all five loops.
+/// Iterations used to exercise slot recycling beyond the slot limit.
 const LOOP_ITERATIONS: u32 = 260;
 
 /// Bit 0: the account-root walk read all three fields.
 const BIT_ACCOUNT_WALK: i64 = 1;
-/// Bit 1: `float_int(as_xfl(balance), 6, false)` matched the raw drops.
+/// Bit 1: `as_xfl(balance)` round-tripped to raw drops.
 const BIT_DROPS_ROUNDTRIP: i64 = 2;
 /// Bit 2: a child slot stayed readable after its parent was cleared.
 const BIT_PARENT_CLEAR: i64 = 4;
 /// Bit 3: every `take_value()` in the success loop released its slot.
 const BIT_TAKE_LOOP: i64 = 8;
-/// Bit 4: 260 `slot_path!` walks that fail on their *third* hop — after two
-/// owned intermediates exist — did not exhaust the slots.
+/// Bit 4: failed `slot_path!` walks recycled intermediate slots.
 const BIT_MIDHOP_LOOP: i64 = 16;
-/// Bit 5: 260 *successful* three-hop SignerList walks did not exhaust them.
+/// Bit 5: successful deep walks recycled slots.
 const BIT_DEEP_LOOP: i64 = 32;
-/// Bit 6: 260 *failing* `take_value()` reads did not exhaust them either.
+/// Bit 6: failed `take_value()` reads recycled slots.
 const BIT_TAKE_FAILURE: i64 = 64;
-/// Bit 7: 260 failed `try_cast`s cleaned up after themselves.
+/// Bit 7: failed `try_cast`s recycled slots.
 const BIT_CAST_CLEANUP: i64 = 128;
 /// Bit 8: a root slot's high object code is accepted by `try_cast::<STObject>`.
 const BIT_ROOT_CAST: i64 = 256;
 /// Bit 9: a `u64` field reads identically through `value()` and raw bytes.
 const BIT_U64_WIRE: i64 = 512;
-/// Bit 10: an IOU trust-line balance reports `is_native() == false` and
-/// round-trips through `as_xfl()` to the amount the e2e paid in.
+/// Bit 10: an IOU trust-line balance round-trips through `as_xfl()`.
 const BIT_IOU_XFL: i64 = 1024;
 
-/// Reads `sfSequence`/`sfAccount`/`sfBalance` off the account root and
-/// checks the account matches and the sequence is real.
-///
-/// `#[inline(never)]` on every check below, and the reason is structural:
-/// the Hook API's guard checker rejects a module whose block nesting exceeds
-/// 32, and five checks' worth of `if let` ladders inlined into one function
-/// reaches 53. Keeping each in its own frame keeps the hook's nesting at a
-/// handful — the documented escape hatch (see `docs/DESIGN.md` §5.8 and
-/// `examples/81_govern`, which hit the same ceiling).
+/// Checks account-root fields.
 #[inline(never)]
 fn check_account_walk(account: &SlotObject<STObject>, sender: &AccountId) -> bool {
     let Ok(seq): Result<u32> = account.get(sfSequence).and_then(|s| s.value()) else {

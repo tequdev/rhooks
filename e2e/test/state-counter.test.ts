@@ -1,19 +1,3 @@
-// e2e: examples/02_state-counter against a standalone Xahau node.
-//
-// `hook()` reads a `u64` counter through hooks-lib's typed storage layer
-// (`state_get_typed`/`state_set_typed`), keyed by `CounterKey { name: [u8;
-// 7] }` (a `#[derive(HookKey)]` struct wrapping the literal `*b"counter"`)
-// paired with `u64` via `hook_state!`. `HookKey` sends a struct at its own
-// real encoded length - 7 bytes here, no local padding - so this lands on
-// the exact same on-ledger slot a bare `*b"counter"` array key would (see
-// `hooks_lib::state`'s module doc comment, "Key length and padding", and
-// `examples/02_state-counter/README.md`'s "Same slot as before" section).
-// The host itself left-pads that 7-byte key to its fixed 32-byte storage
-// width, so the real on-ledger HookState key is "counter"'s 7 ASCII bytes
-// right-aligned in 32 bytes, zero-padded on the *left*. Defaults to 0,
-// increments it, writes it back, and calls
-// `accept!(b"state-counter: incremented", next as i64)` - the new count
-// becomes the HookReturnCode. HookOn is Invoke.
 import {
   ExecutionUtility,
   StateUtility,
@@ -31,25 +15,12 @@ import {
   type iHook,
 } from '@transia/hooks-toolkit'
 import { calculateHookOn, type TransactionMetadata } from 'xahau'
-// HookFlags isn't re-exported from the package root in xahau@4.x - only
-// reachable via this deep import (same path hooks-toolkit's own source
-// uses internally for the same enum).
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-state-counter'
-// hooks-build's printed worst case for state_counter.wasm (`mise run
-// build-examples`) - 254, up from 58 for the previous, hand-rolled-buffer
-// version of this hook (see the README's "Cost of the typed layer, here"
-// section): `state_get_typed`/`state_set_typed` go through `crate::state`'s
-// generic 32-byte-scratch-buffer machinery instead of a plain 8-byte
-// buffer over the raw `state`/`state_set` calls.
 const WORST_CASE_INSTRUCTIONS = 254
 
-// CounterKey { name: *b"counter" } (7 bytes), sent to the host at its own
-// real length (HookKey's derive; see the README's "Same slot as before"
-// section); the host left-pads a short key to its fixed 32-byte storage
-// width - so the real on-ledger key is "counter" right-aligned in 32
-// bytes, zero-padded on the left.
+// Hook state keys are left-padded to 32 bytes by the host.
 const COUNTER_KEY = Buffer.from('counter', 'ascii')
   .toString('hex')
   .toUpperCase()
@@ -77,8 +48,7 @@ describe('state-counter', () => {
   })
 
   afterAll(async () => {
-    // hsfNSDelete: clear the namespace's state before removing the hook,
-    // so a re-run of this suite starts from a fresh counter.
+    // Clear persistent state so reruns start at zero.
     const clearStateHook: iHook = {
       Flags: HookFlags.hsfNSDelete,
       HookNamespace: hookNamespace,
@@ -112,16 +82,9 @@ describe('state-counter', () => {
     const hookExecutions = await invoke()
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
-    // HookReturnCode is a 64-bit int field, serialized as a *hex* string
-    // over RPC (same convention as HookInstructionCount below) even
-    // though the toolkit's `iHookExecution` type declares it as `number`
-    // - only matters here because the asserted codes are single-digit,
-    // which read identically whether parsed as decimal or hex (see
-    // slot-ledger.test.ts for a case where it doesn't).
     expect(Number(execution.HookReturnCode)).toBe(1)
     expect(execution.HookReturnString).toBe('state-counter: incremented')
-    // HookInstructionCount is a *hex* string over RPC (confirmed by direct
-    // inspection - e.g. "d" = 13).
+    // Hook instruction counts are hexadecimal RPC values.
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_INSTRUCTIONS,
     )

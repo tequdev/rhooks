@@ -384,9 +384,8 @@ pub const PARAM_NAME_MAX_LEN: usize = 32;
 /// the same whether it goes through `Cfg` or `CfgName`; and both expose the
 /// bytes as `Cfg.get_name() -> &'static [u8]`, a `const fn` reading out of
 /// the same literal.
-/// `examples/12_typed-data`'s README measures this directly: its plain
-/// `CFG`/`INS` names cost the identical worst-case instruction count as
-/// the loose `hook_param_exact`/`otxn_param_exact` this replaces.
+/// Plain byte-string names use the same direct host-call path as
+/// `hook_param_exact` and `otxn_param_exact`.
 ///
 /// # Near-zero-cost for the composite (struct-shaped) case too
 ///

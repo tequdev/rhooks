@@ -1,53 +1,10 @@
-//! `emit-txn` — reserves an emission slot and emits a 1-drop Payment back
-//! to the account that sent the originating transaction, using its own
-//! `Payment` template (declared below with `hooks_lib::txn_template!`) to
-//! build the entire wire-format transaction ourselves. Also exports a
-//! `cbak` callback for when the emitted transaction settles.
-//!
-//! Build: `hooks-build build --manifest-path examples/10_emit-txn/Cargo.toml`
-//!
-//! ## Why not `prepare()`
-//!
-//! `prepare()` is a HooksUpdate2+ Hook API function whose substitution
-//! contract is documented only as "auto-fill system fields," with no
-//! further specification. `Payment` instead mirrors xahaud's own C
-//! tx-builder macro, `PREPARE_PAYMENT_SIMPLE`
-//! (`hook/genesis/headers/macro.h`), fully specified here: only the fields
-//! that genuinely require a host call (`FirstLedgerSequence`/
-//! `LastLedgerSequence` via `ledger_seq()`, `Account` via `hook_account()`,
-//! `EmitDetails` via `etxn_details()`, `Fee` via `etxn_fee_base()`) ever
-//! touch undocumented host behavior — everything else is a byte-exact,
-//! reviewable constant. Those fields, plus `Sequence`/`SigningPubKey`
-//! (always a fixed baked constant on an emitted transaction), are declared
-//! below with `txn_template!`'s ordinary, uniform kinds — there is no
-//! special declaration syntax for them. `txn_template!` recognizes them by
-//! their `sfXxx` code *value* and requires all six (`Sequence`,
-//! `FirstLedgerSequence`, `LastLedgerSequence`, `Fee`, `SigningPubKey`,
-//! `Account`) plus an `emit_details` field to be present, which makes the
-//! macro generate `Payment::prepare_for_emit()` itself; this crate no
-//! longer hand-writes that function. See `hooks_lib::txn`
-//! (`docs/DESIGN.md` §5.5) for the generated method's exact semantics.
-//!
-//! ## The template lives here, not in `hooks-lib`
-//!
-//! See `hooks_lib::txn` and `docs/DESIGN.md` §5.5: `hooks-lib` deliberately
-//! owns no transaction-shaped type, so `txn_template!` turns *this crate's*
-//! field list into a byte-exact template, and adding a field never needs a
-//! `hooks-lib` release.
-
 #![no_std]
 
 use hooks_lib::prelude::*;
 use hooks_lib::{accept, cbak, hook, hook_errors, rollback, txn_template};
 
 txn_template! {
-    /// This hook's Payment template: `TransactionType` through
-    /// `Destination` at fixed offsets, followed by a reserved `EmitDetails`
-    /// region the host fills in. Every field uses the same uniform kinds;
-    /// `sequence`, `first_ledger_sequence`, `last_ledger_sequence`, `fee`,
-    /// `signing_pub_key`, and `account` are recognized as required by
-    /// their `sfXxx` code, together with `emit_details`, which is what
-    /// makes the macro generate `Payment::prepare_for_emit()`.
+    /// A payment template for emitted transactions.
     struct Payment {
         transaction_type = ttPAYMENT,
         flags: u32_field(sfFlags) = tfCANONICAL,
@@ -65,33 +22,27 @@ txn_template! {
     }
 }
 
-/// The Payment template, `const`-initialized so it lands in a wasm data
-/// segment (see `Payment::new`'s doc comment and
-/// `hooks_lib::static_cell::HookStatic`).
+/// The reusable payment template.
 static TXN: HookStatic<Payment> = HookStatic::new(Payment::new());
 
 hook_errors! {
-    /// `emit-txn` rollback codes.
+    /// Errors returned by the emission hook.
     pub enum EmitTxnError {
-        /// `etxn_reserve(1)` failed to reserve an emission slot.
+        /// An emission slot could not be reserved.
         ReserveFailed = 1,
-        /// `otxn_field(sfAccount)` did not return a 20-byte `AccountId`.
+        /// The originating account could not be read.
         CouldNotReadSender = 2,
-        /// The static `Payment` buffer had already been `take()`n (never
-        /// happens in this hook, which only takes it once per invocation).
+        /// The payment template was unavailable.
         BufferAlreadyTaken = 3,
-        /// `Payment::set_amount` failed to set the 1-drop amount field.
+        /// The payment amount could not be set.
         SetAmountFailed = 4,
-        /// `Payment::prepare_for_emit` failed to fill in the host-supplied
-        /// fields.
+        /// The payment could not be prepared.
         PrepareFailed = 5,
-        /// `emit_buf` failed to submit the prepared transaction.
+        /// The prepared payment could not be emitted.
         EmitFailed = 6,
     }
 }
 
-/// Hook entry point: emits a 1-drop Payment back to the originating
-/// transaction's sender.
 #[hook]
 fn my_hook() -> i64 {
     if etxn_reserve(1).is_err() {
@@ -110,7 +61,6 @@ fn my_hook() -> i64 {
         ),
     }
 
-    // None only on a second take, which this hook never performs.
     let Some(txn) = TXN.take() else {
         rollback!(
             b"emit-txn: static buffer already taken",
@@ -140,7 +90,6 @@ fn my_hook() -> i64 {
     }
 }
 
-/// Callback invoked when the emitted transaction settles. Always accepts.
 #[cbak]
 fn my_cbak() -> i64 {
     accept!()

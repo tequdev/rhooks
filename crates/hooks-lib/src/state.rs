@@ -110,9 +110,8 @@
 //! case (`Counter`, `Balance(AccountId)`, ...), each carrying at most one
 //! [`crate::convert::ToBytes`] payload. A key that is itself a **composite of
 //! several fields** — a tag byte plus an `AccountId` plus a `u32` sequence
-//! number, say — doesn't fit that shape (a tuple variant takes exactly one
-//! payload) and previously had to be hand-packed into a raw
-//! [`crate::types::StateKey`] byte buffer.
+//! number, say — does not fit that shape because a tuple variant takes one
+//! payload.
 //!
 //! [`crate::HookKey`] closes that gap: derive it on an ordinary named-field
 //! struct (every field a fixed-size type — see its doc comment for the exact

@@ -1,16 +1,3 @@
-// e2e: examples/10_emit-txn against a standalone Xahau node.
-//
-// `hook()` reserves one emission slot, builds its `txn_template!`-declared
-// Payment (1 drop back to the otxn sender) fully in hook memory, and calls
-// `emit()` - this is the FIRST live validation of hooks-lib's
-// `txn_template!` wire format against a real xahaud: if the node rejects
-// the emitted txn, or SetHook/emit itself fails, that is reported
-// prominently below rather than patched around.
-//
-// Emitted transactions carry `FirstLedgerSequence = triggering seq + 1`,
-// so they cannot land in the same ledger as the triggering Invoke - at
-// least one extra `ledger_accept` is needed after the one that closes the
-// Invoke's own ledger.
 import {
   ExecutionUtility,
   Xrpld,
@@ -30,23 +17,10 @@ import {
   type HookEmission,
   type TransactionMetadata,
 } from 'xahau'
-// HookFlags isn't re-exported from the package root in xahau@4.x - only
-// reachable via this deep import (same path hooks-toolkit's own source
-// uses internally for the same enum).
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-emit-txn'
-// hooks-build's printed worst case for emit_txn.wasm (`mise run build-examples`),
-// derived straight from xahaud's own vendored guard checker (see
-// crates/hooks-build/src/guard_native.rs) - not a hooks-build estimate.
 const WORST_CASE_HOOK_INSTRUCTIONS = 331
-// NOT used as a hard bound below: live-observed cbak HookInstructionCount
-// for this trivial `accept!()`-only cbak is 10, exceeding the checker's
-// own cbak_cost of 7. Confirmed reproducible (crates/hooks-build/src/
-// guard_native.rs's cbak_cost comes from xahaud's *own* vendored
-// `validateGuards()`, unmodified - this is a static-vs-live accounting
-// gap in xahaud's own upstream checker, not something to patch here).
-// See this suite's task report for the full writeup.
 
 describe('emit-txn', () => {
   let testContext: XrplIntegrationTestContext
@@ -61,9 +35,6 @@ describe('emit-txn', () => {
       HookNamespace: hexNamespace(namespace),
       HookApiVersion: 0,
     }
-    // setupClient's fundSystem funds every hookN wallet to 20000 XAH if
-    // below 10000 XAH - comfortably above the 1-drop emission + its fee
-    // and the emitted-transaction owner reserve this hook needs.
     await setHooksV3({
       client: testContext.client,
       seed: testContext.hook1.seed,
@@ -96,16 +67,9 @@ describe('emit-txn', () => {
     )
     expect(hookExecutions.executions.length).toBe(1)
     const execution = hookExecutions.executions[0]
-    // HookReturnCode is a 64-bit int field, serialized as a *hex* string
-    // over RPC (same convention as HookInstructionCount below) even
-    // though the toolkit's `iHookExecution` type declares it as `number`
-    // - only matters here because the asserted codes are single-digit,
-    // which read identically whether parsed as decimal or hex (see
-    // slot-ledger.test.ts for a case where it doesn't).
     expect(Number(execution.HookReturnCode)).toBe(0)
     expect(execution.HookReturnString).toBe('emit-txn: emitted')
-    // HookInstructionCount is a *hex* string over RPC (confirmed by direct
-    // inspection - e.g. "d" = 13).
+    // Hook instruction counts are hexadecimal RPC values.
     expect(parseInt(execution.HookInstructionCount, 16)).toBeLessThanOrEqual(
       WORST_CASE_HOOK_INSTRUCTIONS,
     )
@@ -115,11 +79,7 @@ describe('emit-txn', () => {
     expect(emissions.length).toBe(1)
     const emittedTxnID = emissions[0].HookEmission.EmittedTxnID
 
-    // Poll for the emitted txn to validate: it needs at least one more
-    // closed ledger beyond the one containing the triggering Invoke.
-    // The client defaults to API v1 (see xahau's Client.apiVersion), whose
-    // `tx` response flattens the transaction's fields onto `.result`
-    // directly (no `.result.tx_json` nesting).
+    // Emissions require a later closed ledger before they can be queried.
     let emittedTxn: any
     for (let attempt = 0; attempt < 4 && !emittedTxn; attempt += 1) {
       await testContext.client.request({ command: 'ledger_accept' } as any)
@@ -132,7 +92,6 @@ describe('emit-txn', () => {
           emittedTxn = txResponse
         }
       } catch {
-        // Not yet included - keep polling.
       }
     }
 
@@ -168,9 +127,7 @@ describe('emit-txn', () => {
     expect(cbakExecution.HookAccount).toBe(testContext.hook1.classicAddress)
     expect(Number(cbakExecution.HookReturnCode)).toBe(0)
     expect(cbakExecution.HookReturnString).toBe('')
-    // Sanity bound only (see the comment above) - deliberately not
-    // hooks-build's printed cbak worst case, which live evidence shows
-    // this trivial cbak already exceeds.
+    // Use a live sanity bound because callback cost differs from static accounting.
     expect(parseInt(cbakExecution.HookInstructionCount, 16)).toBeLessThanOrEqual(20)
   })
 })

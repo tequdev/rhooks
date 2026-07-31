@@ -1,76 +1,7 @@
-//! `hooks-lib` — ergonomic, Rust-idiomatic wrapper over `hooks-core`.
+//! Ergonomic, `no_std` wrappers and macros for writing Xahau Hooks.
 //!
-//! This is the crate Hook developers import directly. It provides:
-//! - [`error::HookError`] / [`error::Result`] — a typed error model over the
-//!   raw negative-`i64` Hook API error codes.
-//! - [`types`] — fixed-size, `#[repr(transparent)]` newtypes for
-//!   protocol-fixed shapes (`AccountId`, `Hash`, `Keylet`, ...).
-//! - [`convert::ToBytes`]/[`convert::FromBytes`] — boundary conversion
-//!   traits for encoding/decoding fixed-size values to/from byte buffers.
-//! - [`state`] — a typed layer over hook state (`state_get`,
-//!   `state_set_loose`, `state_update_loose`, and the [`state_keys!`] macro
-//!   for declaring a state-key enum) built on top of [`convert`]. Pair a key
-//!   type with its one value type via [`state::TypedStateKey`]/
-//!   [`hook_state!`] and use `state_get_typed`/`state_set_typed`/
-//!   `state_update_typed` for a key/value mismatch that's a compile
-//!   error instead of a latent bug (see [`state::TypedStateKey`]'s doc
-//!   comment).
-//! - [`buf_eq`] — loop-free, panic-free equality checks for those fixed-size
-//!   buffers/newtypes (use instead of `==`, which can compile to an
-//!   unguarded `compiler_builtins` `bcmp` loop).
-//! - [`xfl::XFL`] — the Xahau decimal floating-point type, with
-//!   `Result`-returning `Add`/`Sub`/`Mul`/`Div`/`Neg` operators plus
-//!   `PartialEq`/`PartialOrd`.
-//! - [`xfl_unchecked::XFLUnchecked`] — a poison-propagating hot-path
-//!   counterpart to `XFL`: unchecked operators, one `validate()` call at
-//!   the end of a chain.
-//! - [`tx_type::TxType`] — a typed mirror of the raw `tt*` transaction-type
-//!   codes (`hooks_core::tts`), decoded from [`api::otxn::otxn_type`]'s
-//!   raw `u16`.
-//! - [`api`] — a `Result`-based wrapper for every Hook API function.
-//! - [`pad!`], [`guard!`], [`guard_m!`], [`accept!`], [`rollback!`], `trace!` family —
-//!   terse macros for common patterns (see `macros.rs`).
-//! - [`hook`] / [`cbak`] — attribute macros that turn a plain, argument-less
-//!   `fn name() -> i64` into the wasm export shape the Hook host requires
-//!   (see `hooks-macros`'s crate doc comment).
-//! - [`account_id!`](account_id) — decodes a classic XRPL/Xahau r-address
-//!   into an [`types::AccountId`] literal entirely at compile time (zero
-//!   runtime/wasm-size cost).
-//! - [`hook_errors!`] / [`exit_on_err!`] — define a `#[repr(i64)]` user error
-//!   enum and convert `Result<T, YourEnum>` into a `rollback!` at the hook's
-//!   boundary (see `errors.rs`).
-//! - Four narrow derive macros, all built on the same fixed-offset
-//!   [`convert::ToBytes`]/[`convert::FromBytes`] codegen, one per role a
-//!   composite (multi-field) struct plays in this crate — deliberately four
-//!   separate derives rather than one covering everything, so each generates
-//!   only what its role actually needs (see [`HookKey`]'s doc comment for the
-//!   full rationale):
-//!   - [`HookKey`] — a composite **hook-state key** (write-only, plus an
-//!     explicit [`state::StateKeyEncode`] impl with the 32-byte key-space
-//!     bound checked at derive time).
-//!   - [`HookData`] — a composite **hook-state value** (the full
-//!     `ToBytes`/`FromBytes`/`FixedRead` triple, read back and decoded by
-//!     `state_get`/`state_get_typed`).
-//!   - [`ParamName`] — a composite **Hook API parameter name** (write-only,
-//!     with the Hook API's own 1–32-byte parameter-name bound checked at
-//!     derive time).
-//!   - [`ParamValue`] — a **Hook API parameter value** (read-only:
-//!     `FromBytes`/`FixedRead`, no `ToBytes` — a parameter value is decoded,
-//!     never itself used to locate anything).
-//! - An optional panic handler (feature `panic-handler`, default-on) that
-//!   rolls the hook back instead of leaving an unhandled panic.
-//!
-//! `#![no_std]`: this crate targets `wasm32v1-none` Hook binaries as well as
-//! host builds (for tests/doctests, which run against `hooks-core`'s
-//! deterministic `NOT_IMPLEMENTED` stubs).
-//!
-//! `hooks-core` is re-exported as [`raw`] for direct access to raw Hook API
-//! declarations and every C-verbatim constant (`sfcodes`, `tts`, `ls_flags`,
-//! `tx_flags`, `consts`) — this is the path `guard!`/`guard_m!` expand
-//! through (`$crate::raw::_g`), and it is also how a hook can drop to the
-//! raw FFI layer for anything not yet covered by [`api`]. A plain `pub use
-//! hooks_core as raw;` (rather than `pub mod raw { pub use hooks_core::*; }`)
-//! keeps that path a single, direct alias with no extra module indirection.
+//! Use [`api`] for typed Hook API calls, [`state`] for typed state access,
+//! [`types`] for protocol values, and [`raw`] for the underlying FFI.
 
 #![no_std]
 
@@ -116,25 +47,12 @@ pub use hooks_macros::hook;
 /// settles.
 pub use hooks_macros::cbak;
 
-/// Decodes a classic XRPL/Xahau r-address (base58check, e.g.
-/// `"rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh"`) into an [`types::AccountId`]
-/// literal — **entirely at compile time**, inside the proc-macro (host-side
-/// base58 decode + double-SHA256 checksum verification, hand-written in
-/// `hooks-macros` — see its crate doc comment for why not a `sha2`/`bs58`
-/// dependency). The expansion is a plain `AccountId([u8; 20])` literal, so
-/// this costs the compiled Hook wasm binary **nothing**: no decode logic
-/// ships in the binary at all, and it works in `const`/`static` position.
+/// Decodes a classic XRPL/Xahau r-address into an [`types::AccountId`] at
+/// compile time.
 ///
-/// This replaces hand-computing/hardcoding a 20-byte array for a
-/// well-known address — e.g. `examples/80_reward`/`examples/81_govern`
-/// both hand-hardcode `GENESIS_ACCOUNT`, the Xahau/XRPL standalone-network
-/// genesis/master account, as a raw `AccountId([0xB5, 0xF7, ...])` literal;
-/// `account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh")` produces the exact
-/// same value from the address string directly.
-///
-/// A malformed address (bad character, wrong length, wrong version byte,
-/// or a failed checksum) is a `compile_error!` at the macro call site
-/// naming exactly what was wrong — never a runtime failure.
+/// Invalid characters, version bytes, lengths, and checksums produce a
+/// `compile_error!`. The expansion is an `AccountId` literal and can be used
+/// in `const` and `static` items.
 ///
 /// # Examples
 ///
@@ -142,8 +60,6 @@ pub use hooks_macros::cbak;
 /// use hooks_lib::account_id;
 /// use hooks_lib::types::AccountId;
 ///
-/// // The Xahau/XRPL standalone-network genesis/master account (seed
-/// // "masterpassphrase") — see the note above about `GENESIS_ACCOUNT`.
 /// const OWNER: AccountId = account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh");
 /// assert_eq!(
 ///     OWNER.0,
@@ -153,31 +69,26 @@ pub use hooks_macros::cbak;
 ///     ]
 /// );
 ///
-/// // `ACCOUNT_ZERO`, XRPL's well-known all-zero special address — also
-/// // usable in a `static`, not just a bare `const`, exactly like
-/// // `AccountId::zeroed()` elsewhere in this crate.
 /// static ACCOUNT_ZERO: AccountId = account_id!("rrrrrrrrrrrrrrrrrrrrrhoLvTp");
 /// assert_eq!(ACCOUNT_ZERO.0, [0u8; 20]);
 /// ```
 ///
-/// A checksum mismatch (last character `h` -> `H`) fails to compile:
+/// A checksum mismatch fails to compile:
 /// ```compile_fail
 /// hooks_lib::account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTH");
 /// ```
 ///
-/// A wrong version byte (this address doesn't even start with `'r'`) fails
-/// to compile:
+/// A wrong version byte fails to compile:
 /// ```compile_fail
 /// hooks_lib::account_id!("sJHw2iRxXngPFKZvYbjkfifqt8CJghksMM");
 /// ```
 ///
-/// A truncated address (wrong decoded length) fails to compile:
+/// A truncated address fails to compile:
 /// ```compile_fail
 /// hooks_lib::account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdty");
 /// ```
 ///
-/// An invalid character (`'0'` is not in the XRPL base58 alphabet) fails
-/// to compile:
+/// An invalid character fails to compile:
 /// ```compile_fail
 /// hooks_lib::account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyT0");
 /// ```
@@ -209,9 +120,9 @@ pub use hooks_macros::account_id;
 ///   convenience limit — see [`state`]'s module doc comment). `HookKey`
 ///   checks that bound **at derive time**, unconditionally: a
 ///   `#[derive(HookKey)]` struct that encodes to 33+ bytes fails to compile
-///   at its own definition, before it's ever used as a key at all. Unlike an
-///   earlier design, the encoded key sent to the host is **not** locally
-///   zero-padded up to 32 bytes — it is exactly the struct's own natural
+///   at its own definition, before it is used as a key. The encoded key sent
+///   to the host is **not** locally zero-padded up to 32 bytes — it is exactly
+///   the struct's own natural
 ///   length, e.g. 2 bytes for a `{ tag: u8, small: u8 }`, and the host
 ///   itself left-pads a key shorter than 32 bytes (see [`state`]'s module
 ///   doc comment, "Key length and padding").
