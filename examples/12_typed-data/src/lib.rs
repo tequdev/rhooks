@@ -105,7 +105,7 @@ const EMPTY_DEPOSIT: DepositValue = DepositValue {
 /// Hook entry point. See the module doc comment for the full behavior.
 #[hook]
 fn my_hook() -> i64 {
-    let Ok(owner) = otxn_field_exact(sfAccount) else {
+    let Ok(owner) = otxn_field_typed(sfAccount) else {
         rollback!(
             b"typed-data: sfAccount missing from the originating transaction",
             TypedDataError::AccountFieldMissing

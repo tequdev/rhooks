@@ -1,6 +1,17 @@
 //! Information about the originating transaction (the transaction that
 //! triggered this hook invocation).
 //!
+//! # The typed path is the norm for a field with a modeled type
+//!
+//! [`otxn_field_typed`] is the default way to read a field the generated
+//! [`crate::sfield`] table gives a value type to (`sfAccount`, `sfSequence`,
+//! `sfAmount`, ...): the field constant itself pins down what comes back, no
+//! turbofish and no separate decode step. [`otxn_field`] (raw bytes) and
+//! [`otxn_field_exact`] (fixed-length, `T`-inferred) remain the escape
+//! hatches — for a field this crate models no typed read for
+//! ([`crate::types::Opaque`], `STObject`, `STArray`), or when the caller
+//! wants the wire bytes directly.
+//!
 //! # Decoding a raw protocol field: use `from_be_bytes`, not `FromBytes`
 //!
 //! [`otxn_field_exact`]'s raw bytes are Xahau Binary — the protocol's own
@@ -8,20 +19,18 @@
 //! conventions") — never this crate's little-endian [`crate::convert::FromBytes`]
 //! trait, which is the convention for *hook-private* data (state/param
 //! values this crate's own typed layer wrote), a completely different
-//! domain. A numeric protocol field read this way — an `Amount`/native
-//! currency field, say — must be decoded with an explicit
-//! `u64::from_be_bytes(...)` call at the use site. This is not a new
-//! pattern: `examples/03_hook-params/src/lib.rs` and
-//! `examples/04_errors/src/lib.rs` already do exactly this
-//! (`u64::from_be_bytes(raw) & !NATIVE_AMOUNT_FLAG_BITS` on an
-//! `otxn_field_exact::<[u8; 8]>(sfXxx)`/`hook_param_exact` result) — this
-//! doc comment just makes that existing precedent the documented norm
-//! rather than something each call site has to rediscover.
+//! domain. A numeric protocol field read through the raw escapes must be
+//! decoded with an explicit `u64::from_be_bytes(...)` call at the use site
+//! (`examples/03_hook-params/src/lib.rs`'s `hook_param_exact` read of `MIN`
+//! is exactly that). [`otxn_field_typed`] does this decoding itself for
+//! every field it models, so a field with a modeled type no longer needs the
+//! idiom at all — see its doc comment.
 
 use crate::convert::{FixedRead, TypedParamName};
-use crate::error::{Result, res};
+use crate::error::{HookError, Result, res};
+use crate::slot_obj::{self, AmountBytes, IssueData};
 use crate::tx_type::TxType;
-use crate::types::Hash;
+use crate::types::{AccountId, Amount, CurrencyCode, Hash, Issue, SField};
 
 /// Burden of the originating transaction: `1` for a normal transaction, or
 /// the `sfEmitBurden` value for an emitted transaction. A natural (unsigned)
@@ -79,6 +88,165 @@ pub fn otxn_field_u64(field_id: impl Into<u32>) -> Result<u64> {
 #[inline(always)]
 pub fn otxn_field_exact<T: FixedRead>(field_id: impl Into<u32>) -> Result<T> {
     T::read_exact(|buf| otxn_field(buf, field_id))
+}
+
+/// Sealing module: see [`crate::slot_obj`]'s `private` module for the
+/// identical rationale, applied here to the same end — a downstream impl of
+/// [`OtxnFieldValue`] could otherwise claim a wire-type/Rust-type pairing
+/// this crate never verified (e.g. reading a `Blob` field as an
+/// `AccountId`), and the generated [`crate::sfield`] table is the only thing
+/// that is supposed to make that pairing.
+mod private {
+    pub trait Sealed {}
+}
+
+/// Value types readable directly off the originating transaction by
+/// [`otxn_field_typed`] — the argument-driven counterpart of
+/// [`crate::slot_obj::SlotObject::value`]'s per-type reads, with identical
+/// per-type semantics (narrow-int as-int64, `u64`/`Hash`/`AccountId`/
+/// `CurrencyCode` as exact wire bytes, `Amount`/`Issue` classified by
+/// length) — see that impl family's doc comments for the width/endianness
+/// rationale each impl here mirrors.
+///
+/// [`Self::Output`](OtxnFieldValue::Output) is `Self` for every scalar and
+/// fixed-byte type, and the classified [`AmountBytes`]/[`IssueData`] for
+/// `Amount`/`Issue`, whose wire encoding is one of two shapes rather than
+/// one. **Sealed** (see [`private`]) — implemented for exactly the value
+/// types [`crate::sfield`] pairs with a field constant. `STObject`,
+/// `STArray`, and [`crate::types::Opaque`] have deliberately no impl: an
+/// object or array has no single scalar value, and an opaque field's shape
+/// is not known at compile time, so a call naming one of those is a compile
+/// error — read it with the raw [`otxn_field`]/[`otxn_field_exact`] escape
+/// hatches instead.
+pub trait OtxnFieldValue: private::Sealed + Sized {
+    /// What the read returns.
+    type Output;
+
+    /// Reads `field` and decodes it as [`Self::Output`](Self::Output).
+    /// Called by [`otxn_field_typed`]; takes the [`SField`] itself rather
+    /// than its raw `u32` code so that calling this directly buys nothing —
+    /// an `SField<Self>` can only come from the generated [`crate::sfield`]
+    /// table ([`SField`]'s constructor is `pub(crate)` precisely to keep
+    /// code/type pairings unforgeable), so this is [`otxn_field_typed`]
+    /// under another name, not a bypass around it.
+    #[doc(hidden)]
+    fn read_otxn_field(field: SField<Self>) -> Result<Self::Output>;
+}
+
+/// Generates the [`OtxnFieldValue`] impl for a narrow integer type, read
+/// through the host's as-int64 mode (bit 63 is unreachable at these widths,
+/// so [`otxn_field_u64`] is safe here — see `slot_obj::read_int` for the
+/// identical narrowing).
+macro_rules! int_field {
+    ($ty:ty) => {
+        impl private::Sealed for $ty {}
+        impl OtxnFieldValue for $ty {
+            type Output = $ty;
+
+            #[inline(always)]
+            fn read_otxn_field(field: SField<Self>) -> Result<Self::Output> {
+                let raw = otxn_field_u64(field.code())?;
+                <$ty>::try_from(raw).map_err(|_| HookError::TooBig)
+            }
+        }
+    };
+}
+
+int_field!(u8);
+int_field!(u16);
+int_field!(u32);
+
+impl private::Sealed for u64 {}
+impl OtxnFieldValue for u64 {
+    type Output = u64;
+
+    /// Deliberately **not** the as-int64 path the narrower integers use: the
+    /// host rejects a value with bit 63 set as `TOO_BIG`, and legitimate
+    /// 64-bit fields set it (`sfExchangeRate` among them). Reading the eight
+    /// wire bytes and decoding them big-endian here has no such hole — see
+    /// `SlotObject<u64>::value`'s doc comment for the identical rationale.
+    #[inline(always)]
+    fn read_otxn_field(field: SField<Self>) -> Result<Self::Output> {
+        otxn_field_exact::<[u8; 8]>(field.code()).map(u64::from_be_bytes)
+    }
+}
+
+/// Generates the [`OtxnFieldValue`] impl for a fixed-size wire type read
+/// verbatim (no interpretation, no byte-swapping) via [`otxn_field_exact`].
+macro_rules! bytes_field {
+    ($ty:ty) => {
+        impl private::Sealed for $ty {}
+        impl OtxnFieldValue for $ty {
+            type Output = $ty;
+
+            #[inline(always)]
+            fn read_otxn_field(field: SField<Self>) -> Result<Self::Output> {
+                otxn_field_exact::<Self>(field.code())
+            }
+        }
+    };
+}
+
+bytes_field!(Hash);
+bytes_field!(AccountId);
+bytes_field!(CurrencyCode);
+
+impl private::Sealed for Amount {}
+impl OtxnFieldValue for Amount {
+    type Output = AmountBytes;
+
+    #[inline(always)]
+    fn read_otxn_field(field: SField<Self>) -> Result<Self::Output> {
+        let mut buf = [0u8; crate::types::IOU_AMOUNT_LEN];
+        let written = otxn_field(&mut buf, field.code())?;
+        let bytes = buf.get(..written).ok_or(HookError::TooBig)?;
+        slot_obj::classify_amount(bytes)
+    }
+}
+
+impl private::Sealed for Issue {}
+impl OtxnFieldValue for Issue {
+    type Output = IssueData;
+
+    /// 44 bytes, not the 40 an IOU issue needs — see
+    /// `slot_obj::decode_issue`'s doc comment for why the wider buffer is
+    /// what makes a 44-byte MPT issue reach [`slot_obj::classify_issue`] as a
+    /// [`HookError::ParseError`] instead of failing the host call first as
+    /// `TooSmall`.
+    #[inline(always)]
+    fn read_otxn_field(field: SField<Self>) -> Result<Self::Output> {
+        let mut buf = [0u8; slot_obj::ISSUE_MAX_READ_LEN];
+        let written = otxn_field(&mut buf, field.code())?;
+        let bytes = buf.get(..written).ok_or(HookError::TooBig)?;
+        slot_obj::classify_issue(bytes)
+    }
+}
+
+/// Reads a field from the originating transaction as its modeled Rust type —
+/// the safer default over [`otxn_field_exact`] for exactly the reason
+/// [`otxn_param_typed`]'s doc comment gives for parameters: `field`'s own
+/// type parameter is what decides [`Self::Output`](OtxnFieldValue::Output),
+/// so there is no separate type argument spelled independently of the
+/// constant that could name a mismatched type for the field actually
+/// intended. No turbofish, no annotation — `otxn_field_typed(sfAccount)`
+/// reads back an `AccountId` because `sfAccount: SField<AccountId>` says so.
+///
+/// Escape hatches: [`otxn_field`] (raw bytes, any field) and
+/// [`otxn_field_exact`] (fixed-length, `T` inferred from context) for a
+/// field this crate models no typed read for, or when the caller wants the
+/// wire bytes directly.
+///
+/// # Examples
+///
+/// ```
+/// use hooks_lib::prelude::*;
+///
+/// let sender = otxn_field_typed(sfAccount);
+/// assert_eq!(sender, Err(HookError::NotImplemented));
+/// ```
+#[inline(always)]
+pub fn otxn_field_typed<T: OtxnFieldValue>(field: SField<T>) -> Result<T::Output> {
+    T::read_otxn_field(field)
 }
 
 /// Generation of the originating transaction: `0` for a normal transaction,
@@ -240,6 +408,30 @@ mod tests {
         assert_eq!(otxn_field_u64(0u32), Err(HookError::NotImplemented));
         assert_eq!(
             otxn_field_exact::<[u8; 20]>(0u32),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            otxn_field_typed(crate::sfield::sfSequence),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            otxn_field_typed(crate::sfield::sfAccount),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            otxn_field_typed(crate::sfield::sfEmitParentTxnID),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            otxn_field_typed(crate::sfield::sfAmount),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            otxn_field_typed(crate::sfield::sfExchangeRate),
+            Err(HookError::NotImplemented)
+        );
+        assert_eq!(
+            otxn_field_typed(crate::sfield::sfLockingChainIssue),
             Err(HookError::NotImplemented)
         );
         assert_eq!(otxn_param(&mut buf, b"x"), Err(HookError::NotImplemented));

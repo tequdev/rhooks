@@ -17,7 +17,7 @@ hook_errors! {
 
 #[hook]
 fn my_hook() -> i64 {
-    let Ok(sender) = otxn_field_exact(sfAccount) else {
+    let Ok(sender) = otxn_field_typed(sfAccount) else {
         rollback!(
             b"firewall: could not read otxn sender",
             FirewallError::CouldNotReadSender

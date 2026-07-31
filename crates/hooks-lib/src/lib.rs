@@ -1352,8 +1352,9 @@ pub mod prelude {
     // globbed-then-shadowed so that adding one upstream is a deliberate act:
     // dropping a non-slot API here would be a silent, unrelated break.
     pub use crate::api::otxn::{
-        otxn_burden, otxn_field, otxn_field_exact, otxn_field_u64, otxn_generation, otxn_id,
-        otxn_id_buf, otxn_param, otxn_param_exact, otxn_param_typed, otxn_type,
+        OtxnFieldValue, otxn_burden, otxn_field, otxn_field_exact, otxn_field_typed,
+        otxn_field_u64, otxn_generation, otxn_id, otxn_id_buf, otxn_param, otxn_param_exact,
+        otxn_param_typed, otxn_type,
     };
     pub use crate::api::state::*;
     pub use crate::api::sto::*;

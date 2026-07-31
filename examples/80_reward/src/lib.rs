@@ -155,7 +155,7 @@ fn my_hook() -> i64 {
         accept!(b"Reward: Passing non-claim txn", 0);
     }
 
-    let Ok(sender) = otxn_field_exact::<AccountId>(sfAccount) else {
+    let Ok(sender) = otxn_field_typed(sfAccount) else {
         RewardError::AssertionFailed.rollback(b"reward: could not read otxn Account")
     };
     let Ok(hook_acc) = hook_account_buf() else {
