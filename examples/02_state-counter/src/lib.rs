@@ -1,6 +1,6 @@
 #![no_std]
 
-use hooks_lib::{accept, hook, hook_errors, hook_state, rollback};
+use hooks_lib::*;
 
 hook_state!(Counter, CounterKey {name: [u8; 7]} = {name: *b"counter"} => u64);
 
@@ -14,7 +14,7 @@ hook_errors! {
 
 #[hook]
 fn my_hook() -> i64 {
-    let count = Counter.get_state().unwrap_or(None).unwrap_or(0);
+    let count = Counter.get_state().unwrap_or(Some(0)).unwrap_or(0);
 
     let next = count.wrapping_add(1);
     if Counter.set_state(&next).is_err() {

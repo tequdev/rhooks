@@ -6,7 +6,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{accept, hook, hook_errors, rollback, state_keys};
+use hooks_lib::*;
 
 state_keys! {
     /// One state entry per keylet type.
@@ -89,13 +89,13 @@ const PAGE_INDEX_LOW: u32 = 2;
 /// Returns a keylet or rolls back with `100 + keylet_type`.
 #[inline(always)]
 fn compute(keylet_type: u32, result: Result<Keylet>) -> Keylet {
-    match result {
-        Ok(k) => k,
-        Err(_) => rollback!(
+    let Ok(k) = result else {
+        rollback!(
             b"keylets: a keylet_xxx call failed",
             100i64.wrapping_add(keylet_type as i64)
-        ),
-    }
+        )
+    };
+    k
 }
 
 /// Stores a keylet in Hook state.
@@ -109,19 +109,17 @@ fn store(key: &KeyletKey, value: &Keylet) {
 /// Hook entry point. See the module doc comment for the full behavior.
 #[hook]
 fn my_hook() -> i64 {
-    let owner: AccountId = match otxn_field_exact(sfAccount) {
-        Ok(v) => v,
-        Err(_) => rollback!(
+    let Ok(owner) = otxn_field_exact(sfAccount) else {
+        rollback!(
             b"keylets: sfAccount missing from the originating transaction",
             KeyletsError::AccountFieldMissing
-        ),
+        )
     };
-    let dest: AccountId = match otxn_field_exact(sfDestination) {
-        Ok(v) => v,
-        Err(_) => rollback!(
+    let Ok(dest) = otxn_field_exact(sfDestination) else {
+        rollback!(
             b"keylets: sfDestination missing from the originating transaction",
             KeyletsError::DestinationFieldMissing
-        ),
+        )
     };
 
     store(&KeyletKey::Hook, &compute(KEYLET_HOOK, keylet_hook(&owner)));

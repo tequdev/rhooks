@@ -11,7 +11,7 @@ mod txn;
 use hooks_lib::prelude::*;
 use hooks_lib::slot_path;
 use hooks_lib::static_cell::HookStatic;
-use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, otxn_parameter, rollback};
+use hooks_lib::*;
 
 // Per-seat initial member parameter.
 hook_parameter!(MemberParam, MemberParamName [u8; 3] => AccountId);
@@ -26,10 +26,7 @@ otxn_parameter!(TopicParam, TopicParamName = b"T" => [u8; 2]);
 otxn_parameter!(LayerParam, LayerParamName = b"L" => [u8; 1]);
 
 /// Network genesis account.
-const GENESIS_ACCOUNT: AccountId = AccountId([
-    0xB5, 0xF7, 0x62, 0x79, 0x8A, 0x53, 0xD5, 0x43, 0xA0, 0x14, 0xCA, 0xF8, 0xB2, 0x97, 0xCF, 0xF8,
-    0xF2, 0xF9, 0x37, 0xE8,
-]);
+const GENESIS_ACCOUNT: AccountId = account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh");
 
 /// `SEAT_COUNT` in govern.c: the round table has 20 seats.
 const SEAT_COUNT: u8 = 20;
@@ -61,9 +58,6 @@ hook_errors! {
 // Scratch buffers for transaction and state data.
 static TOPIC_DATA: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 static PREVIOUS_TOPIC_DATA: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
-static HOOK_KEYLET: HookStatic<[u8; 34]> = HookStatic::new([0u8; 34]);
-static HOOK_DEFINITION_KEYLET: HookStatic<[u8; 34]> = HookStatic::new([0u8; 34]);
-static EXISTING_HOOK: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 static PREVIOUS_MEMBER: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 static VOTE_VALUE: HookStatic<[u8; 32]> = HookStatic::new([0u8; 32]);
 
@@ -98,13 +92,11 @@ fn my_hook() -> i64 {
         done(b"Governance: Passing non-Invoke txn. HookOn should be changed to avoid this.");
     }
 
-    let sender: AccountId = match otxn_field_exact(sfAccount) {
-        Ok(a) => a,
-        Err(_) => GovernError::AssertionFailed.nope(b"govern: could not read otxn Account"),
+    let Ok(sender) = otxn_field_exact::<AccountId>(sfAccount) else {
+        GovernError::AssertionFailed.nope(b"govern: could not read otxn Account")
     };
-    let hook_accid: AccountId = match hook_account_buf() {
-        Ok(a) => a,
-        Err(_) => GovernError::AssertionFailed.nope(b"govern: could not read hook_account"),
+    let Ok(hook_accid) = hook_account_buf() else {
+        GovernError::AssertionFailed.nope(b"govern: could not read hook_account")
     };
 
     if buf_eq_20(&sender, &hook_accid) {
@@ -327,15 +319,11 @@ fn my_hook() -> i64 {
 /// call site's isolated cost. This function boundary keeps nesting at 22.
 #[inline(never)]
 fn setup_initial_reward_rate_and_delay() {
-    let irr: XFL = match InitialRewardRate.get_value() {
-        Ok(v) => v,
-        Err(_) => GovernError::BadParameter
-            .nope(b"Governance: Initial Reward Rate Parameter missing (IRR)."),
+    let Ok(irr) = InitialRewardRate.get_value() else {
+        GovernError::BadParameter.nope(b"Governance: Initial Reward Rate Parameter missing (IRR).")
     };
-    let ird: XFL = match InitialRewardDelay.get_value() {
-        Ok(v) => v,
-        Err(_) => GovernError::BadParameter
-            .nope(b"Governance: Initial Reward Delay Parameter miss (IRD)."),
+    let Ok(ird) = InitialRewardDelay.get_value() else {
+        GovernError::BadParameter.nope(b"Governance: Initial Reward Delay Parameter miss (IRD).")
     };
     if ird.raw_bits() == 0 {
         GovernError::BadParameter.nope(b"Governance: Initial Reward Delay must be > 0.");
@@ -361,10 +349,8 @@ fn setup_initial_reward_rate_and_delay() {
 /// for the regression guard.
 #[inline(never)]
 fn setup(is_l1_table: bool) -> ! {
-    let imc: [u8; 1] = match InitialMemberCount.get_value() {
-        Ok(v) => v,
-        Err(_) => GovernError::BadParameter
-            .nope(b"Governance: Initial Member Count Parameter missing (IMC)."),
+    let Ok(imc) = InitialMemberCount.get_value() else {
+        GovernError::BadParameter.nope(b"Governance: Initial Member Count Parameter missing (IMC).")
     };
     if state_set(&imc, &keys::MEMBER_COUNT).is_err() {
         GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
@@ -388,10 +374,9 @@ fn setup(is_l1_table: bool) -> ! {
         let this_seat = i;
         i = i.wrapping_add(1);
         let member_pkey = MemberParam([b'I', b'S', this_seat]);
-        let member_acc: AccountId = match member_pkey.get_value() {
-            Ok(a) => a,
-            Err(_) => GovernError::BadParameter
-                .nope(b"Governance: One or more initial member account ID's is missing"),
+        let Ok(member_acc) = member_pkey.get_value() else {
+            GovernError::BadParameter
+                .nope(b"Governance: One or more initial member account ID's is missing")
         };
         if state_set(member_acc.as_ref(), &keys::seat_forward_key(this_seat)) != Ok(20) {
             GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
@@ -429,21 +414,9 @@ fn action_reward(_t: u8, n: u8, padding: usize, topic_data: &[u8; 32]) -> ! {
 /// via an emitted `HookSet`. Diverges.
 #[inline(never)]
 fn action_hook(hook_accid: &AccountId, n: u8, topic_data_zero: bool, topic_data: &[u8; 32]) -> ! {
-    let keylet = take_scratch(&HOOK_KEYLET);
-    if util_keylet(
-        keylet,
-        KEYLET_HOOK,
-        hook_accid.as_ptr() as u32,
-        ACC_ID_LEN as u32,
-        0,
-        0,
-        0,
-        0,
-    )
-    .is_err()
-    {
+    let Ok(keylet) = keylet_hook(hook_accid) else {
         GovernError::AssertionFailed.nope(b"govern: could not build hook keylet");
-    }
+    };
     // The already-installed hook's hash, if there is one: the hook account's
     // `Hooks` array, element `n`, its `HookHash`. `slot_path!` clears each
     // intermediate as soon as its child exists, so this costs one live slot
@@ -451,13 +424,12 @@ fn action_hook(hook_accid: &AccountId, n: u8, topic_data_zero: bool, topic_data:
     // matters in a hook this close to the nesting ceiling.
     //
     // Missing hook data skips the comparison.
-    if let Ok(hook_acc) = SlotObject::from_keylet(&Keylet(*keylet)) {
+    if let Ok(hook_acc) = SlotObject::from_keylet(&keylet) {
         if let Ok(hash_slot) = slot_path!(hook_acc[sfHooks][u32::from(n)][sfHookHash]) {
-            let existing_hook = take_scratch(&EXISTING_HOOK);
-            if hash_slot.raw(existing_hook) != Ok(HASH_LEN) {
+            let Ok(existing_hook) = hash_slot.value() else {
                 GovernError::AssertionFailed.nope(b"Governance: Assertion failed.");
-            }
-            if buf_eq_32(existing_hook, topic_data) {
+            };
+            if buf_eq_32(&existing_hook, topic_data) {
                 done(b"Goverance: Target hook is already the same as actioned hook.");
             }
         }
@@ -465,25 +437,13 @@ fn action_hook(hook_accid: &AccountId, n: u8, topic_data_zero: bool, topic_data:
     }
 
     if !topic_data_zero {
-        let hdef_keylet = take_scratch(&HOOK_DEFINITION_KEYLET);
-        if util_keylet(
-            hdef_keylet,
-            KEYLET_HOOK_DEFINITION,
-            topic_data.as_ptr() as u32,
-            32,
-            0,
-            0,
-            0,
-            0,
-        )
-        .is_err()
-        {
+        let Ok(hdef_keylet) = keylet_hook_definition(&Hash::from(*topic_data)) else {
             GovernError::AssertionFailed.nope(b"govern: could not build hook definition keylet");
-        }
+        };
         // Existence check only — the handle is dropped without reading, and
         // the slot lives until the hook ends (the C cost model; see
         // `hooks_lib::slot_obj`).
-        if SlotObject::from_keylet(&Keylet(*hdef_keylet)).is_err() {
+        if SlotObject::from_keylet(&hdef_keylet).is_err() {
             GovernError::BadParameter
                 .nope(b"Goverance: Hook Hash doesn't exist on ledger while actioning hook.");
         }

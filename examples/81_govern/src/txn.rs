@@ -3,7 +3,7 @@
 use hooks_lib::prelude::*;
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::txn::codec;
-use hooks_lib::{guard, rollback};
+use hooks_lib::*;
 
 /// Rolls back an emission failure.
 #[inline(always)]

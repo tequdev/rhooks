@@ -7,9 +7,7 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
-use hooks_lib::{
-    ParamName, accept, hook, hook_errors, hook_parameter, hook_state, otxn_parameter, rollback,
-};
+use hooks_lib::*;
 
 /// Discriminant for deposit records.
 const DEPOSIT_TAG: u8 = 1;
@@ -107,20 +105,18 @@ const EMPTY_DEPOSIT: DepositValue = DepositValue {
 /// Hook entry point. See the module doc comment for the full behavior.
 #[hook]
 fn my_hook() -> i64 {
-    let owner: AccountId = match otxn_field_exact(sfAccount) {
-        Ok(v) => v,
-        Err(_) => rollback!(
+    let Ok(owner) = otxn_field_exact(sfAccount) else {
+        rollback!(
             b"typed-data: sfAccount missing from the originating transaction",
             TypedDataError::AccountFieldMissing
-        ),
+        )
     };
 
-    let instruction = match Ins.get_value() {
-        Ok(v) => v,
-        Err(_) => rollback!(
+    let Ok(instruction) = Ins.get_value() else {
+        rollback!(
             b"typed-data: INS parameter missing or malformed",
             TypedDataError::InstructionMissing
-        ),
+        )
     };
 
     let deposit = DepositState {
