@@ -1,7 +1,7 @@
 // e2e: examples/08_slot-ledger against a standalone Xahau node.
 //
-// `hook()` navigates the originating Payment through the Slot API
-// (`otxn_slot` -> `slot_subfield` -> `slot_exact`) to read `sfDestination`
+// `hook()` navigates the originating Payment through the *typed* Slot API
+// (`SlotObject::from_otxn` -> `.get(sfXxx)` -> `.value()`) to read `sfDestination`
 // and `sfAmount`, rolling back with a `SlotLedgerError` code (see
 // examples/08_slot-ledger/README.md) if either lookup fails or `Amount`
 // isn't native; accepts otherwise with a marker accept code (the sum of
@@ -29,7 +29,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 const namespace = 'rhooks-e2e-slot-ledger'
 // hooks-build's printed worst case for slot_ledger.wasm (`mise run build-examples`).
-const WORST_CASE_INSTRUCTIONS = 209
+const WORST_CASE_INSTRUCTIONS = 197
 
 describe('slot-ledger', () => {
   let testContext: XrplIntegrationTestContext

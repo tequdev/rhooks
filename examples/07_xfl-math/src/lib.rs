@@ -17,6 +17,12 @@
 #![no_std]
 
 use hooks_lib::prelude::*;
+// The numbered slot functions left the prelude when the typed `SlotObject`
+// layer arrived (they address the same 255 registers, and mixing the two
+// silently corrupts handles). This hook uses them directly and by number, so
+// it names the module explicitly — see `hooks_lib::slot_obj`'s module doc.
+use hooks_lib::api::otxn::otxn_slot;
+use hooks_lib::api::slot::{slot_clear, slot_subfield};
 use hooks_lib::{accept, hook, hook_errors, rollback};
 
 /// The percentage this hook computes from the transaction `Amount`: 1%,

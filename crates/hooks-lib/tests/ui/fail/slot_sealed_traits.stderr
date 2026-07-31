@@ -1,0 +1,51 @@
+error[E0277]: the trait bound `MyKey: slot_obj::private::Resolve` is not satisfied
+  --> tests/ui/fail/slot_sealed_traits.rs:11:28
+   |
+11 | impl SlotKey<STObject> for MyKey {
+   |                            ^^^^^ the trait `slot_obj::private::Resolve` is not implemented for `MyKey`
+   |
+   = help: the following other types implement trait `slot_obj::private::Resolve`:
+             SField<T>
+             u32
+note: required by a bound in `hooks_lib::slot_obj::SlotKey`
+  --> src/slot_obj.rs
+   |
+   | pub trait SlotKey<Parent>: private::Resolve {
+   |                            ^^^^^^^^^^^^^^^^ required by this bound in `SlotKey`
+   = note: `SlotKey` is a "sealed trait", because to implement it you also need to implement `hooks_lib::slot_obj::private::Resolve`, which is not accessible; this is usually done to force you to use one of the provided types that already implement it
+   = help: the following types implement the trait:
+             hooks_lib::slot_obj::SField<T>
+             u32
+
+error[E0277]: the trait bound `MyTarget: slot_obj::private::CastTargetSealed` is not satisfied
+  --> tests/ui/fail/slot_sealed_traits.rs:17:21
+   |
+17 | impl CastTarget for MyTarget {}
+   |                     ^^^^^^^^ the trait `slot_obj::private::CastTargetSealed` is not implemented for `MyTarget`
+   |
+   = help: the following other types implement trait `slot_obj::private::CastTargetSealed`:
+             AccountId
+             Amount
+             CurrencyCode
+             Issue
+             STArray
+             STObject
+             hooks_lib::types::Hash
+             u16
+           and $N others
+note: required by a bound in `hooks_lib::slot_obj::CastTarget`
+  --> src/slot_obj.rs
+   |
+   | pub trait CastTarget: private::CastTargetSealed {}
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `CastTarget`
+   = note: `CastTarget` is a "sealed trait", because to implement it you also need to implement `hooks_lib::slot_obj::private::CastTargetSealed`, which is not accessible; this is usually done to force you to use one of the provided types that already implement it
+   = help: the following types implement the trait:
+             hooks_lib::slot_obj::STObject
+             hooks_lib::slot_obj::STArray
+             hooks_lib::slot_obj::Amount
+             hooks_lib::slot_obj::Issue
+             u8
+             u16
+             u32
+             u64
+           and $N others

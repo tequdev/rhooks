@@ -193,3 +193,14 @@ See `e2e/test/reward.test.ts` and the top-level PR description for the
 live-node test matrix (against `XahauGenesis_test.cpp`'s `ClaimReward`
 coverage) and which cases could/couldn't be reproduced outside a real
 genesis-activated network.
+
+## Slot API imports
+
+This hook drives the numbered slot API directly (`slot_set`/`slot_subfield`/
+`slot_u64`/`slot_count`), managing slot numbers itself — the same reason it
+routes fallible Hook API calls through its own `raw.rs` shims. Those
+functions left the prelude when the typed `SlotObject` layer arrived (mixing
+the two corrupts handles, since both address the same 255 registers), so
+`src/lib.rs` names them explicitly via `hooks_lib::api::slot::{..}` and
+`hooks_lib::api::otxn::otxn_slot`. Nothing about the hook's behavior or its
+measured cost changed — see `examples/08_slot-ledger` for the typed layer.

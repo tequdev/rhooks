@@ -752,6 +752,15 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 ///
 /// ```
 /// use hooks_lib::prelude::*;
+/// // `txn_template!` takes raw `u32` const expressions — see this module's
+/// // "Field codes are raw `u32`" section. Named explicitly rather than
+/// // glob-imported: the prelude's typed `SField` constants use the same
+/// // names, and an explicit import wins over a glob.
+/// use hooks_lib::raw::sfcodes::{
+///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
+///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
+///     sfSigningPubKey, sfSourceTag, sfTransactionType,
+/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -795,6 +804,15 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// the order violation (`destination` placed before `flags`):
 /// ```compile_fail,E0080
 /// use hooks_lib::prelude::*;
+/// // `txn_template!` takes raw `u32` const expressions — see this module's
+/// // "Field codes are raw `u32`" section. Named explicitly rather than
+/// // glob-imported: the prelude's typed `SField` constants use the same
+/// // names, and an explicit import wins over a glob.
+/// use hooks_lib::raw::sfcodes::{
+///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
+///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
+///     sfSigningPubKey, sfSourceTag, sfTransactionType,
+/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -818,6 +836,15 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// before the required-field checks even run):
 /// ```compile_fail
 /// use hooks_lib::prelude::*;
+/// // `txn_template!` takes raw `u32` const expressions — see this module's
+/// // "Field codes are raw `u32`" section. Named explicitly rather than
+/// // glob-imported: the prelude's typed `SField` constants use the same
+/// // names, and an explicit import wins over a glob.
+/// use hooks_lib::raw::sfcodes::{
+///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
+///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
+///     sfSigningPubKey, sfSourceTag, sfTransactionType,
+/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -837,6 +864,15 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// required field are fine):
 /// ```compile_fail,E0080
 /// use hooks_lib::prelude::*;
+/// // `txn_template!` takes raw `u32` const expressions — see this module's
+/// // "Field codes are raw `u32`" section. Named explicitly rather than
+/// // glob-imported: the prelude's typed `SField` constants use the same
+/// // names, and an explicit import wins over a glob.
+/// use hooks_lib::raw::sfcodes::{
+///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
+///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
+///     sfSigningPubKey, sfSourceTag, sfTransactionType,
+/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -859,6 +895,15 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// instead of `native_amount`:
 /// ```compile_fail,E0080
 /// use hooks_lib::prelude::*;
+/// // `txn_template!` takes raw `u32` const expressions — see this module's
+/// // "Field codes are raw `u32`" section. Named explicitly rather than
+/// // glob-imported: the prelude's typed `SField` constants use the same
+/// // names, and an explicit import wins over a glob.
+/// use hooks_lib::raw::sfcodes::{
+///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
+///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
+///     sfSigningPubKey, sfSourceTag, sfTransactionType,
+/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {
@@ -885,6 +930,15 @@ impl<'a, T: TemplateBytes> core::fmt::Debug for Prepared<'a, T> {
 /// `Account`/`EmitDetails`/`Fee` were never actually filled in.
 /// ```compile_fail
 /// use hooks_lib::prelude::*;
+/// // `txn_template!` takes raw `u32` const expressions — see this module's
+/// // "Field codes are raw `u32`" section. Named explicitly rather than
+/// // glob-imported: the prelude's typed `SField` constants use the same
+/// // names, and an explicit import wins over a glob.
+/// use hooks_lib::raw::sfcodes::{
+///     sfAccount, sfAmount, sfDestination, sfDestinationTag, sfFee,
+///     sfFirstLedgerSequence, sfFlags, sfLastLedgerSequence, sfSequence,
+///     sfSigningPubKey, sfSourceTag, sfTransactionType,
+/// };
 /// use hooks_lib::txn_template;
 ///
 /// txn_template! {

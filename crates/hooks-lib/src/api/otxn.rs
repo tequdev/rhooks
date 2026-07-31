@@ -34,8 +34,9 @@ pub fn otxn_burden() -> u64 {
 /// Read a field from the originating transaction into `out`. Returns the
 /// number of bytes written.
 #[inline(always)]
-pub fn otxn_field<B: AsMut<[u8]> + ?Sized>(out: &mut B, field_id: u32) -> Result<usize> {
+pub fn otxn_field<B: AsMut<[u8]> + ?Sized>(out: &mut B, field_id: impl Into<u32>) -> Result<usize> {
     let out = out.as_mut();
+    let field_id = field_id.into();
     res(unsafe { hooks_core::otxn_field(out.as_mut_ptr() as u32, out.len() as u32, field_id) })
         .map(|v| v as usize)
 }
@@ -45,7 +46,8 @@ pub fn otxn_field<B: AsMut<[u8]> + ?Sized>(out: &mut B, field_id: u32) -> Result
 /// most 8 bytes with the top bit clear, else
 /// [`crate::error::HookError::TooBig`] — see `state_u64` for details).
 #[inline(always)]
-pub fn otxn_field_u64(field_id: u32) -> Result<u64> {
+pub fn otxn_field_u64(field_id: impl Into<u32>) -> Result<u64> {
+    let field_id = field_id.into();
     res(unsafe { hooks_core::otxn_field(0, 0, field_id) }).map(|v| v as u64)
 }
 
@@ -71,11 +73,11 @@ pub fn otxn_field_u64(field_id: u32) -> Result<u64> {
 /// use hooks_lib::api::otxn::otxn_field_exact;
 /// use hooks_lib::error::{HookError, Result};
 ///
-/// let sender: Result<[u8; 20]> = otxn_field_exact(0);
+/// let sender: Result<[u8; 20]> = otxn_field_exact(0u32);
 /// assert_eq!(sender, Err(HookError::NotImplemented));
 /// ```
 #[inline(always)]
-pub fn otxn_field_exact<T: FixedRead>(field_id: u32) -> Result<T> {
+pub fn otxn_field_exact<T: FixedRead>(field_id: impl Into<u32>) -> Result<T> {
     T::read_exact(|buf| otxn_field(buf, field_id))
 }
 
@@ -234,10 +236,10 @@ mod tests {
         assert_eq!(otxn_id_buf(0), Err(HookError::NotImplemented));
         let mut buf = [0u8; 32];
         assert_eq!(otxn_id(&mut buf, 0), Err(HookError::NotImplemented));
-        assert_eq!(otxn_field(&mut buf, 0), Err(HookError::NotImplemented));
-        assert_eq!(otxn_field_u64(0), Err(HookError::NotImplemented));
+        assert_eq!(otxn_field(&mut buf, 0u32), Err(HookError::NotImplemented));
+        assert_eq!(otxn_field_u64(0u32), Err(HookError::NotImplemented));
         assert_eq!(
-            otxn_field_exact::<[u8; 20]>(0),
+            otxn_field_exact::<[u8; 20]>(0u32),
             Err(HookError::NotImplemented)
         );
         assert_eq!(otxn_param(&mut buf, b"x"), Err(HookError::NotImplemented));

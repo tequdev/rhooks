@@ -67,6 +67,9 @@ mod keys;
 mod txn;
 
 use hooks_lib::prelude::*;
+// Numbered slot access, by explicit module path: these left the prelude with
+// the typed `SlotObject` layer. This hook manages slot numbers itself.
+use hooks_lib::api::slot::{slot, slot_set, slot_subarray, slot_subfield};
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::{accept, guard, hook, hook_errors, hook_parameter, otxn_parameter, rollback};
 

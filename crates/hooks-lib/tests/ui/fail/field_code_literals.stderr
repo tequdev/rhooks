@@ -1,0 +1,68 @@
+error[E0277]: the trait bound `u32: From<i32>` is not satisfied
+ --> tests/ui/fail/field_code_literals.rs:9:34
+  |
+9 |     let _ = otxn_field(&mut buf, 0);
+  |             ----------           ^ the trait `From<i32>` is not implemented for `u32`
+  |             |
+  |             required by a bound introduced by this call
+  |
+  = help: the following other types implement trait `From<T>`:
+            `u32` implements `From<Char>`
+            `u32` implements `From<Ipv4Addr>`
+            `u32` implements `From<SField<T>>`
+            `u32` implements `From<bool>`
+            `u32` implements `From<char>`
+            `u32` implements `From<u16>`
+            `u32` implements `From<u8>`
+  = note: required for `i32` to implement `Into<u32>`
+note: required by a bound in `hooks_lib::api::otxn_field`
+ --> src/api/otxn.rs
+  |
+  | pub fn otxn_field<B: AsMut<[u8]> + ?Sized>(out: &mut B, field_id: impl Into<u32>) -> Result<usize> {
+  |                                                                        ^^^^^^^^^ required by this bound in `otxn_field`
+
+error[E0277]: the trait bound `u32: From<i32>` is not satisfied
+  --> tests/ui/fail/field_code_literals.rs:10:28
+   |
+10 |     let _ = otxn_field_u64(0);
+   |             -------------- ^ the trait `From<i32>` is not implemented for `u32`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `From<T>`:
+             `u32` implements `From<Char>`
+             `u32` implements `From<Ipv4Addr>`
+             `u32` implements `From<SField<T>>`
+             `u32` implements `From<bool>`
+             `u32` implements `From<char>`
+             `u32` implements `From<u16>`
+             `u32` implements `From<u8>`
+   = note: required for `i32` to implement `Into<u32>`
+note: required by a bound in `hooks_lib::api::otxn_field_u64`
+  --> src/api/otxn.rs
+   |
+   | pub fn otxn_field_u64(field_id: impl Into<u32>) -> Result<u64> {
+   |                                      ^^^^^^^^^ required by this bound in `otxn_field_u64`
+
+error[E0277]: the trait bound `u32: From<i32>` is not satisfied
+  --> tests/ui/fail/field_code_literals.rs:11:42
+   |
+11 |     let _ = otxn_field_exact::<[u8; 20]>(0);
+   |             ---------------------------- ^ the trait `From<i32>` is not implemented for `u32`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `From<T>`:
+             `u32` implements `From<Char>`
+             `u32` implements `From<Ipv4Addr>`
+             `u32` implements `From<SField<T>>`
+             `u32` implements `From<bool>`
+             `u32` implements `From<char>`
+             `u32` implements `From<u16>`
+             `u32` implements `From<u8>`
+   = note: required for `i32` to implement `Into<u32>`
+note: required by a bound in `hooks_lib::api::otxn_field_exact`
+  --> src/api/otxn.rs
+   |
+   | pub fn otxn_field_exact<T: FixedRead>(field_id: impl Into<u32>) -> Result<T> {
+   |                                                      ^^^^^^^^^ required by this bound in `otxn_field_exact`

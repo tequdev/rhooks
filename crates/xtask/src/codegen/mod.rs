@@ -14,10 +14,15 @@ pub mod host;
 pub mod ls_flags;
 /// Generates `crates/hooks-core/src/sfcodes.rs` from `sfcodes.h`.
 pub mod sfcodes;
+/// Generates `crates/hooks-lib/src/sfield.rs` (typed `SField<T>` field
+/// constants) from `sfcodes.h` — the typed mirror of [`sfcodes`]'s raw
+/// table, in `hooks-lib` for the same reason [`tx_type`] is.
+pub mod sfield;
 /// Generates `crates/hooks-core/src/tts.rs` from `tts.h`.
 pub mod tts;
 /// Generates `crates/hooks-core/src/tx_flags.rs` from `tx_flags.h`.
 pub mod tx_flags;
+
 /// Generates `crates/hooks-lib/src/tx_type.rs` (a typed `TxType` enum) from
 /// `tts.h` — the one generator in this module whose output lands outside
 /// `hooks-core`; see its own module doc comment for why.

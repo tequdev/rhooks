@@ -24,12 +24,13 @@ directory is prefixed) and matches what its own README, `Cargo.toml`, and
 | 05 | [`firewall`](05_firewall) | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` |
 | 06 | [`guard-patterns`](06_guard-patterns) | `guard!`/`guard_m!` correctness, choosing `maxiter`, and the array-`==` memcmp-loop pitfall |
 | 07 | [`xfl-math`](07_xfl-math) | reading `Amount` as XFL (`slot_float`/`sto_set`), `mulratio`, checked `Add`/`Sub`/`Mul`/`Div`/`Neg` operators, `.compare()`-family methods, and `XFLUnchecked`'s hot-path chain |
-| 08 | [`slot-ledger`](08_slot-ledger) | `otxn_slot`/`slot_subfield`/`slot`/`slot_size`: transaction field access via slots |
+| 8 | [`slot-ledger`](08_slot-ledger) | the **typed slot layer**: `SlotObject::from_otxn()` -> `.get(sfXxx)` -> `.value()`, with no slot numbers in sight, measured against the raw numbered API it replaced |
 | 09 | [`state-foreign`](09_state-foreign) | `state_foreign`: reading another (hook-parameter-configured) account's hook state |
 | 10 | [`emit-txn`](10_emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
 | 12 | [`typed-data`](12_typed-data) | `#[derive(HookData)]`: composite (multi-field) state keys/values and `otxn_param`/`hook_param` structs, in place of hand-packed byte buffers |
 | 13 | [`keylets`](13_keylets) | `hooks_lib::api::keylet`'s 26 typed `keylet_xxx` helpers (one per `KEYLET_*` constant), in place of the single untyped `util_keylet` |
 | 14 | [`account-id-macro`](14_account-id-macro) | `hooks_lib::account_id!`: compile-time r-address -> `AccountId` decode, cross-checked against `hook_account`/`util_accid`/`util_raddr` |
+| 15 | [`slot-objects`](15_slot-objects) | the typed slot layer's live acceptance harness: account-root walk, native-amount drops round-trip, parent-clear/child-read, and two 300-iteration loops proving `take_*` recycling and leak-free `slot_path!` failures |
 
 (11 is reserved for other in-flight work — see git history/other
 branches — hence the jump from `10` to `12`.)

@@ -33,6 +33,7 @@ const examples = {
   '12_typed-data': 'typed_data',
   '13_keylets': 'keylets',
   '14_account-id-macro': 'account_id_macro',
+  '15_slot-objects': 'slot_objects',
   '80_reward': 'reward',
   '81_govern': 'govern',
 }

@@ -80,6 +80,8 @@ pub mod convert;
 pub mod error;
 mod errors;
 mod macros;
+pub mod sfield;
+pub mod slot_obj;
 pub mod state;
 pub mod static_cell;
 pub mod tx_type;
@@ -1395,7 +1397,9 @@ pub use hooks_macros::ParamValue;
 pub use hooks_macros::paste as __paste;
 
 /// Common imports for hook developers: `use hooks_lib::prelude::*;` pulls in
-/// every `api::*` wrapper function, the fixed-size buffer type aliases, the
+/// the `api::*` wrapper functions, the typed slot layer
+/// ([`slot_obj::SlotObject`] and the generated [`sfield`] constants), the
+/// fixed-size buffer type aliases, the
 /// [`xfl::XFL`]/[`xfl_unchecked::XFLUnchecked`]/[`tx_type::TxType`] types,
 /// [`error::HookError`]/[`error::Result`], and the C-verbatim constant
 /// families (`sfXxx`, `ttXxx`, `lsfXxx`, `tfXxx`, and `hookapi.h`'s
@@ -1404,11 +1408,53 @@ pub use hooks_macros::paste as __paste;
 /// crate's own wrappers, e.g. both define `state`) — only the constant-only
 /// modules are pulled in, so there is no ambiguity between a
 /// prelude-imported name and a hooks-lib wrapper.
+///
+/// # Two deliberate absences
+///
+/// - **The raw `sfcodes` glob.** [`sfield`]'s typed `SField<T>` constants
+///   take those names, so `sfSequence` here is an `SField<u32>`, not a
+///   `u32`. The raw table is still available at `hooks_lib::raw::sfcodes::*`
+///   for const contexts — [`txn_template!`](crate::txn_template)'s field
+///   tables, a `const` header expression — where `Into` cannot be called.
+///   [`SField::code()`](slot_obj::SField::code) is the other bridge.
+/// - **The numbered slot functions.** `slot_set`/`slot_clear`/
+///   `slot_subfield`/`otxn_slot`/... address the same 255 registers
+///   [`slot_obj::SlotObject`] manages, and mixing the two silently corrupts
+///   handles. They stay public at `hooks_lib::api::slot::*` (plus
+///   `hooks_lib::api::otxn::otxn_slot`) — see [`mod@api::slot`]'s module doc
+///   comment.
 pub mod prelude {
-    pub use crate::api::*;
+    // `api::*` minus the numbered slot functions: those address the same 255
+    // registers `SlotObject` manages, and a stray `slot_clear(3)` next to a
+    // live handle silently corrupts it. They stay public at
+    // `hooks_lib::api::slot::*` (and `hooks_lib::api::otxn::otxn_slot`), where
+    // reaching for them is at least visible at the call site — see
+    // `crate::slot_obj`'s module doc comment.
+    pub use crate::api::control::*;
+    pub use crate::api::etxn::*;
+    pub use crate::api::float::*;
+    pub use crate::api::hook_ctx::*;
+    pub use crate::api::keylet::*;
+    pub use crate::api::ledger::*;
+    // Everything `api::otxn` exports *except* `otxn_slot`, which is a slot
+    // function and leaves for the reason above. Listed by name rather than
+    // globbed-then-shadowed so that adding one upstream is a deliberate act:
+    // dropping a non-slot API here would be a silent, unrelated break.
+    pub use crate::api::otxn::{
+        otxn_burden, otxn_field, otxn_field_exact, otxn_field_u64, otxn_generation, otxn_id,
+        otxn_id_buf, otxn_param, otxn_param_exact, otxn_param_typed, otxn_type,
+    };
+    pub use crate::api::state::*;
+    pub use crate::api::sto::*;
+    pub use crate::api::trace::*;
+    pub use crate::api::util::*;
     pub use crate::buf_eq::*;
     pub use crate::convert::{FixedRead, FromBytes, ToBytes, TypedParamName};
     pub use crate::error::{HookError, Result};
+    pub use crate::sfield::*;
+    pub use crate::slot_obj::{
+        AmountBytes, CastTarget, IssueData, SField, STArray, STObject, SlotKey, SlotObject,
+    };
     pub use crate::state::{
         StateKeyEncode, TypedStateKey, state_delete, state_foreign_get, state_foreign_get_typed,
         state_foreign_set_loose, state_foreign_set_typed, state_foreign_update_loose,
@@ -1420,7 +1466,10 @@ pub mod prelude {
     pub use crate::types::*;
     pub use crate::xfl::XFL;
     pub use crate::xfl_unchecked::XFLUnchecked;
-    pub use hooks_core::{consts::*, ls_flags::*, sfcodes::*, tts::*, tx_flags::*};
+    // `sfcodes::*` is deliberately absent: `crate::sfield`'s typed `sfXxx`
+    // constants take those names. The raw `u32` table is still there for
+    // const contexts that need it — `hooks_lib::raw::sfcodes::*`.
+    pub use hooks_core::{consts::*, ls_flags::*, tts::*, tx_flags::*};
 }
 
 /// Distinctive negative code used by the panic handler below when rolling

@@ -44,6 +44,21 @@ in-source comment): read the raw Amount bytes with `otxn_field`, then
 because it's also a chance to show `otxn_slot`/`slot_subfield` (see
 `examples/08_slot-ledger` for more on slot navigation specifically).
 
+This hook stays on the **raw, numbered** slot API deliberately: it manages
+the two slot numbers itself and calls `slot_clear` on both at the end. Those
+functions are no longer in the prelude — mixing them with the typed
+`SlotObject` layer would silently corrupt handles, since both address the
+same 255 registers — so the source names them explicitly
+(`hooks_lib::api::slot::{slot_clear, slot_subfield}`,
+`hooks_lib::api::otxn::otxn_slot`). The typed equivalent of the walkthrough
+above is one line shorter and needs no slot numbers at all:
+
+```rust
+let amount = SlotObject::from_otxn()?.get(sfAmount)?.as_xfl()?;
+```
+
+`examples/08_slot-ledger` is written that way, with a measured comparison.
+
 ### `mulratio` and the `.lt()` comparison
 
 ```rust

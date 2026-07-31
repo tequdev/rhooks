@@ -1,0 +1,21 @@
+error[E0624]: associated function `new` is private
+  --> tests/ui/fail/sfield_forgery.rs:15:45
+   |
+15 |     let forged: SField<AccountId> = SField::new(hooks_lib::raw::sfcodes::sfTakerPaysCurrency);
+   |                                             ^^^ private associated function
+   |
+  ::: src/slot_obj.rs
+   |
+   |     pub(crate) const fn new(code: u32) -> Self {
+   |     ------------------------------------------ private associated function defined here
+
+error[E0624]: associated function `new` is private
+  --> tests/ui/fail/sfield_forgery.rs:19:49
+   |
+19 |     let _ = hooks_lib::slot_obj::SField::<u64>::new(0);
+   |                                                 ^^^ private associated function
+   |
+  ::: src/slot_obj.rs
+   |
+   |     pub(crate) const fn new(code: u32) -> Self {
+   |     ------------------------------------------ private associated function defined here

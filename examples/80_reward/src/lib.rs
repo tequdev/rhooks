@@ -28,6 +28,11 @@ mod mint_txn;
 mod raw;
 
 use hooks_lib::prelude::*;
+// Numbered slot access, by explicit module path: these left the prelude with
+// the typed `SlotObject` layer. This hook manages slot numbers itself (see
+// `raw`'s doc comment for why it stays on the raw layer throughout).
+use hooks_lib::api::otxn::otxn_slot;
+use hooks_lib::api::slot::{slot, slot_count, slot_set, slot_subfield, slot_u64};
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::{accept, guard, hook, hook_errors, hook_state, rollback};
 use mint_txn::{L1_SEATS, MintTxn};

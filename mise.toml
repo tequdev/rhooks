@@ -107,6 +107,13 @@ cargo run -p hooks-build -- check examples/13_keylets/out/keylets.wasm
 cargo run -p hooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
 cargo run -p hooks-build -- check examples/14_account-id-macro/out/account_id_macro.wasm
 
+# slot-objects: the typed slot layer's live acceptance harness. Its two
+# 300-iteration loops are `guard!`-bounded by their own iteration count, so
+# it is guard-clean with no extra flags — see its own README for what each
+# accept-code bit proves.
+cargo run -p hooks-build -- build --manifest-path examples/15_slot-objects/Cargo.toml
+cargo run -p hooks-build -- check examples/15_slot-objects/out/slot_objects.wasm
+
 # 80+: production hooks (see examples/README.md's "80+" section). Both
 # need every fallible Hook API call routed through their own `src/raw.rs`
 # (bypassing hooks-lib's Result<_, HookError> wrapper) and reward/govern.c

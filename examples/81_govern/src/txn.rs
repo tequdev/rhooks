@@ -20,6 +20,15 @@
 //! `etxn_details`, `emit_buf`) — see `crate`'s module doc comment.
 
 use hooks_lib::prelude::*;
+// These field codes feed `codec::field_header(..)` in **const** contexts, and
+// `Into` is not const — so they are the raw `sfcodes` `u32`s, named
+// explicitly: the prelude's typed `SField` constants use the same names, and
+// an explicit import wins over a glob. (`SField::code()` is the other const
+// bridge, for call sites that already hold a typed constant.)
+use hooks_lib::raw::sfcodes::{
+    sfAccount, sfCreateCode, sfDestination, sfFee, sfFirstLedgerSequence, sfFlags, sfHook,
+    sfHookHash, sfHooks, sfLastLedgerSequence, sfSequence, sfSigningPubKey, sfTransactionType,
+};
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::txn::codec;
 use hooks_lib::{guard, rollback};

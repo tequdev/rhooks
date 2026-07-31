@@ -1,0 +1,969 @@
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:13:26
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+   | |                          ^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn u32_field_size(sfcode: u32) -> usize {
+   |                  ^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+13 |         flags: u32_field(sfFlags.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:14:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+14 | |         sequence: u32_field(sfSequence) = 0,
+   | |                             ^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn u32_field_size(sfcode: u32) -> usize {
+   |                  ^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+14 |         sequence: u32_field(sfSequence.into()) = 0,
+   |                                       +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:15:42
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+15 | |         first_ledger_sequence: u32_field(sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn u32_field_size(sfcode: u32) -> usize {
+   |                  ^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+15 |         first_ledger_sequence: u32_field(sfFirstLedgerSequence.into()) = 0,
+   |                                                               +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:16:41
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+16 | |         last_ledger_sequence: u32_field(sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn u32_field_size(sfcode: u32) -> usize {
+   |                  ^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+16 |         last_ledger_sequence: u32_field(sfLastLedgerSequence.into()) = 0,
+   |                                                             +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:17:28
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+17 | |         fee: native_amount(sfFee) = 0,
+   | |                            ^^^^^ expected `u32`, found `SField<Amount>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<Amount>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn native_amount_field_size(sfcode: u32) -> usize {
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<Amount>` into `u32`
+   |
+17 |         fee: native_amount(sfFee.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:18:35
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+18 | |         signing_pub_key: empty_vl(sfSigningPubKey),
+   | |                                   ^^^^^^^^^^^^^^^ expected `u32`, found `SField<Opaque>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<Opaque>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn empty_vl_field_size(sfcode: u32) -> usize {
+   |                  ^^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<Opaque>` into `u32`
+   |
+18 |         signing_pub_key: empty_vl(sfSigningPubKey.into()),
+   |                                                  +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:19:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         account: account_id(sfAccount),
+   | |                             ^^^^^^^^^ expected `u32`, found `SField<AccountId>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<AccountId>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn account_id_field_size(sfcode: u32) -> usize {
+   |                  ^^^^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<AccountId>` into `u32`
+   |
+19 |         account: account_id(sfAccount.into()),
+   |                                      +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:13:26
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+   | |                          ^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize>(
+   |                  ^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+13 |         flags: u32_field(sfFlags.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:13:26
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+   | |                          ^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+13 |         flags: u32_field(sfFlags.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:14:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+14 | |         sequence: u32_field(sfSequence) = 0,
+   | |                             ^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize>(
+   |                  ^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+14 |         sequence: u32_field(sfSequence.into()) = 0,
+   |                                       +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:14:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+14 | |         sequence: u32_field(sfSequence) = 0,
+   | |                             ^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+14 |         sequence: u32_field(sfSequence.into()) = 0,
+   |                                       +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:15:42
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+15 | |         first_ledger_sequence: u32_field(sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize>(
+   |                  ^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+15 |         first_ledger_sequence: u32_field(sfFirstLedgerSequence.into()) = 0,
+   |                                                               +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:15:42
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+15 | |         first_ledger_sequence: u32_field(sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+15 |         first_ledger_sequence: u32_field(sfFirstLedgerSequence.into()) = 0,
+   |                                                               +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:16:41
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+16 | |         last_ledger_sequence: u32_field(sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize>(
+   |                  ^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+16 |         last_ledger_sequence: u32_field(sfLastLedgerSequence.into()) = 0,
+   |                                                             +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:16:41
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+16 | |         last_ledger_sequence: u32_field(sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+16 |         last_ledger_sequence: u32_field(sfLastLedgerSequence.into()) = 0,
+   |                                                             +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:17:28
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+17 | |         fee: native_amount(sfFee) = 0,
+   | |                            ^^^^^ expected `u32`, found `SField<Amount>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<Amount>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize>(
+   |                  ^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<Amount>` into `u32`
+   |
+17 |         fee: native_amount(sfFee.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:17:28
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+17 | |         fee: native_amount(sfFee) = 0,
+   | |                            ^^^^^ expected `u32`, found `SField<Amount>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<Amount>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<Amount>` into `u32`
+   |
+17 |         fee: native_amount(sfFee.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:18:35
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+18 | |         signing_pub_key: empty_vl(sfSigningPubKey),
+   | |                                   ^^^^^^^^^^^^^^^ expected `u32`, found `SField<Opaque>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<Opaque>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize>(
+   |                  ^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<Opaque>` into `u32`
+   |
+18 |         signing_pub_key: empty_vl(sfSigningPubKey.into()),
+   |                                                  +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:18:35
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+18 | |         signing_pub_key: empty_vl(sfSigningPubKey),
+   | |                                   ^^^^^^^^^^^^^^^ expected `u32`, found `SField<Opaque>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<Opaque>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<Opaque>` into `u32`
+   |
+18 |         signing_pub_key: empty_vl(sfSigningPubKey.into()),
+   |                                                  +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:19:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         account: account_id(sfAccount),
+   | |                             ^^^^^^^^^ expected `u32`, found `SField<AccountId>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<AccountId>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize>(
+   |                  ^^^^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<AccountId>` into `u32`
+   |
+19 |         account: account_id(sfAccount.into()),
+   |                                      +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:19:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         account: account_id(sfAccount),
+   | |                             ^^^^^^^^^ expected `u32`, found `SField<AccountId>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<AccountId>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<AccountId>` into `u32`
+   |
+19 |         account: account_id(sfAccount.into()),
+   |                                      +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:13:26
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+   | |                          ^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+13 |         flags: u32_field(sfFlags.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:14:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+14 | |         sequence: u32_field(sfSequence) = 0,
+   | |                             ^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+14 |         sequence: u32_field(sfSequence.into()) = 0,
+   |                                       +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:15:42
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+15 | |         first_ledger_sequence: u32_field(sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+15 |         first_ledger_sequence: u32_field(sfFirstLedgerSequence.into()) = 0,
+   |                                                               +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:16:41
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+16 | |         last_ledger_sequence: u32_field(sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+16 |         last_ledger_sequence: u32_field(sfLastLedgerSequence.into()) = 0,
+   |                                                             +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:17:28
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+17 | |         fee: native_amount(sfFee) = 0,
+   | |                            ^^^^^ expected `u32`, found `SField<Amount>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<Amount>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<Amount>` into `u32`
+   |
+17 |         fee: native_amount(sfFee.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:19:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         account: account_id(sfAccount),
+   | |                             ^^^^^^^^^ expected `u32`, found `SField<AccountId>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<AccountId>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<AccountId>` into `u32`
+   |
+19 |         account: account_id(sfAccount.into()),
+   |                                      +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:13:26
+   |
+13 |         flags: u32_field(sfFlags) = 0,
+   |                          ^^^^^^^ expected `u32`, found `SField<u32>`
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+13 |         flags: u32_field(sfFlags.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:13:26
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+   | |                          ^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+13 |         flags: u32_field(sfFlags.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:14:29
+   |
+14 |         sequence: u32_field(sfSequence) = 0,
+   |                             ^^^^^^^^^^ expected `u32`, found `SField<u32>`
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+14 |         sequence: u32_field(sfSequence.into()) = 0,
+   |                                       +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:14:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+13 | |         flags: u32_field(sfFlags) = 0,
+14 | |         sequence: u32_field(sfSequence) = 0,
+   | |                             ^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+14 |         sequence: u32_field(sfSequence.into()) = 0,
+   |                                       +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:15:42
+   |
+15 |         first_ledger_sequence: u32_field(sfFirstLedgerSequence) = 0,
+   |                                          ^^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+15 |         first_ledger_sequence: u32_field(sfFirstLedgerSequence.into()) = 0,
+   |                                                               +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:15:42
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+15 | |         first_ledger_sequence: u32_field(sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+15 |         first_ledger_sequence: u32_field(sfFirstLedgerSequence.into()) = 0,
+   |                                                               +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:16:41
+   |
+16 |         last_ledger_sequence: u32_field(sfLastLedgerSequence) = 0,
+   |                                         ^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+16 |         last_ledger_sequence: u32_field(sfLastLedgerSequence.into()) = 0,
+   |                                                             +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:16:41
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+16 | |         last_ledger_sequence: u32_field(sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^ expected `u32`, found `SField<u32>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+16 |         last_ledger_sequence: u32_field(sfLastLedgerSequence.into()) = 0,
+   |                                                             +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:17:28
+   |
+17 |         fee: native_amount(sfFee) = 0,
+   |                            ^^^^^ expected `u32`, found `SField<Amount>`
+   |
+   = note: expected type `u32`
+            found struct `SField<Amount>`
+help: call `Into::into` on this expression to convert `SField<Amount>` into `u32`
+   |
+17 |         fee: native_amount(sfFee.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:17:28
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+17 | |         fee: native_amount(sfFee) = 0,
+   | |                            ^^^^^ expected `u32`, found `SField<Amount>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<Amount>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<Amount>` into `u32`
+   |
+17 |         fee: native_amount(sfFee.into()) = 0,
+   |                                 +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:18:35
+   |
+18 |         signing_pub_key: empty_vl(sfSigningPubKey),
+   |                                   ^^^^^^^^^^^^^^^ expected `u32`, found `SField<Opaque>`
+   |
+   = note: expected type `u32`
+            found struct `SField<Opaque>`
+help: call `Into::into` on this expression to convert `SField<Opaque>` into `u32`
+   |
+18 |         signing_pub_key: empty_vl(sfSigningPubKey.into()),
+   |                                                  +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:18:35
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+18 | |         signing_pub_key: empty_vl(sfSigningPubKey),
+   | |                                   ^^^^^^^^^^^^^^^ expected `u32`, found `SField<Opaque>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<Opaque>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<Opaque>` into `u32`
+   |
+18 |         signing_pub_key: empty_vl(sfSigningPubKey.into()),
+   |                                                  +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:19:29
+   |
+19 |         account: account_id(sfAccount),
+   |                             ^^^^^^^^^ expected `u32`, found `SField<AccountId>`
+   |
+   = note: expected type `u32`
+            found struct `SField<AccountId>`
+help: call `Into::into` on this expression to convert `SField<AccountId>` into `u32`
+   |
+19 |         account: account_id(sfAccount.into()),
+   |                                      +++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_typed_field.rs:19:29
+   |
+9  | / txn_template! {
+10 | |     /// A template whose field codes are typed constants — rejected.
+11 | |     struct Payment {
+12 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         account: account_id(sfAccount),
+   | |                             ^^^^^^^^^ expected `u32`, found `SField<AccountId>`
+...  |
+22 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected type `u32`
+            found struct `SField<AccountId>`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header(sfcode: u32) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `SField<AccountId>` into `u32`
+   |
+19 |         account: account_id(sfAccount.into()),
+   |                                      +++++++

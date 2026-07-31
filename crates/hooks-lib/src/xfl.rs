@@ -345,7 +345,7 @@ impl XFL {
         out: &mut [u8],
         currency: Option<&CurrencyCode>,
         issuer: Option<&AccountId>,
-        field_code: u32,
+        field_code: impl Into<u32>,
     ) -> Result<usize> {
         api::float::float_sto(out, currency, issuer, self, field_code)
     }
