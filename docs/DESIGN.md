@@ -1486,12 +1486,13 @@ JSON uses their canonical Xahau `TransactionType` spellings.
 metadata! {
     name: "emit-txn",                         // required, non-empty
     description: "Emits a payment",          // optional
-    HookOn: [Invoke],                         // required alternative 1
+    HookOn: [Invoke],                         // optional alternative 1
     HookCanEmit: [Payment],                   // optional
     HookName: "emit-tx",                     // optional, 2..=8 Unicode chars
 }
 
-// HookOnV2 alternative: both fields are required and HookOn is absent.
+// HookOnV2 alternative: both fields are required when either is present,
+// and HookOn is absent.
 metadata! {
     name: "directional",
     IncomingHookOn: [Payment, Invoke],
@@ -1499,9 +1500,11 @@ metadata! {
 }
 ```
 
-`HookOn` is mutually exclusive with the incoming/outgoing pair. Duplicate
-fields, duplicate transaction types, unknown variants, a half-specified
-directional pair, and equal incoming/outgoing sets are compile errors.
+`HookOn` is mutually exclusive with the incoming/outgoing pair. All three
+trigger fields may be omitted; the sidecar represents the all-zero raw
+`HookOn` value as `null`. Duplicate fields, duplicate transaction types,
+unknown variants, a half-specified directional pair, and equal
+incoming/outgoing sets are compile errors.
 `HookCanEmit` being absent is distinct from an explicitly empty list.
 
 The proc macro serializes the declaration as compact JSON, hex-encodes it,
@@ -1513,10 +1516,27 @@ export restriction and reachability GC then remove both the extra export and
 its function. Tests compare cleaned modules built with and without a carrier
 byte-for-byte.
 
-The sidecar keeps the declared fields and adds:
+The sidecar puts SetHook-ready raw values at the top level and preserves the
+source declaration under `human`. `HookOn`, `HookOnIncoming`,
+`HookOnOutgoing`, and `HookCanEmit` are uppercase 32-byte bitmasks;
+`HookName` is uppercase UTF-8 hex. When all trigger fields are absent, the
+all-zero `HookOn` is represented as `null`; otherwise the regular `HookOn`
+form and the `HookOnIncoming`/`HookOnOutgoing` form are output exclusively.
+`human` follows the same choice and holds the corresponding readable
+transaction-type arrays and Hook name; `HookHash` is intentionally top-level
+only.
 
 ```json
 {
+  "name": "emit-txn",
+  "HookOn": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF",
+  "HookCanEmit": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFE",
+  "HookName": "656D69742D7478",
+  "human": {
+    "HookOn": ["Invoke"],
+    "HookCanEmit": ["Payment"],
+    "HookName": "emit-tx"
+  },
   "HookHash": "DDAF35A1...64 uppercase hex characters",
   "WCE": { "hook": 4150, "cbak": 0 }
 }

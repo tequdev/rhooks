@@ -43,16 +43,6 @@ error: metadata!: unknown field `Namespace`
    |
    = note: this error originates in the macro `metadata` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: metadata!: missing required `HookOn` or `IncomingHookOn` + `OutgoingHookOn` pair
-  --> tests/ui/fail/metadata_validation.rs:28:1
-   |
-28 | / metadata! {
-29 | |     name: "missing trigger",
-30 | | }
-   | |_^
-   |
-   = note: this error originates in the macro `metadata` (in Nightly builds, run with -Z macro-backtrace for more info)
-
 error: metadata!: use either `HookOn` or the `IncomingHookOn` + `OutgoingHookOn` pair, not both
   --> tests/ui/fail/metadata_validation.rs:32:1
    |

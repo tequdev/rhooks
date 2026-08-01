@@ -293,19 +293,12 @@ fn validate(metadata: Metadata) -> Result<Metadata, TokenStream> {
         metadata.incoming_hook_on.is_some(),
         metadata.outgoing_hook_on.is_some(),
     ) {
-        (true, false, false) | (false, true, true) => {}
+        (true, false, false) | (false, true, true) | (false, false, false) => {}
         (true, _, _) => {
             return Err(err(
                 Span::call_site(),
                 "metadata!: use either `HookOn` or the `IncomingHookOn` + \
                  `OutgoingHookOn` pair, not both",
-            ));
-        }
-        (false, false, false) => {
-            return Err(err(
-                Span::call_site(),
-                "metadata!: missing required `HookOn` or `IncomingHookOn` + \
-                 `OutgoingHookOn` pair",
             ));
         }
         (false, true, false) | (false, false, true) => {

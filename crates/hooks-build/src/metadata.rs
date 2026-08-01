@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use anyhow::{Context, Result, bail};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeMap};
 use sha2::{Digest, Sha512};
 
 use crate::ValidationReport;
@@ -96,6 +96,14 @@ const TRANSACTION_TYPES: &[&str] = &[
     "UNLReport",
 ];
 
+/// `tt*` codes corresponding position-for-position to [`TRANSACTION_TYPES`].
+const TRANSACTION_TYPE_CODES: &[u8] = &[
+    0, 1, 2, 3, 4, 5, 7, 8, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30,
+    31, 35, 36, 37, 38, 39, 40, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61,
+    62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103,
+    104,
+];
+
 /// Source-authored metadata recovered from a `metadata!` carrier export.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -145,7 +153,7 @@ impl HookMetadata {
             self.incoming_hook_on.is_some(),
             self.outgoing_hook_on.is_some(),
         ) {
-            (true, false, false) | (false, true, true) => {}
+            (true, false, false) | (false, true, true) | (false, false, false) => {}
             _ => bail!(
                 "metadata must contain either `HookOn` or both `IncomingHookOn` and \
                  `OutgoingHookOn`, but never both forms"
@@ -208,17 +216,114 @@ pub struct WorstCaseExecution {
 }
 
 /// Complete JSON sidecar document written next to a built Hook wasm.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataDocument {
     /// Metadata authored in the Hook crate.
-    #[serde(flatten)]
     pub metadata: HookMetadata,
     /// SHA512-Half of the exact final cleaned wasm bytes.
-    #[serde(rename = "HookHash")]
     pub hook_hash: String,
     /// Worst-case instruction counts, when statically available.
-    #[serde(rename = "WCE")]
     pub wce: WorstCaseExecution,
+}
+
+impl Serialize for MetadataDocument {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("name", &self.metadata.name)?;
+        if let Some(description) = &self.metadata.description {
+            map.serialize_entry("description", description)?;
+        }
+        match (
+            self.metadata.hook_on.as_deref(),
+            self.metadata.incoming_hook_on.as_deref(),
+            self.metadata.outgoing_hook_on.as_deref(),
+        ) {
+            (Some(hook_on), None, None) => {
+                map.serialize_entry("HookOn", &hook_mask(Some(hook_on)))?;
+            }
+            (None, Some(incoming), Some(outgoing)) => {
+                map.serialize_entry("HookOnIncoming", &hook_mask(Some(incoming)))?;
+                map.serialize_entry("HookOnOutgoing", &hook_mask(Some(outgoing)))?;
+            }
+            (None, None, None) => map.serialize_entry("HookOn", &Option::<String>::None)?,
+            // `HookMetadata::validate` rejects every other combination before a
+            // document is constructed.
+            _ => unreachable!("invalid HookOn metadata passed to sidecar serializer"),
+        }
+        map.serialize_entry(
+            "HookCanEmit",
+            &hook_mask(self.metadata.hook_can_emit.as_deref()),
+        )?;
+        map.serialize_entry(
+            "HookName",
+            &self.metadata.hook_name.as_deref().map(utf8_hex),
+        )?;
+        map.serialize_entry("HookHash", &self.hook_hash)?;
+        map.serialize_entry("WCE", &self.wce)?;
+        map.serialize_entry("human", &HumanMetadata::from(&self.metadata))?;
+        map.end()
+    }
+}
+
+/// Readable source values corresponding to the raw SetHook fields above.
+#[derive(Serialize)]
+struct HumanMetadata<'a> {
+    #[serde(rename = "HookOn", skip_serializing_if = "Option::is_none")]
+    hook_on: Option<&'a [String]>,
+    #[serde(rename = "HookOnIncoming", skip_serializing_if = "Option::is_none")]
+    incoming_hook_on: Option<&'a [String]>,
+    #[serde(rename = "HookOnOutgoing", skip_serializing_if = "Option::is_none")]
+    outgoing_hook_on: Option<&'a [String]>,
+    #[serde(rename = "HookCanEmit")]
+    hook_can_emit: Option<&'a [String]>,
+    #[serde(rename = "HookName")]
+    hook_name: Option<&'a str>,
+}
+
+impl<'a> From<&'a HookMetadata> for HumanMetadata<'a> {
+    fn from(metadata: &'a HookMetadata) -> Self {
+        Self {
+            hook_on: metadata.hook_on.as_deref(),
+            incoming_hook_on: metadata.incoming_hook_on.as_deref(),
+            outgoing_hook_on: metadata.outgoing_hook_on.as_deref(),
+            hook_can_emit: metadata.hook_can_emit.as_deref(),
+            hook_name: metadata.hook_name.as_deref(),
+        }
+    }
+}
+
+/// Encodes Xahau's inverted transaction-type bitmask used by HookOn and
+/// HookCanEmit. An omitted declaration is the all-zero protocol value and is
+/// represented as `null` in the sidecar.
+fn hook_mask(values: Option<&[String]>) -> Option<String> {
+    let values = values?;
+    let mut bytes = [u8::MAX; 32];
+    bytes[29] = 0xBF;
+
+    for value in values {
+        let index = TRANSACTION_TYPES
+            .iter()
+            .position(|known| *known == value)
+            .expect("validated transaction type is in the canonical table");
+        let code = usize::from(TRANSACTION_TYPE_CODES[index]);
+        bytes[31 - (code / 8)] ^= 1 << (code % 8);
+    }
+
+    if bytes.iter().all(|byte| *byte == 0) {
+        return None;
+    }
+    Some(bytes.iter().map(|byte| format!("{byte:02X}")).collect())
+}
+
+fn utf8_hex(value: &str) -> String {
+    value
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect()
 }
 
 /// Generated metadata document and non-fatal source/binary consistency warnings.
@@ -373,6 +478,7 @@ mod tests {
     #[test]
     fn canonical_transaction_type_whitelist_has_all_current_variants() {
         assert_eq!(TRANSACTION_TYPES.len(), 74);
+        assert_eq!(TRANSACTION_TYPES.len(), TRANSACTION_TYPE_CODES.len());
         assert_eq!(
             TRANSACTION_TYPES
                 .iter()

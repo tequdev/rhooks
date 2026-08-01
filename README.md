@@ -61,8 +61,10 @@ metadata! {
 ```
 
 `hooks-build build` writes a matching `.json` sidecar beside the cleaned
-`.wasm`. The sidecar adds the final binary's `HookHash` and static
-`WCE` (`hook`/`cbak`) values. Metadata is carried only through an unreachable
+`.wasm`. Its top-level SetHook fields use deployable raw values (transaction
+masks and hex `HookName`); the readable declarations are under `human`. The
+sidecar also includes the final binary's `HookHash` and static `WCE`
+(`hook`/`cbak`) values. Metadata is carried only through an unreachable
 raw-WASM export that the cleaner removes, so it does not change the final
 WASM bytes, hash, or instruction count.
 

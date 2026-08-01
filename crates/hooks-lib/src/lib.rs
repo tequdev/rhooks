@@ -63,14 +63,14 @@ pub use hooks_macros::cbak;
 /// metadata! {
 ///     name: "non-empty display name",                 // required
 ///     description: "free-form description",          // optional
-///     HookOn: [Payment, Invoke],                       // form 1
+///     HookOn: [Payment, Invoke],                       // optional form 1
 ///     HookCanEmit: [Payment],                          // optional
 ///     HookName: "pay-hook",                           // optional
 /// }
 /// ```
 ///
 /// `HookOn` is mutually exclusive with the directional form, in which both
-/// arrays are required:
+/// arrays are required when either is present:
 ///
 /// ```text
 /// metadata! {
@@ -79,6 +79,9 @@ pub use hooks_macros::cbak;
 ///     OutgoingHookOn: [Payment],
 /// }
 /// ```
+///
+/// All three trigger fields may be omitted. In that case, the generated
+/// sidecar represents the all-zero raw `HookOn` value as `null`.
 ///
 /// Every transaction entry is a bare [`tx_type::TxType`] variant name (for
 /// example `Payment`, not `TxType::Payment` or `ttPAYMENT`). The generated

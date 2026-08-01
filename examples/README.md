@@ -7,8 +7,9 @@ release profile that must not leak into `hooks-core`/`hooks-lib`/
 `hooks-build`, and they don't build for host targets.
 
 Every example declares `metadata!` in `src/lib.rs`. A build therefore writes
-both `out/<crate>.wasm` and `out/<crate>.json`; the JSON contains the declared
-HookOn/HookCanEmit information plus the cleaned binary's HookHash and WCE.
+both `out/<crate>.wasm` and `out/<crate>.json`; the JSON contains raw SetHook
+HookOn/HookCanEmit values, readable declarations under `human`, and the
+cleaned binary's HookHash and WCE.
 
 Directories are numbered in **suggested reading order** — start at
 `01_accept-all` and work down; each one builds on ideas from the examples

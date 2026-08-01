@@ -150,6 +150,24 @@ fn rejects_equal_direction_sets_regardless_of_order() {
 }
 
 #[test]
+fn absent_trigger_selection_serializes_as_null_raw_hook_on() {
+    let metadata = extract_metadata(&raw_with_metadata_json(r#"{"name":"Probe"}"#))
+        .expect("extract succeeds")
+        .expect("metadata is present");
+    assert_eq!(metadata.hook_on, None);
+    assert_eq!(metadata.incoming_hook_on, None);
+    assert_eq!(metadata.outgoing_hook_on, None);
+
+    let built = build_metadata(metadata, &no_emit_wasm(), &ValidationReport::default())
+        .expect("metadata generation succeeds");
+    let value = serde_json::to_value(built.document).expect("serialize metadata document");
+    assert!(value["HookOn"].is_null());
+    assert!(value.get("HookOnIncoming").is_none());
+    assert!(value.get("HookOnOutgoing").is_none());
+    assert!(value["human"].get("HookOn").is_none());
+}
+
+#[test]
 fn rejects_unknown_transaction_types_in_every_array() {
     let cases = [
         r#"{"name":"Probe","HookOn":["NotATransaction"]}"#,
@@ -235,8 +253,20 @@ fn serializes_requested_names_and_nullable_wce() {
         .expect("v0 metadata generation succeeds");
     let value = serde_json::to_value(v0.document).expect("serialize v0 document");
     assert_eq!(value["name"], "Probe");
-    assert_eq!(value["HookOn"][0], "Payment");
-    assert_eq!(value["HookName"], "probe");
+    assert_eq!(
+        value["HookOn"],
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFE"
+    );
+    assert!(value["HookCanEmit"].is_null());
+    assert_eq!(value["HookName"], "70726F6265");
+    assert_eq!(value["human"]["HookOn"][0], "Payment");
+    assert!(value.get("HookOnIncoming").is_none());
+    assert!(value.get("HookOnOutgoing").is_none());
+    assert!(value["human"].get("HookOnIncoming").is_none());
+    assert!(value["human"].get("HookOnOutgoing").is_none());
+    assert_eq!(value["human"]["HookName"], "probe");
+    assert!(value["human"]["HookCanEmit"].is_null());
+    assert!(value["human"].get("HookHash").is_none());
     assert_eq!(value["WCE"]["hook"], 123);
     assert_eq!(value["WCE"]["cbak"], 45);
     assert!(
@@ -254,6 +284,63 @@ fn serializes_requested_names_and_nullable_wce() {
     let value = serde_json::to_value(v1.document).expect("serialize v1 document");
     assert!(value["WCE"]["hook"].is_null());
     assert!(value["WCE"]["cbak"].is_null());
+}
+
+#[test]
+fn serializes_directional_trigger_masks_and_human_values() {
+    let metadata = HookMetadata {
+        name: "Directional".to_string(),
+        description: None,
+        hook_on: None,
+        incoming_hook_on: Some(vec!["Payment".to_string(), "Invoke".to_string()]),
+        outgoing_hook_on: Some(vec!["OfferCreate".to_string()]),
+        hook_can_emit: Some(vec!["Payment".to_string()]),
+        hook_name: Some("支払".to_string()),
+    };
+    let built = build_metadata(metadata, &no_emit_wasm(), &ValidationReport::default())
+        .expect("metadata generation succeeds");
+    let value = serde_json::to_value(built.document).expect("serialize metadata document");
+
+    assert!(value.get("HookOn").is_none());
+    assert_eq!(
+        value["HookOnIncoming"],
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFE"
+    );
+    assert_eq!(
+        value["HookOnOutgoing"],
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFF7F"
+    );
+    assert_eq!(
+        value["HookCanEmit"],
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFE"
+    );
+    assert_eq!(value["HookName"], "E694AFE68995");
+    assert_eq!(value["human"]["HookOnIncoming"][1], "Invoke");
+    assert_eq!(value["human"]["HookOnOutgoing"][0], "OfferCreate");
+    assert!(value["human"].get("HookOn").is_none());
+    assert_eq!(value["human"]["HookCanEmit"][0], "Payment");
+    assert_eq!(value["human"]["HookName"], "支払");
+}
+
+#[test]
+fn distinguishes_absent_and_explicitly_empty_hook_can_emit() {
+    let built = build_metadata(
+        source_metadata(Some(Vec::new())),
+        &no_emit_wasm(),
+        &ValidationReport::default(),
+    )
+    .expect("metadata generation succeeds");
+    let value = serde_json::to_value(built.document).expect("serialize metadata document");
+
+    assert_eq!(
+        value["HookCanEmit"],
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFF"
+    );
+    assert!(
+        value["human"]["HookCanEmit"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    );
 }
 
 #[test]

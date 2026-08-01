@@ -24,4 +24,12 @@ mod directional {
     }
 }
 
+mod no_trigger_selection {
+    use hooks_lib::metadata;
+
+    metadata! {
+        name: "no trigger selection",
+    }
+}
+
 fn main() {}
