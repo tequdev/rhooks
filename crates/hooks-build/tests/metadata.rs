@@ -147,6 +147,7 @@ fn rejects_equal_direction_sets_regardless_of_order() {
     );
     let err = extract_metadata(&raw).expect_err("equal direction sets must fail");
     assert!(format!("{err:#}").contains("same transaction-type set"));
+    assert!(format!("{err:#}").contains("use `HookOn` instead"));
 }
 
 #[test]

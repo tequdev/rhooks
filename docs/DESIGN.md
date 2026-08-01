@@ -1504,7 +1504,7 @@ metadata! {
 trigger fields may be omitted; the sidecar represents the all-zero raw
 `HookOn` value as `null`. Duplicate fields, duplicate transaction types,
 unknown variants, a half-specified directional pair, and equal
-incoming/outgoing sets are compile errors.
+incoming/outgoing sets are compile errors; use `HookOn` for equal sets.
 `HookCanEmit` being absent is distinct from an explicitly empty list.
 
 The proc macro serializes the declaration as compact JSON, hex-encodes it,

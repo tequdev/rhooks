@@ -78,7 +78,7 @@ error: metadata!: duplicate transaction type `Payment` in `HookOn`
    |
    = note: this error originates in the macro `metadata` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: metadata!: `IncomingHookOn` and `OutgoingHookOn` must not contain the same transaction-type set
+error: metadata!: `IncomingHookOn` and `OutgoingHookOn` must not contain the same transaction-type set; use `HookOn` instead
   --> tests/ui/fail/metadata_validation.rs:49:1
    |
 49 | / metadata! {

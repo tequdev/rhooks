@@ -87,7 +87,8 @@ pub use hooks_macros::cbak;
 /// example `Payment`, not `TxType::Payment` or `ttPAYMENT`). The generated
 /// code references the actual enum variant, so a misspelling is a compile
 /// error. Duplicate entries are rejected. The incoming and outgoing arrays
-/// must describe different sets, matching SetHook's directional-HookOn rule.
+/// must describe different sets, matching SetHook's directional-HookOn rule;
+/// use `HookOn` when both directions are the same.
 /// The JSON uses Xahau's canonical `TransactionType` spellings, including
 /// acronym and verb-order differences such as `HookSet` → `SetHook`,
 /// `RegularKeySet` → `SetRegularKey`, and `AmmCreate` → `AMMCreate`.

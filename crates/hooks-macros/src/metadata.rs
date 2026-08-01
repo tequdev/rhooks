@@ -334,7 +334,7 @@ fn validate(metadata: Metadata) -> Result<Metadata, TokenStream> {
             return Err(err(
                 Span::call_site(),
                 "metadata!: `IncomingHookOn` and `OutgoingHookOn` must not contain the same \
-                 transaction-type set",
+                 transaction-type set; use `HookOn` instead",
             ));
         }
     }

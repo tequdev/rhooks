@@ -171,7 +171,7 @@ impl HookMetadata {
             if incoming == outgoing {
                 bail!(
                     "metadata fields `IncomingHookOn` and `OutgoingHookOn` must not contain the \
-                     same transaction-type set"
+                     same transaction-type set; use `HookOn` instead"
                 );
             }
         }
