@@ -19,23 +19,80 @@ const MODULE_DOC: &str = "\
 //! [`crate::api::otxn::otxn_type`]'s `u16` transaction-type channel.
 ";
 
-/// Converts a C `tt*` constant name (e.g. `ttNFTOKEN_MINT`) into a
-/// PascalCase enum variant name (`NftokenMint`) using a mechanical conversion.
+/// Converts a C `tt*` constant name (e.g. `ttNFTOKEN_MINT`) into Xahau's
+/// canonical Rust spelling (`NFTokenMint`).
 fn variant_name(const_name: &str) -> Result<String> {
     let rest = const_name
         .strip_prefix("tt")
         .ok_or_else(|| anyhow!("expected a `tt`-prefixed name, got `{const_name}`"))?;
     let mut out = String::new();
     for part in rest.split('_') {
-        let mut chars = part.chars();
-        if let Some(first) = chars.next() {
-            out.extend(first.to_uppercase());
-            for c in chars {
-                out.extend(c.to_lowercase());
+        let word = match part {
+            "NFTOKEN" => "NFToken".to_owned(),
+            "UNL" | "ID" | "AMM" | "URI" | "DID" => part.to_owned(),
+            "XCHAIN" => "XChain".to_owned(),
+            "URITOKEN" => "URIToken".to_owned(),
+            "MPTOKEN" => "MPToken".to_owned(),
+            _ => {
+                let mut chars = part.chars();
+                let mut word = String::new();
+                if let Some(first) = chars.next() {
+                    word.extend(first.to_uppercase());
+                    for c in chars {
+                        word.extend(c.to_lowercase());
+                    }
+                }
+                word
             }
+        };
+        out.push_str(&word);
+    }
+    Ok(translate_tt(out))
+}
+
+/// Applies Xahau transaction-type names whose canonical spelling cannot be
+/// derived from the `tt*` constant alone.
+fn translate_tt(inp: String) -> String {
+    match inp.as_str() {
+        "Amendment" => "EnableAmendment",
+        "Fee" => "SetFee",
+        "PaychanClaim" => "PaymentChannelClaim",
+        "PaychanCreate" => "PaymentChannelCreate",
+        "PaychanFund" => "PaymentChannelFund",
+        "RegularKeySet" => "SetRegularKey",
+        "HookSet" => "SetHook",
+        "RemarksSet" => "SetRemarks",
+        _ => return inp,
+    }
+    .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::variant_name;
+
+    #[test]
+    fn uses_xahaud_canonical_transaction_type_names() {
+        let cases = [
+            ("ttHOOK_SET", "SetHook"),
+            ("ttNFTOKEN_BURN", "NFTokenBurn"),
+            ("ttAMM_CREATE", "AMMCreate"),
+            ("ttURITOKEN_MINT", "URITokenMint"),
+            ("ttXCHAIN_CREATE_CLAIM_ID", "XChainCreateClaimID"),
+            ("ttDID_SET", "DIDSet"),
+            ("ttMPTOKEN_AUTHORIZE", "MPTokenAuthorize"),
+            ("ttUNL_MODIFY", "UNLModify"),
+            ("ttREGULAR_KEY_SET", "SetRegularKey"),
+            ("ttPAYCHAN_CLAIM", "PaymentChannelClaim"),
+            ("ttREMARKS_SET", "SetRemarks"),
+            ("ttAMENDMENT", "EnableAmendment"),
+            ("ttFEE", "SetFee"),
+        ];
+
+        for (constant, expected) in cases {
+            assert_eq!(variant_name(constant).unwrap(), expected);
         }
     }
-    Ok(out)
 }
 
 /// Renders `tx_type.rs`'s full contents from `tts.h`'s parsed
@@ -78,7 +135,7 @@ pub fn generate(tts: &[ConstSpec]) -> Result<String> {
          /// use hooks_lib::tx_type::TxType;\n\
          ///\n\
          /// let ty = TxType::from(5);\n\
-         /// assert_eq!(ty, TxType::RegularKeySet);\n\
+         /// assert_eq!(ty, TxType::SetRegularKey);\n\
          /// assert_eq!(ty.code(), 5);\n\
          /// ```\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\

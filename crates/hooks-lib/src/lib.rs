@@ -89,9 +89,8 @@ pub use hooks_macros::cbak;
 /// error. Duplicate entries are rejected. The incoming and outgoing arrays
 /// must describe different sets, matching SetHook's directional-HookOn rule;
 /// use `HookOn` when both directions are the same.
-/// The JSON uses Xahau's canonical `TransactionType` spellings, including
-/// acronym and verb-order differences such as `HookSet` → `SetHook`,
-/// `RegularKeySet` → `SetRegularKey`, and `AmmCreate` → `AMMCreate`.
+/// Transaction variants use Xahau's canonical `TransactionType` spellings,
+/// including `SetHook`, `SetRegularKey`, and `AMMCreate`.
 ///
 /// `HookName` is a Rust UTF-8 string containing 2 through 8 Unicode scalar
 /// values. This metadata-level rule deliberately counts characters, not
