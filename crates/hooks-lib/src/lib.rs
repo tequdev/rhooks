@@ -47,6 +47,74 @@ pub use hooks_macros::hook;
 /// settles.
 pub use hooks_macros::cbak;
 
+/// Declares descriptive and SetHook-facing metadata for a Hook binary.
+///
+/// `hooks-build build` extracts this declaration from cargo's raw wasm,
+/// combines it with build-derived values such as `HookHash` and the
+/// `hook`/`cbak` worst-case instruction counts, and writes a sibling JSON
+/// artifact. The declaration itself is build-only: the macro carries compact
+/// JSON in the name of a dead wasm export, and the normal cleaner removes that
+/// export before hashing, validating, or writing the deployable wasm. It adds
+/// no data segment, runtime code, import, or byte to the final Hook binary.
+///
+/// # Grammar
+///
+/// ```text
+/// metadata! {
+///     name: "non-empty display name",                 // required
+///     description: "free-form description",          // optional
+///     HookOn: [Payment, Invoke],                       // form 1
+///     HookCanEmit: [Payment],                          // optional
+///     HookName: "pay-hook",                           // optional
+/// }
+/// ```
+///
+/// `HookOn` is mutually exclusive with the directional form, in which both
+/// arrays are required:
+///
+/// ```text
+/// metadata! {
+///     name: "directional hook",
+///     IncomingHookOn: [Payment, Invoke],
+///     OutgoingHookOn: [Payment],
+/// }
+/// ```
+///
+/// Every transaction entry is a bare [`tx_type::TxType`] variant name (for
+/// example `Payment`, not `TxType::Payment` or `ttPAYMENT`). The generated
+/// code references the actual enum variant, so a misspelling is a compile
+/// error. Duplicate entries are rejected. The incoming and outgoing arrays
+/// must describe different sets, matching SetHook's directional-HookOn rule.
+/// The JSON uses Xahau's canonical `TransactionType` spellings, including
+/// acronym and verb-order differences such as `HookSet` → `SetHook`,
+/// `RegularKeySet` → `SetRegularKey`, and `AmmCreate` → `AMMCreate`.
+///
+/// `HookName` is a Rust UTF-8 string containing 2 through 8 Unicode scalar
+/// values. This metadata-level rule deliberately counts characters, not
+/// encoded bytes. Note that the current xahaud SetHook validator independently
+/// applies its ledger rule of 4 through 16 UTF-8 bytes; a name intended for
+/// direct submission must satisfy both limits. `hooks-build` warns when that
+/// additional byte-oriented rule is not met.
+///
+/// # Example
+///
+/// ```
+/// use hooks_lib::metadata;
+///
+/// metadata! {
+///     name: "payment observer",
+///     description: "Observes incoming and outgoing payments.",
+///     IncomingHookOn: [Payment, Invoke],
+///     OutgoingHookOn: [Payment],
+///     HookName: "pay-hook",
+/// }
+/// ```
+///
+/// Only one declaration should be present in a Hook crate. It may appear at
+/// module scope in the crate's `lib.rs`; it does not need to be referenced by
+/// `hook` or `cbak`.
+pub use hooks_macros::metadata;
+
 /// Decodes a classic XRPL/Xahau r-address into an [`types::AccountId`] at
 /// compile time.
 ///

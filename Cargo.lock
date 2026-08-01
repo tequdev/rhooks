@@ -255,6 +255,7 @@ dependencies = [
  "anyhow",
  "cc",
  "clap",
+ "serde",
  "serde_json",
  "sha2",
  "wasm-encoder",
@@ -282,6 +283,10 @@ dependencies = [
 [[package]]
 name = "hooks-macros"
 version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "syn",
+]
 
 [[package]]
 name = "indexmap"

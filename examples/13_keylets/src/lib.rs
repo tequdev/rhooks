@@ -8,6 +8,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "keylets",
+    HookOn: [Invoke],
+}
+
 state_keys! {
     /// One state entry per keylet type.
     enum KeyletKey {

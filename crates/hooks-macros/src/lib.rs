@@ -7,6 +7,7 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 mod base58;
+mod metadata;
 mod sha256;
 
 use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
@@ -64,6 +65,16 @@ pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn cbak(attr: TokenStream, item: TokenStream) -> TokenStream {
     entry_point("cbak", attr, item)
+}
+
+/// Embeds build-only Hook metadata in a dead WebAssembly export.
+///
+/// Hook authors use the re-exported [`hooks_lib::metadata!`] macro rather
+/// than depending on this proc-macro crate directly. See that re-export for
+/// the complete grammar and the JSON/cleaning contract.
+#[proc_macro]
+pub fn metadata(input: TokenStream) -> TokenStream {
+    metadata::expand(input)
 }
 
 /// Derives `hooks_lib::convert::ToBytes` plus an explicit

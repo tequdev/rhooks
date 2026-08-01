@@ -2,6 +2,11 @@
 
 use hooks_lib::*;
 
+metadata! {
+    name: "state-counter",
+    HookOn: [Invoke],
+}
+
 hook_state!(Counter, CounterKey {name: [u8; 7]} = {name: *b"counter"} => u64);
 
 hook_errors! {

@@ -9,6 +9,11 @@ use hooks_lib::prelude::*;
 use hooks_lib::slot_path;
 use hooks_lib::*;
 
+metadata! {
+    name: "slot-objects",
+    HookOn: [Invoke],
+}
+
 hook_errors! {
     /// `slot-objects` rollback codes.
     pub enum SlotObjectsError {

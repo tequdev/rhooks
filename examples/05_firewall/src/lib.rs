@@ -3,6 +3,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "firewall",
+    HookOn: [Payment],
+}
+
 hook_parameter!(BlockedParam, BlockedParamName = b"BL" => AccountId);
 
 hook_errors! {

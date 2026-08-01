@@ -3,6 +3,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "state-foreign",
+    HookOn: [Invoke],
+}
+
 hook_parameter!(AcctParam, AcctParamName = b"ACCT" => AccountId);
 
 /// The right-padded key for the target account's flag.

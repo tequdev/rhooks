@@ -13,6 +13,12 @@ use hooks_lib::slot_path;
 use hooks_lib::static_cell::HookStatic;
 use hooks_lib::*;
 
+metadata! {
+    name: "govern",
+    HookOn: [Invoke],
+    HookCanEmit: [Invoke, HookSet],
+}
+
 // Per-seat initial member parameter.
 hook_parameter!(MemberParam, MemberParamName [u8; 3] => AccountId);
 

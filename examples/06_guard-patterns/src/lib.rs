@@ -3,6 +3,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "guard-patterns",
+    HookOn: [Invoke],
+}
+
 hook_parameter!(BlockedParam, BlockedParamName = b"BL" => AccountId);
 
 hook_errors! {

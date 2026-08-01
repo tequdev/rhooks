@@ -9,6 +9,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "typed-data",
+    HookOn: [Invoke],
+}
+
 /// Discriminant for deposit records.
 const DEPOSIT_TAG: u8 = 1;
 

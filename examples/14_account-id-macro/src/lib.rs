@@ -5,6 +5,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "account-id-macro",
+    HookOn: [Invoke],
+}
+
 /// r-address used by the compile-time and runtime conversions.
 const OWNER_RADDR: &[u8; 34] = b"rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
 
