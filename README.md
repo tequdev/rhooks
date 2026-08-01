@@ -48,6 +48,26 @@ Numbered in suggested reading order — see
 mise run build-examples   # builds all ten through hooks-build and checks the output
 ```
 
+Each Hook can declare build-only metadata next to its entry point:
+
+```rust
+metadata! {
+    name: "emit-txn",
+    description: "Emits a Payment and handles its callback.",
+    HookOn: [Invoke],
+    HookCanEmit: [Payment],
+    HookName: "emit-tx",
+}
+```
+
+`hooks-build build` writes a matching `.json` sidecar beside the cleaned
+`.wasm`. Its top-level SetHook fields use deployable raw values (transaction
+masks and hex `HookName`); the readable declarations are under `human`. The
+sidecar also includes the final binary's `HookHash` and static `WCE`
+(`hook`/`cbak`) values. Metadata is carried only through an unreachable
+raw-WASM export that the cleaner removes, so it does not change the final
+WASM bytes, hash, or instruction count.
+
 See [`examples/README.md`](examples/README.md) for details, including the
 compiler-generated-loop pitfall that used to require `--auto-guard` (none
 of the ten examples need it any more).

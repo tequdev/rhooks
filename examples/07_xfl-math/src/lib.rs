@@ -3,6 +3,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "xfl-math",
+    HookOn: [Payment],
+}
+
 /// The numerator for the computed percentage.
 const PERCENT_NUM: u32 = 1;
 /// The denominator for the computed percentage.

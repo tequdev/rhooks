@@ -3,6 +3,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "slot-ledger",
+    HookOn: [Payment],
+}
+
 hook_errors! {
     /// Errors returned by the slot example.
     pub enum SlotLedgerError {

@@ -3,6 +3,14 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "emit-txn",
+    description: "Emits a Payment and handles its callback.",
+    HookOn: [Invoke],
+    HookCanEmit: [Payment],
+    HookName: "emit-tx",
+}
+
 txn_template! {
     /// A payment template for emitted transactions.
     struct Payment {

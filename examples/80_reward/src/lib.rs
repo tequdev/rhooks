@@ -14,6 +14,12 @@ use hooks_lib::static_cell::HookStatic;
 use hooks_lib::*;
 use mint_txn::{L1_SEATS, MintTxn};
 
+metadata! {
+    name: "reward",
+    HookOn: [Invoke, ClaimReward],
+    HookCanEmit: [GenesisMint],
+}
+
 /// Default reward rate as raw XFL bits.
 const DEFAULT_REWARD_RATE_BITS: i64 = 6_038_156_834_009_797_973;
 

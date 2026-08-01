@@ -11,6 +11,7 @@ mod flatten;
 mod guard;
 mod guard_native;
 mod ir;
+pub mod metadata;
 mod unnest;
 mod validator;
 pub mod whitelist;

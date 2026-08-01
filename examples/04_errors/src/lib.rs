@@ -3,6 +3,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "errors",
+    HookOn: [Payment],
+}
+
 /// The source tag rejected by this policy.
 const BLOCKED_SOURCE_TAG: u32 = 13;
 

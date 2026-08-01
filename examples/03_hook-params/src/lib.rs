@@ -3,6 +3,11 @@
 use hooks_lib::prelude::*;
 use hooks_lib::*;
 
+metadata! {
+    name: "hook-params",
+    HookOn: [Payment],
+}
+
 /// The big-endian minimum-amount parameter name.
 const MIN_PARAM: &[u8] = b"MIN";
 

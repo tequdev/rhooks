@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use hooks_build::metadata::{HookMetadata, build_metadata, extract_metadata};
 use hooks_build::{ApiVersion, Options, ValidationReport};
 
 /// A CLI toolchain for building and validating Xahau Hook wasm binaries.
@@ -158,6 +159,30 @@ fn print_size_and_fee(bytes: &[u8]) {
     );
 }
 
+struct PreparedSidecar {
+    bytes: Vec<u8>,
+    warnings: Vec<String>,
+}
+
+fn prepare_sidecar(
+    metadata: Option<HookMetadata>,
+    final_wasm: &[u8],
+    report: &ValidationReport,
+) -> Result<Option<PreparedSidecar>> {
+    let Some(metadata) = metadata else {
+        return Ok(None);
+    };
+
+    let built = build_metadata(metadata, final_wasm, report)?;
+    let mut bytes =
+        serde_json::to_vec_pretty(&built.document).context("serializing Hook metadata sidecar")?;
+    bytes.push(b'\n');
+    Ok(Some(PreparedSidecar {
+        bytes,
+        warnings: built.warnings,
+    }))
+}
+
 fn cmd_build(
     manifest_path: Option<PathBuf>,
     package: Option<String>,
@@ -225,6 +250,7 @@ fn cmd_build(
 
     let wasm = std::fs::read(&artifact)
         .with_context(|| format!("reading build artifact {}", artifact.display()))?;
+    let metadata = extract_metadata(&wasm)?;
 
     let out_dir = out.unwrap_or_else(|| default_out_dir(manifest_path.as_deref()));
     std::fs::create_dir_all(&out_dir)
@@ -234,7 +260,29 @@ fn cmd_build(
         .context("build artifact has no file name")?;
     let out_path = out_dir.join(file_name);
 
-    run_and_write(&wasm, &out_path, opts)
+    let (output, report) = run_pipeline_and_report(&wasm, opts)?;
+    let sidecar = prepare_sidecar(metadata, &output, &report)?;
+
+    let metadata_path = out_path.with_extension("json");
+    if sidecar.is_none() && remove_stale_sidecar(&metadata_path)? {
+        println!("removed stale {}", metadata_path.display());
+    }
+
+    write_wasm(&output, &out_path, &report)?;
+
+    if let Some(sidecar) = sidecar {
+        for warning in &sidecar.warnings {
+            eprintln!("warning: {warning}");
+        }
+
+        let mut file = std::fs::File::create(&metadata_path)
+            .with_context(|| format!("creating {}", metadata_path.display()))?;
+        file.write_all(&sidecar.bytes)
+            .with_context(|| format!("writing {}", metadata_path.display()))?;
+        println!("wrote {}", metadata_path.display());
+    }
+
+    Ok(())
 }
 
 fn cmd_clean(input: &Path, out: Option<PathBuf>, opts: &Options) -> Result<()> {
@@ -243,12 +291,17 @@ fn cmd_clean(input: &Path, out: Option<PathBuf>, opts: &Options) -> Result<()> {
         let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
         input.with_file_name(format!("{stem}.clean.wasm"))
     });
-    run_and_write(&wasm, &out_path, opts)
+    let (output, report) = run_pipeline_and_report(&wasm, opts)?;
+    write_wasm(&output, &out_path, &report)
 }
 
-fn run_and_write(wasm: &[u8], out_path: &Path, opts: &Options) -> Result<()> {
+fn run_pipeline_and_report(wasm: &[u8], opts: &Options) -> Result<(Vec<u8>, ValidationReport)> {
     let (output, report) = hooks_build::run_pipeline(wasm, opts)?;
     print_report(&report);
+    Ok((output, report))
+}
+
+fn write_wasm(output: &[u8], out_path: &Path, report: &ValidationReport) -> Result<()> {
     if let Some(parent) = out_path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -257,14 +310,24 @@ fn run_and_write(wasm: &[u8], out_path: &Path, opts: &Options) -> Result<()> {
     }
     let mut f = std::fs::File::create(out_path)
         .with_context(|| format!("creating {}", out_path.display()))?;
-    f.write_all(&output)
+    f.write_all(output)
         .with_context(|| format!("writing {}", out_path.display()))?;
     println!("wrote {}", out_path.display());
-    print_size_and_fee(&output);
+    print_size_and_fee(output);
     if report.oversize_allowed {
         println!("WARNING: output marked INVALID (oversize)");
     }
     Ok(())
+}
+
+fn remove_stale_sidecar(metadata_path: &Path) -> Result<bool> {
+    match std::fs::remove_file(metadata_path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => {
+            Err(error).with_context(|| format!("removing stale {}", metadata_path.display()))
+        }
+    }
 }
 
 fn cmd_check(file: &Path, opts: &Options) -> Result<()> {
@@ -315,4 +378,27 @@ fn find_cargo() -> Result<PathBuf> {
         "could not find `cargo` on PATH; run `hooks-build build` from a shell where \
          `cargo build` already works"
     )
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn removes_stale_sidecar_and_ignores_absence() {
+        let directory = std::env::temp_dir().join(format!(
+            "rhooks-build-stale-sidecar-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).expect("create isolated test directory");
+        let sidecar = directory.join("hook.json");
+        std::fs::write(&sidecar, b"stale").expect("write stale sidecar fixture");
+
+        assert!(remove_stale_sidecar(&sidecar).expect("remove stale sidecar"));
+        assert!(!sidecar.exists());
+        assert!(!remove_stale_sidecar(&sidecar).expect("ignore absent sidecar"));
+
+        std::fs::remove_dir_all(&directory).expect("remove isolated test directory");
+    }
 }

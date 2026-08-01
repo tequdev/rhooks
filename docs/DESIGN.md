@@ -1166,10 +1166,13 @@ hooks-build check <file.wasm> [--api-version 0|1]               # validate only,
 1. `cargo build --release --target wasm32v1-none` with
    `--message-format=json` to locate the produced `.wasm` artifact (no
    guessing at target dirs).
-2. Post-process (6.2, 6.3).
-3. Validate (6.4).
-4. Write `<out>/<crate>.wasm` (default `out/` beside the manifest), print
-   size and estimated SetHook fee (`bytes × 5000` drops).
+2. Recover an optional `metadata!` declaration from its build-only carrier
+   export in the raw artifact (6.6).
+3. Post-process (6.2, 6.3).
+4. Validate (6.4).
+5. Write `<out>/<crate>.wasm` (default `out/` beside the manifest), print
+   size and estimated SetHook fee (`bytes × 5000` drops). When metadata was
+   declared, also write `<out>/<crate>.json` with the final HookHash and WCE.
 
 `check` runs only 6.4 (+ guard verification instead of insertion) — usable
 against any wasm, including C-built hooks.
@@ -1472,6 +1475,85 @@ project, and cleaning is a transform whose output the authoritative checker
 then judges); `wasmparser`/`wasm-encoder` byte-exactness (C8) is unchanged.
 Behavioral reference tests compare verdicts on known-good/known-bad
 fixtures, including the built examples.
+
+### 6.6 Build-only Hook metadata
+
+A Hook crate may declare deployment metadata at module scope. Transaction
+types use the unit variants from `hooks_lib::tx_type::TxType`; the generated
+JSON uses their canonical Xahau `TransactionType` spellings.
+
+```rust
+metadata! {
+    name: "emit-txn",                         // required, non-empty
+    description: "Emits a payment",          // optional
+    HookOn: [Invoke],                         // optional alternative 1
+    HookCanEmit: [Payment],                   // optional
+    HookName: "emit-tx",                     // optional, 2..=8 Unicode chars
+}
+
+// HookOnV2 alternative: both fields are required when either is present,
+// and HookOn is absent.
+metadata! {
+    name: "directional",
+    IncomingHookOn: [Payment, Invoke],
+    OutgoingHookOn: [Invoke],
+}
+```
+
+`HookOn` is mutually exclusive with the incoming/outgoing pair. All three
+trigger fields may be omitted; the sidecar represents the all-zero raw
+`HookOn` value as `null`. Duplicate fields, duplicate transaction types,
+unknown variants, a half-specified directional pair, and equal
+incoming/outgoing sets are compile errors; use `HookOn` for equal sets.
+`HookCanEmit` being absent is distinct from an explicitly empty list.
+
+The proc macro serializes the declaration as compact JSON, hex-encodes it,
+and places it in the name of a wasm-only, unreachable export whose prefix is
+`__rhooks_metadata_v1_`. It does not put metadata in a static or a custom
+section: with Rust's wasm linker that payload can also become a live active
+data segment. `hooks-build` reads the carrier before cleaning; the normal
+export restriction and reachability GC then remove both the extra export and
+its function. Tests compare cleaned modules built with and without a carrier
+byte-for-byte.
+
+The sidecar puts SetHook-ready raw values at the top level and preserves the
+source declaration under `human`. `HookOn`, `HookOnIncoming`,
+`HookOnOutgoing`, and `HookCanEmit` are uppercase 32-byte bitmasks;
+`HookName` is uppercase UTF-8 hex. When all trigger fields are absent, the
+all-zero `HookOn` is represented as `null`; otherwise the regular `HookOn`
+form and the `HookOnIncoming`/`HookOnOutgoing` form are output exclusively.
+`human` follows the same choice and holds the corresponding readable
+transaction-type arrays and Hook name; `HookHash` is intentionally top-level
+only.
+
+```json
+{
+  "name": "emit-txn",
+  "HookOn": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF",
+  "HookCanEmit": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFE",
+  "HookName": "656D69742D7478",
+  "human": {
+    "HookOn": ["Invoke"],
+    "HookCanEmit": ["Payment"],
+    "HookName": "emit-tx"
+  },
+  "HookHash": "DDAF35A1...64 uppercase hex characters",
+  "WCE": { "hook": 4150, "cbak": 0 }
+}
+```
+
+`HookHash` is SHA512-Half of the exact final cleaned WASM bytes, matching
+`SetHook`'s hash of `CreateCode`. API-version-0 WCE values come from the
+vendored authoritative guard verdict; API version 1 writes `null` for both
+values because static WCE is not calculated for gas hooks. The final module's
+reachable `env::emit` import is also cross-checked against `HookCanEmit`: a
+declaration without emit usage and emit usage without a declaration both
+produce build warnings.
+
+The metadata schema follows the requested 2..=8 Unicode-character rule for
+`HookName`. Deployment tooling must additionally account for the current
+xahaud `SetHook` validator's byte-oriented 4..=16 UTF-8-byte constraint;
+`hooks-build` warns when a declared name falls outside that byte range.
 
 ## 7. examples/
 
