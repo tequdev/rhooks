@@ -67,34 +67,6 @@ fn translate_tt(inp: String) -> String {
     .to_owned()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::variant_name;
-
-    #[test]
-    fn uses_xahaud_canonical_transaction_type_names() {
-        let cases = [
-            ("ttHOOK_SET", "SetHook"),
-            ("ttNFTOKEN_BURN", "NFTokenBurn"),
-            ("ttAMM_CREATE", "AMMCreate"),
-            ("ttURITOKEN_MINT", "URITokenMint"),
-            ("ttXCHAIN_CREATE_CLAIM_ID", "XChainCreateClaimID"),
-            ("ttDID_SET", "DIDSet"),
-            ("ttMPTOKEN_AUTHORIZE", "MPTokenAuthorize"),
-            ("ttUNL_MODIFY", "UNLModify"),
-            ("ttREGULAR_KEY_SET", "SetRegularKey"),
-            ("ttPAYCHAN_CLAIM", "PaymentChannelClaim"),
-            ("ttREMARKS_SET", "SetRemarks"),
-            ("ttAMENDMENT", "EnableAmendment"),
-            ("ttFEE", "SetFee"),
-        ];
-
-        for (constant, expected) in cases {
-            assert_eq!(variant_name(constant).unwrap(), expected);
-        }
-    }
-}
-
 /// Renders `tx_type.rs`'s full contents from `tts.h`'s parsed
 /// [`ConstSpec`]s.
 pub fn generate(tts: &[ConstSpec]) -> Result<String> {
@@ -202,4 +174,35 @@ pub fn generate(tts: &[ConstSpec]) -> Result<String> {
     ));
 
     Ok(with_generated_marker("tts.h", MODULE_DOC) + &body)
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+
+    use super::variant_name;
+
+    #[test]
+    fn uses_xahaud_canonical_transaction_type_names() -> Result<()> {
+        let cases = [
+            ("ttHOOK_SET", "SetHook"),
+            ("ttNFTOKEN_BURN", "NFTokenBurn"),
+            ("ttAMM_CREATE", "AMMCreate"),
+            ("ttURITOKEN_MINT", "URITokenMint"),
+            ("ttXCHAIN_CREATE_CLAIM_ID", "XChainCreateClaimID"),
+            ("ttDID_SET", "DIDSet"),
+            ("ttMPTOKEN_AUTHORIZE", "MPTokenAuthorize"),
+            ("ttUNL_MODIFY", "UNLModify"),
+            ("ttREGULAR_KEY_SET", "SetRegularKey"),
+            ("ttPAYCHAN_CLAIM", "PaymentChannelClaim"),
+            ("ttREMARKS_SET", "SetRemarks"),
+            ("ttAMENDMENT", "EnableAmendment"),
+            ("ttFEE", "SetFee"),
+        ];
+
+        for (constant, expected) in cases {
+            assert_eq!(variant_name(constant)?, expected);
+        }
+        Ok(())
+    }
 }

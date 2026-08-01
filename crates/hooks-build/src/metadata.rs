@@ -242,11 +242,14 @@ impl Serialize for MetadataDocument {
             self.metadata.outgoing_hook_on.as_deref(),
         ) {
             (Some(hook_on), None, None) => {
-                map.serialize_entry("HookOn", &hook_mask(Some(hook_on)))?;
+                let mask = hook_mask(Some(hook_on)).map_err(serde::ser::Error::custom)?;
+                map.serialize_entry("HookOn", &mask)?;
             }
             (None, Some(incoming), Some(outgoing)) => {
-                map.serialize_entry("HookOnIncoming", &hook_mask(Some(incoming)))?;
-                map.serialize_entry("HookOnOutgoing", &hook_mask(Some(outgoing)))?;
+                let incoming_mask = hook_mask(Some(incoming)).map_err(serde::ser::Error::custom)?;
+                let outgoing_mask = hook_mask(Some(outgoing)).map_err(serde::ser::Error::custom)?;
+                map.serialize_entry("HookOnIncoming", &incoming_mask)?;
+                map.serialize_entry("HookOnOutgoing", &outgoing_mask)?;
             }
             (None, None, None) => map.serialize_entry("HookOn", &Option::<String>::None)?,
             // `HookMetadata::validate` rejects every other combination before a
@@ -255,7 +258,8 @@ impl Serialize for MetadataDocument {
         }
         map.serialize_entry(
             "HookCanEmit",
-            &hook_mask(self.metadata.hook_can_emit.as_deref()),
+            &hook_mask(self.metadata.hook_can_emit.as_deref())
+                .map_err(serde::ser::Error::custom)?,
         )?;
         map.serialize_entry(
             "HookName",
@@ -298,24 +302,34 @@ impl<'a> From<&'a HookMetadata> for HumanMetadata<'a> {
 /// Encodes Xahau's inverted transaction-type bitmask used by HookOn and
 /// HookCanEmit. An omitted declaration is the all-zero protocol value and is
 /// represented as `null` in the sidecar.
-fn hook_mask(values: Option<&[String]>) -> Option<String> {
-    let values = values?;
+fn hook_mask(values: Option<&[String]>) -> Result<Option<String>> {
+    let Some(values) = values else {
+        return Ok(None);
+    };
     let mut bytes = [u8::MAX; 32];
     bytes[29] = 0xBF;
 
     for value in values {
-        let index = TRANSACTION_TYPES
+        let code = TRANSACTION_TYPES
             .iter()
-            .position(|known| *known == value)
-            .expect("validated transaction type is in the canonical table");
-        let code = usize::from(TRANSACTION_TYPE_CODES[index]);
-        bytes[31 - (code / 8)] ^= 1 << (code % 8);
+            .zip(TRANSACTION_TYPE_CODES)
+            .find_map(|(known, code)| (*known == value).then_some(*code))
+            .context("validated transaction type is in the canonical table")?;
+        let byte_index = 31usize
+            .checked_sub(usize::from(code) / 8)
+            .context("transaction code must fit the HookOn bitmask")?;
+        let byte = bytes
+            .get_mut(byte_index)
+            .context("transaction code must fit the HookOn bitmask")?;
+        *byte ^= 1u8 << (code % 8);
     }
 
     if bytes.iter().all(|byte| *byte == 0) {
-        return None;
+        return Ok(None);
     }
-    Some(bytes.iter().map(|byte| format!("{byte:02X}")).collect())
+    Ok(Some(
+        bytes.iter().map(|byte| format!("{byte:02X}")).collect(),
+    ))
 }
 
 fn utf8_hex(value: &str) -> String {
