@@ -16,7 +16,7 @@ use hooks_lib::*;
 metadata! {
     name: "govern",
     HookOn: [Invoke],
-    HookCanEmit: [Invoke, HookSet],
+    HookCanEmit: [Invoke, SetHook],
 }
 
 // Per-seat initial member parameter.

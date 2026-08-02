@@ -8,8 +8,8 @@ mod legacy {
     metadata! {
         name: "legacy hook",
         description: r#"A "quoted" description."#,
-        HookOn: [Payment, HookSet, RegularKeySet, AmmCreate],
-        HookCanEmit: [NftokenMint, XchainCreateClaimId],
+        HookOn: [Payment, SetHook, SetRegularKey, AMMCreate],
+        HookCanEmit: [NFTokenMint, XChainCreateClaimID],
         HookName: "支払",
     }
 }

@@ -17,7 +17,7 @@
 /// use hooks_lib::tx_type::TxType;
 ///
 /// let ty = TxType::from(5);
-/// assert_eq!(ty, TxType::RegularKeySet);
+/// assert_eq!(ty, TxType::SetRegularKey);
 /// assert_eq!(ty.code(), 5);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +33,7 @@ pub enum TxType {
     /// `ttESCROW_CANCEL` (4).
     EscrowCancel,
     /// `ttREGULAR_KEY_SET` (5).
-    RegularKeySet,
+    SetRegularKey,
     /// `ttOFFER_CREATE` (7).
     OfferCreate,
     /// `ttOFFER_CANCEL` (8).
@@ -43,11 +43,11 @@ pub enum TxType {
     /// `ttSIGNER_LIST_SET` (12).
     SignerListSet,
     /// `ttPAYCHAN_CREATE` (13).
-    PaychanCreate,
+    PaymentChannelCreate,
     /// `ttPAYCHAN_FUND` (14).
-    PaychanFund,
+    PaymentChannelFund,
     /// `ttPAYCHAN_CLAIM` (15).
-    PaychanClaim,
+    PaymentChannelClaim,
     /// `ttCHECK_CREATE` (16).
     CheckCreate,
     /// `ttCHECK_CASH` (17).
@@ -61,63 +61,63 @@ pub enum TxType {
     /// `ttACCOUNT_DELETE` (21).
     AccountDelete,
     /// `ttHOOK_SET` (22).
-    HookSet,
+    SetHook,
     /// `ttNFTOKEN_MINT` (25).
-    NftokenMint,
+    NFTokenMint,
     /// `ttNFTOKEN_BURN` (26).
-    NftokenBurn,
+    NFTokenBurn,
     /// `ttNFTOKEN_CREATE_OFFER` (27).
-    NftokenCreateOffer,
+    NFTokenCreateOffer,
     /// `ttNFTOKEN_CANCEL_OFFER` (28).
-    NftokenCancelOffer,
+    NFTokenCancelOffer,
     /// `ttNFTOKEN_ACCEPT_OFFER` (29).
-    NftokenAcceptOffer,
+    NFTokenAcceptOffer,
     /// `ttCLAWBACK` (30).
     Clawback,
     /// `ttAMM_CLAWBACK` (31).
-    AmmClawback,
+    AMMClawback,
     /// `ttAMM_CREATE` (35).
-    AmmCreate,
+    AMMCreate,
     /// `ttAMM_DEPOSIT` (36).
-    AmmDeposit,
+    AMMDeposit,
     /// `ttAMM_WITHDRAW` (37).
-    AmmWithdraw,
+    AMMWithdraw,
     /// `ttAMM_VOTE` (38).
-    AmmVote,
+    AMMVote,
     /// `ttAMM_BID` (39).
-    AmmBid,
+    AMMBid,
     /// `ttAMM_DELETE` (40).
-    AmmDelete,
+    AMMDelete,
     /// `ttURITOKEN_MINT` (45).
-    UritokenMint,
+    URITokenMint,
     /// `ttURITOKEN_BURN` (46).
-    UritokenBurn,
+    URITokenBurn,
     /// `ttURITOKEN_BUY` (47).
-    UritokenBuy,
+    URITokenBuy,
     /// `ttURITOKEN_CREATE_SELL_OFFER` (48).
-    UritokenCreateSellOffer,
+    URITokenCreateSellOffer,
     /// `ttURITOKEN_CANCEL_SELL_OFFER` (49).
-    UritokenCancelSellOffer,
+    URITokenCancelSellOffer,
     /// `ttXCHAIN_CREATE_CLAIM_ID` (50).
-    XchainCreateClaimId,
+    XChainCreateClaimID,
     /// `ttXCHAIN_COMMIT` (51).
-    XchainCommit,
+    XChainCommit,
     /// `ttXCHAIN_CLAIM` (52).
-    XchainClaim,
+    XChainClaim,
     /// `ttXCHAIN_ACCOUNT_CREATE_COMMIT` (53).
-    XchainAccountCreateCommit,
+    XChainAccountCreateCommit,
     /// `ttXCHAIN_ADD_CLAIM_ATTESTATION` (54).
-    XchainAddClaimAttestation,
+    XChainAddClaimAttestation,
     /// `ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION` (55).
-    XchainAddAccountCreateAttestation,
+    XChainAddAccountCreateAttestation,
     /// `ttXCHAIN_MODIFY_BRIDGE` (56).
-    XchainModifyBridge,
+    XChainModifyBridge,
     /// `ttXCHAIN_CREATE_BRIDGE` (57).
-    XchainCreateBridge,
+    XChainCreateBridge,
     /// `ttDID_SET` (58).
-    DidSet,
+    DIDSet,
     /// `ttDID_DELETE` (59).
-    DidDelete,
+    DIDDelete,
     /// `ttORACLE_SET` (60).
     OracleSet,
     /// `ttORACLE_DELETE` (61).
@@ -125,13 +125,13 @@ pub enum TxType {
     /// `ttLEDGER_STATE_FIX` (62).
     LedgerStateFix,
     /// `ttMPTOKEN_ISSUANCE_CREATE` (63).
-    MptokenIssuanceCreate,
+    MPTokenIssuanceCreate,
     /// `ttMPTOKEN_ISSUANCE_DESTROY` (64).
-    MptokenIssuanceDestroy,
+    MPTokenIssuanceDestroy,
     /// `ttMPTOKEN_ISSUANCE_SET` (65).
-    MptokenIssuanceSet,
+    MPTokenIssuanceSet,
     /// `ttMPTOKEN_AUTHORIZE` (66).
-    MptokenAuthorize,
+    MPTokenAuthorize,
     /// `ttCREDENTIAL_CREATE` (67).
     CredentialCreate,
     /// `ttCREDENTIAL_ACCEPT` (68).
@@ -139,7 +139,7 @@ pub enum TxType {
     /// `ttCREDENTIAL_DELETE` (69).
     CredentialDelete,
     /// `ttNFTOKEN_MODIFY` (70).
-    NftokenModify,
+    NFTokenModify,
     /// `ttPERMISSIONED_DOMAIN_SET` (71).
     PermissionedDomainSet,
     /// `ttPERMISSIONED_DOMAIN_DELETE` (72).
@@ -149,7 +149,7 @@ pub enum TxType {
     /// `ttCRON_SET` (93).
     CronSet,
     /// `ttREMARKS_SET` (94).
-    RemarksSet,
+    SetRemarks,
     /// `ttREMIT` (95).
     Remit,
     /// `ttGENESIS_MINT` (96).
@@ -161,15 +161,15 @@ pub enum TxType {
     /// `ttINVOKE` (99).
     Invoke,
     /// `ttAMENDMENT` (100).
-    Amendment,
+    EnableAmendment,
     /// `ttFEE` (101).
-    Fee,
+    SetFee,
     /// `ttUNL_MODIFY` (102).
-    UnlModify,
+    UNLModify,
     /// `ttEMIT_FAILURE` (103).
     EmitFailure,
     /// `ttUNL_REPORT` (104).
-    UnlReport,
+    UNLReport,
 
     /// A code this version of hooks-lib does not recognize yet. Carries
     /// the raw code for forward-compatibility.
@@ -184,77 +184,77 @@ impl From<u16> for TxType {
             hooks_core::ttESCROW_FINISH => TxType::EscrowFinish,
             hooks_core::ttACCOUNT_SET => TxType::AccountSet,
             hooks_core::ttESCROW_CANCEL => TxType::EscrowCancel,
-            hooks_core::ttREGULAR_KEY_SET => TxType::RegularKeySet,
+            hooks_core::ttREGULAR_KEY_SET => TxType::SetRegularKey,
             hooks_core::ttOFFER_CREATE => TxType::OfferCreate,
             hooks_core::ttOFFER_CANCEL => TxType::OfferCancel,
             hooks_core::ttTICKET_CREATE => TxType::TicketCreate,
             hooks_core::ttSIGNER_LIST_SET => TxType::SignerListSet,
-            hooks_core::ttPAYCHAN_CREATE => TxType::PaychanCreate,
-            hooks_core::ttPAYCHAN_FUND => TxType::PaychanFund,
-            hooks_core::ttPAYCHAN_CLAIM => TxType::PaychanClaim,
+            hooks_core::ttPAYCHAN_CREATE => TxType::PaymentChannelCreate,
+            hooks_core::ttPAYCHAN_FUND => TxType::PaymentChannelFund,
+            hooks_core::ttPAYCHAN_CLAIM => TxType::PaymentChannelClaim,
             hooks_core::ttCHECK_CREATE => TxType::CheckCreate,
             hooks_core::ttCHECK_CASH => TxType::CheckCash,
             hooks_core::ttCHECK_CANCEL => TxType::CheckCancel,
             hooks_core::ttDEPOSIT_PREAUTH => TxType::DepositPreauth,
             hooks_core::ttTRUST_SET => TxType::TrustSet,
             hooks_core::ttACCOUNT_DELETE => TxType::AccountDelete,
-            hooks_core::ttHOOK_SET => TxType::HookSet,
-            hooks_core::ttNFTOKEN_MINT => TxType::NftokenMint,
-            hooks_core::ttNFTOKEN_BURN => TxType::NftokenBurn,
-            hooks_core::ttNFTOKEN_CREATE_OFFER => TxType::NftokenCreateOffer,
-            hooks_core::ttNFTOKEN_CANCEL_OFFER => TxType::NftokenCancelOffer,
-            hooks_core::ttNFTOKEN_ACCEPT_OFFER => TxType::NftokenAcceptOffer,
+            hooks_core::ttHOOK_SET => TxType::SetHook,
+            hooks_core::ttNFTOKEN_MINT => TxType::NFTokenMint,
+            hooks_core::ttNFTOKEN_BURN => TxType::NFTokenBurn,
+            hooks_core::ttNFTOKEN_CREATE_OFFER => TxType::NFTokenCreateOffer,
+            hooks_core::ttNFTOKEN_CANCEL_OFFER => TxType::NFTokenCancelOffer,
+            hooks_core::ttNFTOKEN_ACCEPT_OFFER => TxType::NFTokenAcceptOffer,
             hooks_core::ttCLAWBACK => TxType::Clawback,
-            hooks_core::ttAMM_CLAWBACK => TxType::AmmClawback,
-            hooks_core::ttAMM_CREATE => TxType::AmmCreate,
-            hooks_core::ttAMM_DEPOSIT => TxType::AmmDeposit,
-            hooks_core::ttAMM_WITHDRAW => TxType::AmmWithdraw,
-            hooks_core::ttAMM_VOTE => TxType::AmmVote,
-            hooks_core::ttAMM_BID => TxType::AmmBid,
-            hooks_core::ttAMM_DELETE => TxType::AmmDelete,
-            hooks_core::ttURITOKEN_MINT => TxType::UritokenMint,
-            hooks_core::ttURITOKEN_BURN => TxType::UritokenBurn,
-            hooks_core::ttURITOKEN_BUY => TxType::UritokenBuy,
-            hooks_core::ttURITOKEN_CREATE_SELL_OFFER => TxType::UritokenCreateSellOffer,
-            hooks_core::ttURITOKEN_CANCEL_SELL_OFFER => TxType::UritokenCancelSellOffer,
-            hooks_core::ttXCHAIN_CREATE_CLAIM_ID => TxType::XchainCreateClaimId,
-            hooks_core::ttXCHAIN_COMMIT => TxType::XchainCommit,
-            hooks_core::ttXCHAIN_CLAIM => TxType::XchainClaim,
-            hooks_core::ttXCHAIN_ACCOUNT_CREATE_COMMIT => TxType::XchainAccountCreateCommit,
-            hooks_core::ttXCHAIN_ADD_CLAIM_ATTESTATION => TxType::XchainAddClaimAttestation,
+            hooks_core::ttAMM_CLAWBACK => TxType::AMMClawback,
+            hooks_core::ttAMM_CREATE => TxType::AMMCreate,
+            hooks_core::ttAMM_DEPOSIT => TxType::AMMDeposit,
+            hooks_core::ttAMM_WITHDRAW => TxType::AMMWithdraw,
+            hooks_core::ttAMM_VOTE => TxType::AMMVote,
+            hooks_core::ttAMM_BID => TxType::AMMBid,
+            hooks_core::ttAMM_DELETE => TxType::AMMDelete,
+            hooks_core::ttURITOKEN_MINT => TxType::URITokenMint,
+            hooks_core::ttURITOKEN_BURN => TxType::URITokenBurn,
+            hooks_core::ttURITOKEN_BUY => TxType::URITokenBuy,
+            hooks_core::ttURITOKEN_CREATE_SELL_OFFER => TxType::URITokenCreateSellOffer,
+            hooks_core::ttURITOKEN_CANCEL_SELL_OFFER => TxType::URITokenCancelSellOffer,
+            hooks_core::ttXCHAIN_CREATE_CLAIM_ID => TxType::XChainCreateClaimID,
+            hooks_core::ttXCHAIN_COMMIT => TxType::XChainCommit,
+            hooks_core::ttXCHAIN_CLAIM => TxType::XChainClaim,
+            hooks_core::ttXCHAIN_ACCOUNT_CREATE_COMMIT => TxType::XChainAccountCreateCommit,
+            hooks_core::ttXCHAIN_ADD_CLAIM_ATTESTATION => TxType::XChainAddClaimAttestation,
             hooks_core::ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION => {
-                TxType::XchainAddAccountCreateAttestation
+                TxType::XChainAddAccountCreateAttestation
             }
-            hooks_core::ttXCHAIN_MODIFY_BRIDGE => TxType::XchainModifyBridge,
-            hooks_core::ttXCHAIN_CREATE_BRIDGE => TxType::XchainCreateBridge,
-            hooks_core::ttDID_SET => TxType::DidSet,
-            hooks_core::ttDID_DELETE => TxType::DidDelete,
+            hooks_core::ttXCHAIN_MODIFY_BRIDGE => TxType::XChainModifyBridge,
+            hooks_core::ttXCHAIN_CREATE_BRIDGE => TxType::XChainCreateBridge,
+            hooks_core::ttDID_SET => TxType::DIDSet,
+            hooks_core::ttDID_DELETE => TxType::DIDDelete,
             hooks_core::ttORACLE_SET => TxType::OracleSet,
             hooks_core::ttORACLE_DELETE => TxType::OracleDelete,
             hooks_core::ttLEDGER_STATE_FIX => TxType::LedgerStateFix,
-            hooks_core::ttMPTOKEN_ISSUANCE_CREATE => TxType::MptokenIssuanceCreate,
-            hooks_core::ttMPTOKEN_ISSUANCE_DESTROY => TxType::MptokenIssuanceDestroy,
-            hooks_core::ttMPTOKEN_ISSUANCE_SET => TxType::MptokenIssuanceSet,
-            hooks_core::ttMPTOKEN_AUTHORIZE => TxType::MptokenAuthorize,
+            hooks_core::ttMPTOKEN_ISSUANCE_CREATE => TxType::MPTokenIssuanceCreate,
+            hooks_core::ttMPTOKEN_ISSUANCE_DESTROY => TxType::MPTokenIssuanceDestroy,
+            hooks_core::ttMPTOKEN_ISSUANCE_SET => TxType::MPTokenIssuanceSet,
+            hooks_core::ttMPTOKEN_AUTHORIZE => TxType::MPTokenAuthorize,
             hooks_core::ttCREDENTIAL_CREATE => TxType::CredentialCreate,
             hooks_core::ttCREDENTIAL_ACCEPT => TxType::CredentialAccept,
             hooks_core::ttCREDENTIAL_DELETE => TxType::CredentialDelete,
-            hooks_core::ttNFTOKEN_MODIFY => TxType::NftokenModify,
+            hooks_core::ttNFTOKEN_MODIFY => TxType::NFTokenModify,
             hooks_core::ttPERMISSIONED_DOMAIN_SET => TxType::PermissionedDomainSet,
             hooks_core::ttPERMISSIONED_DOMAIN_DELETE => TxType::PermissionedDomainDelete,
             hooks_core::ttCRON => TxType::Cron,
             hooks_core::ttCRON_SET => TxType::CronSet,
-            hooks_core::ttREMARKS_SET => TxType::RemarksSet,
+            hooks_core::ttREMARKS_SET => TxType::SetRemarks,
             hooks_core::ttREMIT => TxType::Remit,
             hooks_core::ttGENESIS_MINT => TxType::GenesisMint,
             hooks_core::ttIMPORT => TxType::Import,
             hooks_core::ttCLAIM_REWARD => TxType::ClaimReward,
             hooks_core::ttINVOKE => TxType::Invoke,
-            hooks_core::ttAMENDMENT => TxType::Amendment,
-            hooks_core::ttFEE => TxType::Fee,
-            hooks_core::ttUNL_MODIFY => TxType::UnlModify,
+            hooks_core::ttAMENDMENT => TxType::EnableAmendment,
+            hooks_core::ttFEE => TxType::SetFee,
+            hooks_core::ttUNL_MODIFY => TxType::UNLModify,
             hooks_core::ttEMIT_FAILURE => TxType::EmitFailure,
-            hooks_core::ttUNL_REPORT => TxType::UnlReport,
+            hooks_core::ttUNL_REPORT => TxType::UNLReport,
             other => TxType::Unknown(other),
         }
     }
@@ -273,77 +273,77 @@ impl TxType {
             TxType::EscrowFinish => hooks_core::ttESCROW_FINISH,
             TxType::AccountSet => hooks_core::ttACCOUNT_SET,
             TxType::EscrowCancel => hooks_core::ttESCROW_CANCEL,
-            TxType::RegularKeySet => hooks_core::ttREGULAR_KEY_SET,
+            TxType::SetRegularKey => hooks_core::ttREGULAR_KEY_SET,
             TxType::OfferCreate => hooks_core::ttOFFER_CREATE,
             TxType::OfferCancel => hooks_core::ttOFFER_CANCEL,
             TxType::TicketCreate => hooks_core::ttTICKET_CREATE,
             TxType::SignerListSet => hooks_core::ttSIGNER_LIST_SET,
-            TxType::PaychanCreate => hooks_core::ttPAYCHAN_CREATE,
-            TxType::PaychanFund => hooks_core::ttPAYCHAN_FUND,
-            TxType::PaychanClaim => hooks_core::ttPAYCHAN_CLAIM,
+            TxType::PaymentChannelCreate => hooks_core::ttPAYCHAN_CREATE,
+            TxType::PaymentChannelFund => hooks_core::ttPAYCHAN_FUND,
+            TxType::PaymentChannelClaim => hooks_core::ttPAYCHAN_CLAIM,
             TxType::CheckCreate => hooks_core::ttCHECK_CREATE,
             TxType::CheckCash => hooks_core::ttCHECK_CASH,
             TxType::CheckCancel => hooks_core::ttCHECK_CANCEL,
             TxType::DepositPreauth => hooks_core::ttDEPOSIT_PREAUTH,
             TxType::TrustSet => hooks_core::ttTRUST_SET,
             TxType::AccountDelete => hooks_core::ttACCOUNT_DELETE,
-            TxType::HookSet => hooks_core::ttHOOK_SET,
-            TxType::NftokenMint => hooks_core::ttNFTOKEN_MINT,
-            TxType::NftokenBurn => hooks_core::ttNFTOKEN_BURN,
-            TxType::NftokenCreateOffer => hooks_core::ttNFTOKEN_CREATE_OFFER,
-            TxType::NftokenCancelOffer => hooks_core::ttNFTOKEN_CANCEL_OFFER,
-            TxType::NftokenAcceptOffer => hooks_core::ttNFTOKEN_ACCEPT_OFFER,
+            TxType::SetHook => hooks_core::ttHOOK_SET,
+            TxType::NFTokenMint => hooks_core::ttNFTOKEN_MINT,
+            TxType::NFTokenBurn => hooks_core::ttNFTOKEN_BURN,
+            TxType::NFTokenCreateOffer => hooks_core::ttNFTOKEN_CREATE_OFFER,
+            TxType::NFTokenCancelOffer => hooks_core::ttNFTOKEN_CANCEL_OFFER,
+            TxType::NFTokenAcceptOffer => hooks_core::ttNFTOKEN_ACCEPT_OFFER,
             TxType::Clawback => hooks_core::ttCLAWBACK,
-            TxType::AmmClawback => hooks_core::ttAMM_CLAWBACK,
-            TxType::AmmCreate => hooks_core::ttAMM_CREATE,
-            TxType::AmmDeposit => hooks_core::ttAMM_DEPOSIT,
-            TxType::AmmWithdraw => hooks_core::ttAMM_WITHDRAW,
-            TxType::AmmVote => hooks_core::ttAMM_VOTE,
-            TxType::AmmBid => hooks_core::ttAMM_BID,
-            TxType::AmmDelete => hooks_core::ttAMM_DELETE,
-            TxType::UritokenMint => hooks_core::ttURITOKEN_MINT,
-            TxType::UritokenBurn => hooks_core::ttURITOKEN_BURN,
-            TxType::UritokenBuy => hooks_core::ttURITOKEN_BUY,
-            TxType::UritokenCreateSellOffer => hooks_core::ttURITOKEN_CREATE_SELL_OFFER,
-            TxType::UritokenCancelSellOffer => hooks_core::ttURITOKEN_CANCEL_SELL_OFFER,
-            TxType::XchainCreateClaimId => hooks_core::ttXCHAIN_CREATE_CLAIM_ID,
-            TxType::XchainCommit => hooks_core::ttXCHAIN_COMMIT,
-            TxType::XchainClaim => hooks_core::ttXCHAIN_CLAIM,
-            TxType::XchainAccountCreateCommit => hooks_core::ttXCHAIN_ACCOUNT_CREATE_COMMIT,
-            TxType::XchainAddClaimAttestation => hooks_core::ttXCHAIN_ADD_CLAIM_ATTESTATION,
-            TxType::XchainAddAccountCreateAttestation => {
+            TxType::AMMClawback => hooks_core::ttAMM_CLAWBACK,
+            TxType::AMMCreate => hooks_core::ttAMM_CREATE,
+            TxType::AMMDeposit => hooks_core::ttAMM_DEPOSIT,
+            TxType::AMMWithdraw => hooks_core::ttAMM_WITHDRAW,
+            TxType::AMMVote => hooks_core::ttAMM_VOTE,
+            TxType::AMMBid => hooks_core::ttAMM_BID,
+            TxType::AMMDelete => hooks_core::ttAMM_DELETE,
+            TxType::URITokenMint => hooks_core::ttURITOKEN_MINT,
+            TxType::URITokenBurn => hooks_core::ttURITOKEN_BURN,
+            TxType::URITokenBuy => hooks_core::ttURITOKEN_BUY,
+            TxType::URITokenCreateSellOffer => hooks_core::ttURITOKEN_CREATE_SELL_OFFER,
+            TxType::URITokenCancelSellOffer => hooks_core::ttURITOKEN_CANCEL_SELL_OFFER,
+            TxType::XChainCreateClaimID => hooks_core::ttXCHAIN_CREATE_CLAIM_ID,
+            TxType::XChainCommit => hooks_core::ttXCHAIN_COMMIT,
+            TxType::XChainClaim => hooks_core::ttXCHAIN_CLAIM,
+            TxType::XChainAccountCreateCommit => hooks_core::ttXCHAIN_ACCOUNT_CREATE_COMMIT,
+            TxType::XChainAddClaimAttestation => hooks_core::ttXCHAIN_ADD_CLAIM_ATTESTATION,
+            TxType::XChainAddAccountCreateAttestation => {
                 hooks_core::ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION
             }
-            TxType::XchainModifyBridge => hooks_core::ttXCHAIN_MODIFY_BRIDGE,
-            TxType::XchainCreateBridge => hooks_core::ttXCHAIN_CREATE_BRIDGE,
-            TxType::DidSet => hooks_core::ttDID_SET,
-            TxType::DidDelete => hooks_core::ttDID_DELETE,
+            TxType::XChainModifyBridge => hooks_core::ttXCHAIN_MODIFY_BRIDGE,
+            TxType::XChainCreateBridge => hooks_core::ttXCHAIN_CREATE_BRIDGE,
+            TxType::DIDSet => hooks_core::ttDID_SET,
+            TxType::DIDDelete => hooks_core::ttDID_DELETE,
             TxType::OracleSet => hooks_core::ttORACLE_SET,
             TxType::OracleDelete => hooks_core::ttORACLE_DELETE,
             TxType::LedgerStateFix => hooks_core::ttLEDGER_STATE_FIX,
-            TxType::MptokenIssuanceCreate => hooks_core::ttMPTOKEN_ISSUANCE_CREATE,
-            TxType::MptokenIssuanceDestroy => hooks_core::ttMPTOKEN_ISSUANCE_DESTROY,
-            TxType::MptokenIssuanceSet => hooks_core::ttMPTOKEN_ISSUANCE_SET,
-            TxType::MptokenAuthorize => hooks_core::ttMPTOKEN_AUTHORIZE,
+            TxType::MPTokenIssuanceCreate => hooks_core::ttMPTOKEN_ISSUANCE_CREATE,
+            TxType::MPTokenIssuanceDestroy => hooks_core::ttMPTOKEN_ISSUANCE_DESTROY,
+            TxType::MPTokenIssuanceSet => hooks_core::ttMPTOKEN_ISSUANCE_SET,
+            TxType::MPTokenAuthorize => hooks_core::ttMPTOKEN_AUTHORIZE,
             TxType::CredentialCreate => hooks_core::ttCREDENTIAL_CREATE,
             TxType::CredentialAccept => hooks_core::ttCREDENTIAL_ACCEPT,
             TxType::CredentialDelete => hooks_core::ttCREDENTIAL_DELETE,
-            TxType::NftokenModify => hooks_core::ttNFTOKEN_MODIFY,
+            TxType::NFTokenModify => hooks_core::ttNFTOKEN_MODIFY,
             TxType::PermissionedDomainSet => hooks_core::ttPERMISSIONED_DOMAIN_SET,
             TxType::PermissionedDomainDelete => hooks_core::ttPERMISSIONED_DOMAIN_DELETE,
             TxType::Cron => hooks_core::ttCRON,
             TxType::CronSet => hooks_core::ttCRON_SET,
-            TxType::RemarksSet => hooks_core::ttREMARKS_SET,
+            TxType::SetRemarks => hooks_core::ttREMARKS_SET,
             TxType::Remit => hooks_core::ttREMIT,
             TxType::GenesisMint => hooks_core::ttGENESIS_MINT,
             TxType::Import => hooks_core::ttIMPORT,
             TxType::ClaimReward => hooks_core::ttCLAIM_REWARD,
             TxType::Invoke => hooks_core::ttINVOKE,
-            TxType::Amendment => hooks_core::ttAMENDMENT,
-            TxType::Fee => hooks_core::ttFEE,
-            TxType::UnlModify => hooks_core::ttUNL_MODIFY,
+            TxType::EnableAmendment => hooks_core::ttAMENDMENT,
+            TxType::SetFee => hooks_core::ttFEE,
+            TxType::UNLModify => hooks_core::ttUNL_MODIFY,
             TxType::EmitFailure => hooks_core::ttEMIT_FAILURE,
-            TxType::UnlReport => hooks_core::ttUNL_REPORT,
+            TxType::UNLReport => hooks_core::ttUNL_REPORT,
             TxType::Unknown(code) => code,
         }
     }

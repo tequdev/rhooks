@@ -392,55 +392,10 @@ fn insert_variants(
     );
 }
 
-/// Converts the generated Rust `TxType` spelling to Xahau's canonical JSON
-/// `TransactionType` spelling. Variants not needing acronym or verb-order
-/// repair intentionally pass through unchanged.
+/// Generated Rust `TxType` variants use Xahau's canonical JSON
+/// `TransactionType` spellings directly.
 fn canonical_name(rust_name: &str) -> &str {
-    match rust_name {
-        "RegularKeySet" => "SetRegularKey",
-        "PaychanCreate" => "PaymentChannelCreate",
-        "PaychanFund" => "PaymentChannelFund",
-        "PaychanClaim" => "PaymentChannelClaim",
-        "HookSet" => "SetHook",
-        "NftokenMint" => "NFTokenMint",
-        "NftokenBurn" => "NFTokenBurn",
-        "NftokenCreateOffer" => "NFTokenCreateOffer",
-        "NftokenCancelOffer" => "NFTokenCancelOffer",
-        "NftokenAcceptOffer" => "NFTokenAcceptOffer",
-        "NftokenModify" => "NFTokenModify",
-        "AmmClawback" => "AMMClawback",
-        "AmmCreate" => "AMMCreate",
-        "AmmDeposit" => "AMMDeposit",
-        "AmmWithdraw" => "AMMWithdraw",
-        "AmmVote" => "AMMVote",
-        "AmmBid" => "AMMBid",
-        "AmmDelete" => "AMMDelete",
-        "UritokenMint" => "URITokenMint",
-        "UritokenBurn" => "URITokenBurn",
-        "UritokenBuy" => "URITokenBuy",
-        "UritokenCreateSellOffer" => "URITokenCreateSellOffer",
-        "UritokenCancelSellOffer" => "URITokenCancelSellOffer",
-        "XchainCreateClaimId" => "XChainCreateClaimID",
-        "XchainCommit" => "XChainCommit",
-        "XchainClaim" => "XChainClaim",
-        "XchainAccountCreateCommit" => "XChainAccountCreateCommit",
-        "XchainAddClaimAttestation" => "XChainAddClaimAttestation",
-        "XchainAddAccountCreateAttestation" => "XChainAddAccountCreateAttestation",
-        "XchainModifyBridge" => "XChainModifyBridge",
-        "XchainCreateBridge" => "XChainCreateBridge",
-        "DidSet" => "DIDSet",
-        "DidDelete" => "DIDDelete",
-        "MptokenIssuanceCreate" => "MPTokenIssuanceCreate",
-        "MptokenIssuanceDestroy" => "MPTokenIssuanceDestroy",
-        "MptokenIssuanceSet" => "MPTokenIssuanceSet",
-        "MptokenAuthorize" => "MPTokenAuthorize",
-        "RemarksSet" => "SetRemarks",
-        "Amendment" => "EnableAmendment",
-        "Fee" => "SetFee",
-        "UnlModify" => "UNLModify",
-        "UnlReport" => "UNLReport",
-        other => other,
-    }
+    rust_name
 }
 
 fn variants(metadata: &Metadata) -> impl Iterator<Item = &Variant> {
@@ -468,21 +423,21 @@ mod tests {
     #[test]
     fn canonical_transaction_type_spellings() {
         let cases = [
-            ("RegularKeySet", "SetRegularKey"),
-            ("PaychanCreate", "PaymentChannelCreate"),
-            ("PaychanFund", "PaymentChannelFund"),
-            ("PaychanClaim", "PaymentChannelClaim"),
-            ("HookSet", "SetHook"),
-            ("NftokenMint", "NFTokenMint"),
-            ("AmmCreate", "AMMCreate"),
-            ("UritokenMint", "URITokenMint"),
-            ("XchainCreateClaimId", "XChainCreateClaimID"),
-            ("DidSet", "DIDSet"),
-            ("MptokenAuthorize", "MPTokenAuthorize"),
-            ("RemarksSet", "SetRemarks"),
-            ("Amendment", "EnableAmendment"),
-            ("Fee", "SetFee"),
-            ("UnlModify", "UNLModify"),
+            ("SetRegularKey", "SetRegularKey"),
+            ("PaymentChannelCreate", "PaymentChannelCreate"),
+            ("PaymentChannelFund", "PaymentChannelFund"),
+            ("PaymentChannelClaim", "PaymentChannelClaim"),
+            ("SetHook", "SetHook"),
+            ("NFTokenMint", "NFTokenMint"),
+            ("AMMCreate", "AMMCreate"),
+            ("URITokenMint", "URITokenMint"),
+            ("XChainCreateClaimID", "XChainCreateClaimID"),
+            ("DIDSet", "DIDSet"),
+            ("MPTokenAuthorize", "MPTokenAuthorize"),
+            ("SetRemarks", "SetRemarks"),
+            ("EnableAmendment", "EnableAmendment"),
+            ("SetFee", "SetFee"),
+            ("UNLModify", "UNLModify"),
             ("Payment", "Payment"),
         ];
 
