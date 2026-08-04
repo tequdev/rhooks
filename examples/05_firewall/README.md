@@ -9,7 +9,7 @@ written in the source, so no `guard!` is needed there.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/05_firewall/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/05_firewall/Cargo.toml
 ```
 
 No extra flags needed. Earlier versions of this example compared the two
@@ -20,10 +20,10 @@ bulk-memory instructions to do it inline) and required
 16, because the loop's true worst case is 20 iterations — one per
 `AccountId` byte; getting that number wrong builds fine but risks a runtime
 `GUARD_VIOLATION` on a real node). This example now compares with
-[`hooks_lib::buf_eq_20`](../../crates/hooks-lib/src/buf_eq.rs), which is
+[`rshooks::buf_eq_20`](../../crates/rshooks/src/buf_eq.rs), which is
 loop-free by construction (every byte index is a source-level literal), so
 the compiled output has no loop to guard in the first place — see
-`hooks_lib::buf_eq`'s module docs for why a generic `buf_eq<const N: usize>`
+`rshooks::buf_eq`'s module docs for why a generic `buf_eq<const N: usize>`
 isn't offered instead. See `examples/README.md`'s "On `--auto-guard`"
 section for the general story (still relevant to other compiler-generated
 loop shapes, like `memcpy`/`memset`).
@@ -36,7 +36,7 @@ scope for this repo (see `docs/DESIGN.md` §1 non-goals).
 
 ## Error codes
 
-`FirewallError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`FirewallError` (`rshooks::hook_errors!`, see `src/lib.rs`) is the
 `rollback!` code for each failure this hook can exit with:
 
 | variant | code | meaning |

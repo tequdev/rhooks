@@ -1,0 +1,29 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Verify with cargo publish --dry-run instead of publishing"
+        type: boolean
+        default: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish crates to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Multi-package `cargo publish` needs cargo >= 1.90; rust-toolchain.toml
+      # pins 1.89.0, so install stable alongside it rather than bump the pin.
+      - name: Install stable Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo +stable publish -p rshooks-core -p rshooks-macros -p rshooks -p rshooks-build${{ inputs.dry-run && ' --dry-run' || '' }}

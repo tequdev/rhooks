@@ -10,7 +10,7 @@ hook state, normally written by [`../81_govern`](../81_govern)), and
 emits a `GenesisMint` transaction crediting the claimant and every
 active-validator L1 governance seat.
 
-Build: `hooks-build build --manifest-path examples/80_reward/Cargo.toml`
+Build: `rshooks-build build --manifest-path examples/80_reward/Cargo.toml`
 (also wired into `mise run build-examples`).
 
 - Worst-case instructions: **13680** (`hook`), 0 (`cbak` — none declared)
@@ -70,7 +70,7 @@ target — see "Differences from reward.c" below.
 ## `GenesisMint` wire format
 
 Built field-by-field in `mint_txn.rs` from
-[`hooks_lib::txn::codec`](../../crates/hooks-lib/src/txn.rs)'s generic
+[`rshooks::txn::codec`](../../crates/rshooks/src/txn.rs)'s generic
 STObject primitives (the same ones `txn_template!` uses), not a
 hand-transcribed byte table — but the resulting bytes are byte-for-byte
 what reward.c's own `txn_mint`/`template` arrays produce:
@@ -91,7 +91,7 @@ field list; `GenesisMints` is a variable-length array.
 |---|---|---|---|
 | 1 | `rollback`/`accept` codes are `__LINE__` (the C source's line number) | Codes are a small `hook_errors!` enum (`RewardError`, see `lib.rs`) or `0` | reward.c's line-number codes aren't meaningful protocol data (only debugging aid for the C source); this repo's convention is a stable enum. `ter` (`tesSUCCESS`/`tecHOOK_REJECTED`) and the rollback/accept **message** are unaffected and match exactly. |
 | 2 | `seat > L1SEATS` (not `>=`) lets a stored seat byte of exactly 20 through, then writes `can_reward[20]` — out of bounds on a 20-element C array (UB) | Same `> L1_SEATS` condition preserved for state-layout parity, but `can_reward.get_mut(seat)` turns the out-of-range write into a safe no-op | `seat` values only ever come from govern.rs/govern.c, which never assigns seat 20 (`SEAT_COUNT = 20`, loop bound `i < member_count <= 20`), so this is unreachable in practice either way — this crate just doesn't reproduce the UB if it somehow were reached. |
-| 3 | reward.c's `float_*` reward-rate math treats every host-call result as a raw, unchecked `i64` | `src/raw.rs` calls `float_set`/`float_divide`/`float_multiply`/`float_int`/`float_sign`/`float_one`/`float_compare` through `hooks_core`'s raw FFI directly, not `hooks_lib::xfl::XFL`'s validated `Result<XFL, HookError>` API | Not a build constraint — a deliberate semantic match: reward.c folds host failure into the *same* validity checks it already needs for legitimately out-of-range values, never asking "did this call fail" on its own. See `src/raw.rs`'s module doc comment. Every other Hook API call in this crate uses `hooks_lib::api`'s ordinary wrappers — see "Toolchain limitation" below. |
+| 3 | reward.c's `float_*` reward-rate math treats every host-call result as a raw, unchecked `i64` | `src/raw.rs` calls `float_set`/`float_divide`/`float_multiply`/`float_int`/`float_sign`/`float_one`/`float_compare` through `rshooks_core`'s raw FFI directly, not `rshooks::xfl::XFL`'s validated `Result<XFL, HookError>` API | Not a build constraint — a deliberate semantic match: reward.c folds host failure into the *same* validity checks it already needs for legitimately out-of-range values, never asking "did this call fail" on its own. See `src/raw.rs`'s module doc comment. Every other Hook API call in this crate uses `rshooks::api`'s ordinary wrappers — see "Toolchain limitation" below. |
 
 No other intentional behavioral differences. In particular: the reward
 formula, the delay/rate validity bounds, the fee-refund addition, the
@@ -101,7 +101,7 @@ transcribed exactly.
 
 ## Toolchain limitation: `HookError` decoding and nesting depth
 
-`hooks-build`'s Guard-type pipeline inlines every function in a crate
+`rshooks-build`'s Guard-type pipeline inlines every function in a crate
 into `hook()`/`cbak()` (`docs/DESIGN.md` §6.2c), then runs a
 ladder-flattening pass (`unnest.rs`) to keep the merged function's
 block/loop/if nesting under the vendored guard checker's 32-level limit.
@@ -109,11 +109,11 @@ That pass only collapses a "diverging tail" — instructions that push
 constants, call an *imported* function, and end in `unreachable` — which
 matches a plain `rollback!(literal_message, literal_code)` call exactly.
 
-`hooks_lib::error::res` (the function every `hooks_lib::api::*`/`XFL`
+`rshooks::error::res` (the function every `rshooks::api::*`/`XFL`
 wrapper funnels its host-call result through) converts a negative raw
 return code to a concrete `HookError` value via a ~40-arm `match` —
 `HookError::from(i64)`. Measured directly (via
-`crates/hooks-build/examples/diag.rs`, a throwaway pipeline-stage dumper
+`crates/rshooks-build/examples/diag.rs`, a throwaway pipeline-stage dumper
 written during this investigation — dumps the `clean`/`flatten`/`unnest`
 intermediate `.wasm` at each stage so `wasm-tools print` can inspect real
 nesting depth and find the exact construct responsible), this compiles
@@ -126,7 +126,7 @@ raw codes it is. A call site that only asks "did this fail"
 one specific `Ok` value) never reads which variant it got, so the
 optimizer discards the decode entirely and keeps just the "is the raw
 code negative" branch. This crate's every Hook API call (besides the XFL
-math below) is written the second way, so `hooks_lib::api`'s ordinary
+math below) is written the second way, so `rshooks::api`'s ordinary
 `Result`-based wrappers (including `_exact`/`_buf` convenience variants
 where they fit) are used directly throughout `lib.rs` and
 `mint_txn.rs` — no `raw` module needed for any of it. (`../81_govern`
@@ -160,7 +160,7 @@ wraps each call:
   `push_field_header`, `push_u32_field`, `write_native_amount`)
   `#[inline(always)]`, so their own diverging checks get exposed at
   every call site for `unnest` to collapse (this was the single largest
-  win: **42 -> 23** in one step) — apparently `hooks-build`'s later
+  win: **42 -> 23** in one step) — apparently `rshooks-build`'s later
   wasm-level `flatten` pass merges function *bodies* mechanically but
   does not itself re-run the dead-code elimination LLVM would have done
   had the functions been Rust-level-inlined first;
@@ -172,13 +172,13 @@ wraps each call:
 
 `src/raw.rs` closes the one remaining, deliberately narrow gap: every
 `float_*` call reward.c's reward-rate math makes is called
-through a thin `unsafe` wrapper around `hooks_core`'s raw extern
-declaration instead of `hooks_lib::xfl::XFL`. This is **not** primarily a
+through a thin `unsafe` wrapper around `rshooks_core`'s raw extern
+declaration instead of `rshooks::xfl::XFL`. This is **not** primarily a
 nesting-depth workaround — see `src/raw.rs`'s module doc comment for the
 XFL-validation-semantics rationale, which is the actual reason it exists.
 
 The unavoidable-per-call-site `HookError` decode cost above is still
-flagged as a **candidate `hooks-lib`/`hooks-build` fix** (e.g. `flatten.rs`
+flagged as a **candidate `rshooks`/`rshooks-build` fix** (e.g. `flatten.rs`
 re-running a cheap DCE pass after merging, so a Rust-level-inlined
 non-generic `res()` doesn't need every call site to independently prove
 its result unused) for the rarer case where a hook genuinely needs to
@@ -196,7 +196,7 @@ genesis-activated network.
 
 ## Slot API: the typed layer, with an extraction
 
-The account-root reads go through `hooks_lib::slot_obj`: `SlotObject::from_keylet`
+The account-root reads go through `rshooks::slot_obj`: `SlotObject::from_keylet`
 loads the sender's account, `.get(sfRewardAccumulator)` and friends derive the
 field handles, and `.value()` reads them. No slot numbers appear.
 

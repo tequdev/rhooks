@@ -5,9 +5,9 @@
 
 #![no_std]
 
-use hooks_lib::prelude::*;
-use hooks_lib::slot_path;
-use hooks_lib::*;
+use rshooks::prelude::*;
+use rshooks::slot_path;
+use rshooks::*;
 
 metadata! {
     name: "slot-objects",

@@ -1,7 +1,7 @@
 //! Repository-maintenance commands.
 //!
 //! `cargo xtask gen-core` parses vendored Hook headers and regenerates the
-//! translated `hooks-core` sources. This host-side tool permits bounded
+//! translated `rshooks-core` sources. This host-side tool permits bounded
 //! parser arithmetic and indexing.
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 #![allow(clippy::print_stderr)]
@@ -23,7 +23,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Regenerate `hooks-core` sources from vendored Hook headers.
+    /// Regenerate `rshooks-core` sources from vendored Hook headers.
     GenCore {
         /// Check whether generated sources are up to date without writing them.
         #[arg(long)]

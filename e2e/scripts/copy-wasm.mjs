@@ -1,4 +1,4 @@
-// Wires hooks-build's example outputs into the place
+// Wires rshooks-build's example outputs into the place
 // `@transia/hooks-toolkit`'s `readHookBinaryHexFromNS(name, 'wasm')` reads
 // from: `${process.cwd()}/build/<name>.wasm` (see
 // node_modules/@transia/hooks-toolkit/dist/npm/src/utils.js). Copying
@@ -17,7 +17,7 @@ const repoRoot = dirname(e2eRoot)
 const buildDir = join(e2eRoot, 'build')
 
 // example directory name (numbered - suggested reading order, see
-// examples/README.md) -> wasm basename produced by hooks-build (the crate
+// examples/README.md) -> wasm basename produced by rshooks-build (the crate
 // name with `-` replaced by `_`, per examples/*/Cargo.toml [package].name)
 const examples = {
   '01_accept-all': 'accept_all',

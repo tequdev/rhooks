@@ -2,7 +2,7 @@
 
 ## What you'll learn
 
-How `hooks_lib::account_id!("r...")` decodes a classic r-address into an
+How `rshooks::account_id!("r...")` decodes a classic r-address into an
 `AccountId` **entirely at compile time** — zero runtime cost, no
 base58/checksum decode logic in the compiled hook at all — and how to prove
 that compile-time result is correct against the live Hook API.
@@ -16,7 +16,7 @@ const OWNER: AccountId = account_id!("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh");
 `account_id!` runs entirely inside the proc-macro (host side, at `cargo
 build` time): it base58-decodes the string (XRPL alphabet), verifies the
 version byte and double-SHA256 checksum, and expands to a plain
-`AccountId([0xB5, 0xF7, ...])` literal — see `hooks_lib::account_id`'s doc
+`AccountId([0xB5, 0xF7, ...])` literal — see `rshooks::account_id`'s doc
 comment for the full algorithm and `compile_fail` examples of what a
 malformed address reports. Because the expansion is a bare literal, `OWNER`
 works in `const` position, and the compiled wasm is byte-identical to
@@ -52,12 +52,12 @@ avoided in Hook code.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
 ```
 
 No extra flags needed: every comparison is a fixed-size buffer compared with
 `buf_eq_20`/`buf_eq_34` (loop-free by construction, see
-`crates/hooks-lib/src/buf_eq.rs`), and every buffer here is small enough
+`crates/rshooks/src/buf_eq.rs`), and every buffer here is small enough
 that no compiler-generated `memset`/`memcpy` loop appears either.
 
 ## Zero-cost, verified
@@ -84,7 +84,7 @@ meaningful).
 
 ## Error codes
 
-`AccountIdMacroError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`AccountIdMacroError` (`rshooks::hook_errors!`, see `src/lib.rs`) is the
 `rollback!` code for each failure this hook can exit with:
 
 | variant | code | meaning |

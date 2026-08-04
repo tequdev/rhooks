@@ -1,0 +1,37 @@
+[package]
+name = "rshooks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Ergonomic no_std library for writing Xahau Hooks (WebAssembly smart contracts) in Rust"
+keywords = ["xahau", "hooks", "xrpl", "smart-contracts", "wasm"]
+categories = ["no-std", "wasm", "cryptography::cryptocurrencies"]
+
+[lib]
+doctest = true
+
+[dependencies]
+rshooks-core = { path = "../rshooks-core", version = "0.1.0" }
+rshooks-macros = { path = "../rshooks-macros", version = "0.1.0" }
+
+# Host-only, test-only: compiles the `tests/ui/*.rs` fixtures and diffs the
+# resulting rustc output against the committed `.stderr` files, so the
+# declaration macros' `compile_error!` diagnostics (which no ordinary test
+# can observe — a failed compile has no test to run) stay pinned.
+[dev-dependencies]
+trybuild = "1"
+
+[features]
+default = ["panic-handler"]
+panic-handler = []
+# Provides a #[panic_handler] on non-wasm targets so host `cargo check`
+# (rust-analyzer) works for no_std cdylib hook crates. Never enable this
+# from a `std` context — see the handler's doc comment in lib.rs.
+host-panic-handler = []
+trace = []
+
+[lints]
+workspace = true

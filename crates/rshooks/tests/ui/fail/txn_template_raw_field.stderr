@@ -1,0 +1,906 @@
+warning: unused import: `rshooks::prelude::*`
+ --> tests/ui/fail/txn_template_raw_field.rs:9:5
+  |
+9 | use rshooks::prelude::*;
+  |     ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:16:26
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+   | |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn u32_field_size<T>(f: SField<T>) -> usize {
+   |                  ^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:17:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+17 | |         sequence: u32_field(rshooks::raw::sfcodes::sfSequence) = 0,
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn u32_field_size<T>(f: SField<T>) -> usize {
+   |                  ^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:18:42
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+18 | |         first_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn u32_field_size<T>(f: SField<T>) -> usize {
+   |                  ^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:19:41
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         last_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn u32_field_size<T>(f: SField<T>) -> usize {
+   |                  ^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:20:28
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+20 | |         fee: native_amount(rshooks::raw::sfcodes::sfFee) = 0,
+   | |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn native_amount_field_size<T>(f: SField<T>) -> usize {
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:21:35
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+21 | |         signing_pub_key: empty_vl(rshooks::raw::sfcodes::sfSigningPubKey),
+   | |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn empty_vl_field_size<T>(f: SField<T>) -> usize {
+   |                  ^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:22:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+22 | |         account: account_id(rshooks::raw::sfcodes::sfAccount),
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn account_id_field_size<T>(f: SField<T>) -> usize {
+   |                  ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:16:26
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+   | |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize, T>(
+   |                  ^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:16:26
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+   | |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:17:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+17 | |         sequence: u32_field(rshooks::raw::sfcodes::sfSequence) = 0,
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize, T>(
+   |                  ^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:17:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+17 | |         sequence: u32_field(rshooks::raw::sfcodes::sfSequence) = 0,
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:18:42
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+18 | |         first_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize, T>(
+   |                  ^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:18:42
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+18 | |         first_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:19:41
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         last_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize, T>(
+   |                  ^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:19:41
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         last_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:20:28
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+20 | |         fee: native_amount(rshooks::raw::sfcodes::sfFee) = 0,
+   | |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize, T>(
+   |                  ^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:20:28
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+20 | |         fee: native_amount(rshooks::raw::sfcodes::sfFee) = 0,
+   | |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:21:35
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+21 | |         signing_pub_key: empty_vl(rshooks::raw::sfcodes::sfSigningPubKey),
+   | |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize, T>(
+   |                  ^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:21:35
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+21 | |         signing_pub_key: empty_vl(rshooks::raw::sfcodes::sfSigningPubKey),
+   | |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:22:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+22 | |         account: account_id(rshooks::raw::sfcodes::sfAccount),
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn write_field_header<const N: usize, T>(
+   |                  ^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:22:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+22 | |         account: account_id(rshooks::raw::sfcodes::sfAccount),
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:16:26
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+   | |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:17:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+17 | |         sequence: u32_field(rshooks::raw::sfcodes::sfSequence) = 0,
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:18:42
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+18 | |         first_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:19:41
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         last_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:20:28
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+20 | |         fee: native_amount(rshooks::raw::sfcodes::sfFee) = 0,
+   | |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:22:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+22 | |         account: account_id(rshooks::raw::sfcodes::sfAccount),
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:16:26
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+   | |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:17:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+16 | |         flags: u32_field(rshooks::raw::sfcodes::sfFlags) = 0,
+17 | |         sequence: u32_field(rshooks::raw::sfcodes::sfSequence) = 0,
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:18:42
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+18 | |         first_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfFirstLedgerSequence) = 0,
+   | |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:19:41
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+19 | |         last_ledger_sequence: u32_field(rshooks::raw::sfcodes::sfLastLedgerSequence) = 0,
+   | |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:20:28
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+20 | |         fee: native_amount(rshooks::raw::sfcodes::sfFee) = 0,
+   | |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:21:35
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+21 | |         signing_pub_key: empty_vl(rshooks::raw::sfcodes::sfSigningPubKey),
+   | |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/txn_template_raw_field.rs:22:29
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+22 | |         account: account_id(rshooks::raw::sfcodes::sfAccount),
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `SField<_>`, found `u32`
+...  |
+25 | | }
+   | |_- arguments to this function are incorrect
+   |
+   = note: expected struct `SField<_>`
+                found type `u32`
+note: function defined here
+  --> src/txn.rs
+   |
+   |     pub const fn field_header<T>(f: SField<T>) -> ([u8; 3], usize) {
+   |                  ^^^^^^^^^^^^
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: no method named `code` found for type `u32` in the current scope
+  --> tests/ui/fail/txn_template_raw_field.rs:12:1
+   |
+12 | / txn_template! {
+13 | |     /// A template whose field codes are raw `u32`s — rejected.
+14 | |     struct Payment {
+15 | |         transaction_type = ttPAYMENT,
+...  |
+25 | | }
+   | |_^ method not found in `u32`
+   |
+   = note: this error originates in the macro `$crate::__txn_template_step` which comes from the expansion of the macro `txn_template` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -28,60 +28,60 @@ run = "cargo test --workspace"
 
 [tasks.build-wasm]
 description = "Build the no_std crates for the wasm32v1-none Hook target"
-run = "cargo build -p hooks-core -p hooks-lib --target wasm32v1-none --release"
+run = "cargo build -p rshooks-core -p rshooks --target wasm32v1-none --release"
 
 [tasks.build-examples]
-description = "Build every example through hooks-build and check the output (end-to-end test)"
+description = "Build every example through rshooks-build and check the output (end-to-end test)"
 run = """
 set -e
 
-cargo run -p hooks-build -- build --manifest-path examples/01_accept-all/Cargo.toml
-cargo run -p hooks-build -- check examples/01_accept-all/out/accept_all.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/01_accept-all/Cargo.toml
+cargo run -p rshooks-build -- check examples/01_accept-all/out/accept_all.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
-cargo run -p hooks-build -- check examples/02_state-counter/out/state_counter.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
+cargo run -p rshooks-build -- check examples/02_state-counter/out/state_counter.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/03_hook-params/Cargo.toml
-cargo run -p hooks-build -- check examples/03_hook-params/out/hook_params.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/03_hook-params/Cargo.toml
+cargo run -p rshooks-build -- check examples/03_hook-params/out/hook_params.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/04_errors/Cargo.toml
-cargo run -p hooks-build -- check examples/04_errors/out/errors.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/04_errors/Cargo.toml
+cargo run -p rshooks-build -- check examples/04_errors/out/errors.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/05_firewall/Cargo.toml
-cargo run -p hooks-build -- check examples/05_firewall/out/firewall.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/05_firewall/Cargo.toml
+cargo run -p rshooks-build -- check examples/05_firewall/out/firewall.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/06_guard-patterns/Cargo.toml
-cargo run -p hooks-build -- check examples/06_guard-patterns/out/guard_patterns.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/06_guard-patterns/Cargo.toml
+cargo run -p rshooks-build -- check examples/06_guard-patterns/out/guard_patterns.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/07_xfl-math/Cargo.toml
-cargo run -p hooks-build -- check examples/07_xfl-math/out/xfl_math.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/07_xfl-math/Cargo.toml
+cargo run -p rshooks-build -- check examples/07_xfl-math/out/xfl_math.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/08_slot-ledger/Cargo.toml
-cargo run -p hooks-build -- check examples/08_slot-ledger/out/slot_ledger.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/08_slot-ledger/Cargo.toml
+cargo run -p rshooks-build -- check examples/08_slot-ledger/out/slot_ledger.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/09_state-foreign/Cargo.toml
-cargo run -p hooks-build -- check examples/09_state-foreign/out/state_foreign.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/09_state-foreign/Cargo.toml
+cargo run -p rshooks-build -- check examples/09_state-foreign/out/state_foreign.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
-cargo run -p hooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/10_emit-txn/Cargo.toml
+cargo run -p rshooks-build -- check examples/10_emit-txn/out/emit_txn.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/12_typed-data/Cargo.toml
-cargo run -p hooks-build -- check examples/12_typed-data/out/typed_data.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/12_typed-data/Cargo.toml
+cargo run -p rshooks-build -- check examples/12_typed-data/out/typed_data.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/13_keylets/Cargo.toml
-cargo run -p hooks-build -- check examples/13_keylets/out/keylets.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/13_keylets/Cargo.toml
+cargo run -p rshooks-build -- check examples/13_keylets/out/keylets.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
-cargo run -p hooks-build -- check examples/14_account-id-macro/out/account_id_macro.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/14_account-id-macro/Cargo.toml
+cargo run -p rshooks-build -- check examples/14_account-id-macro/out/account_id_macro.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/15_slot-objects/Cargo.toml
-cargo run -p hooks-build -- check examples/15_slot-objects/out/slot_objects.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/15_slot-objects/Cargo.toml
+cargo run -p rshooks-build -- check examples/15_slot-objects/out/slot_objects.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/80_reward/Cargo.toml
-cargo run -p hooks-build -- check examples/80_reward/out/reward.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/80_reward/Cargo.toml
+cargo run -p rshooks-build -- check examples/80_reward/out/reward.wasm
 
-cargo run -p hooks-build -- build --manifest-path examples/81_govern/Cargo.toml
-cargo run -p hooks-build -- check examples/81_govern/out/govern.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/81_govern/Cargo.toml
+cargo run -p rshooks-build -- check examples/81_govern/out/govern.wasm
 """
 
 [tasks."e2e:node-up"]

@@ -1,7 +1,7 @@
 //! Hook-state key layouts for governance state.
 
-use hooks_lib::guard;
-use hooks_lib::types::AccountId;
+use rshooks::guard;
+use rshooks::types::AccountId;
 
 /// Current member count.
 pub const MEMBER_COUNT: [u8; 2] = *b"MC";

@@ -10,27 +10,27 @@ Date: 2026-07-23
 Provide a Rust monorepo for developing Xahau Hooks (WebAssembly smart
 contracts) end to end:
 
-1. **hooks-core** — zero-logic FFI layer: raw Hook API declarations and every
+1. **rshooks-core** — zero-logic FFI layer: raw Hook API declarations and every
    constant from the xahaud `hook/` headers (`error.h`, `extern.h`,
    `ls_flags.h`, `sfcodes.h`, `tts.h`, `tx_flags.h`, keylet/compare constants
    from `hookapi.h`), translated 1:1 into Rust.
-2. **hooks-lib** — ergonomic, Rust-idiomatic wrapper over hooks-core
+2. **rshooks** — ergonomic, Rust-idiomatic wrapper over rshooks-core
    (`Result`-based APIs, typed buffers, XFL type, guard/trace macros, panic
    handler). This is the crate Hook developers import.
-3. **hooks-build** — CLI that turns a Rust crate into a SetHook-valid WASM:
+3. **rshooks-build** — CLI that turns a Rust crate into a SetHook-valid WASM:
    drives `cargo build --target wasm32v1-none`, then performs the
    hook-cleaner and guard-checker steps natively in Rust.
-4. **examples** — multiple working Hooks written with hooks-lib, buildable
-   with hooks-build.
+4. **examples** — multiple working Hooks written with rshooks, buildable
+   with rshooks-build.
 
 ### Non-goals (v1)
 
 - Publishing to crates.io (names/ownership decided later; `publish = false`).
 - Gas-type hook (HookApiVersion 1) *ergonomics*. The pipeline accepts
-  `--api-version 1` (skips guard handling) but hooks-lib v1 targets
+  `--api-version 1` (skips guard handling) but rshooks v1 targets
   Guard-type hooks.
 - Deployment tooling (SetHook submission, faucet, networks). Out of scope;
-  hooks-build stops at a valid `.wasm` plus a fee estimate.
+  rshooks-build stops at a valid `.wasm` plus a fee estimate.
 - WAT round-tripping, debugger, simulator.
 
 ## 2. Constraints that shape the design
@@ -62,7 +62,7 @@ These come from xahaud's SetHook validation (`SetHook.cpp`,
     backend only lowers a local `[0u8; N]` zero-init to plain inlined
     stores up to a fixed byte threshold; above it, LLVM instead emits a
     call to a `compiler_builtins`-style `memset` — an unguarded `loop`
-    that `hooks-build`'s guard pass hard-rejects by default (§6.3). That
+    that `rshooks-build`'s guard pass hard-rejects by default (§6.3). That
     threshold is **32 bytes** at `opt-level = "z"`/`"s"` but **64 bytes**
     at `opt-level = 1`/`2`/`3` (measured directly against this repo's
     pinned toolchain by bisecting the exact byte boundary in both
@@ -86,7 +86,7 @@ These come from xahaud's SetHook validation (`SetHook.cpp`,
     `guard!`-bounded loops: `opt-level = 3` unrolls them, so WCE dropped
     ~54% while size grew ~109% — see that example's own README for the
     exact before/after table). Every example stayed comfortably under the
-    65,535-byte limit and `hooks-build check` (no unguarded loops, no
+    65,535-byte limit and `rshooks-build check` (no unguarded loops, no
     nesting-limit violations) passed for all of them. The one-time
     `SetHook` fee delta (`bytes × 5000` drops) this causes per example is
     small in absolute terms even where size grew. `mise run build-examples`
@@ -99,7 +99,7 @@ These come from xahaud's SetHook validation (`SetHook.cpp`,
     unguarded-loop `memset` call regardless of this setting, and still
     needs the `static`/`HookStatic` idiom (§6.3's "static-buffer idiom",
     `examples/README.md`'s "Statics for templates and large buffers")
-    rather than relying on `opt-level` alone. `hooks-build`'s
+    rather than relying on `opt-level` alone. `rshooks-build`'s
     `--auto-guard` escape hatch (§6.3) remains available, and remains the
     wrong default for the reasons given there, independent of this
     setting.
@@ -132,14 +132,14 @@ These come from xahaud's SetHook validation (`SetHook.cpp`,
     | `80_reward` | 13698 → 13680 | 7205 → 7175 |
     | `81_govern` | 44560 → 44560 | 14373 → 14373 |
 
-    Every row's "after" build also passed `hooks-build check` (no
+    Every row's "after" build also passed `rshooks-build check` (no
     unguarded loops, nesting depth within the 32-level limit) and the full
     live e2e suite (`mise run e2e:node-up`, `pnpm --dir e2e test`) against
     a standalone Xahau node, asserting each example's live
     `HookInstructionCount` against its (now-updated) documented bound.
 - **C7. Panic machinery is poison**: slice bounds checks pull in panic paths
   that add functions/calls and have historically broken validation.
-  hooks-lib must be panic-free by construction (no indexing that can
+  rshooks must be panic-free by construction (no indexing that can
   panic in release; caller-provided buffers; `Result` everywhere).
 - **C8. Byte-exact post-processing**: the post-processor must re-encode the
   module without disturbing the guard byte pattern. Use
@@ -159,11 +159,11 @@ rhooks/
 ├── docs/
 │   └── DESIGN.md             # this file
 ├── crates/
-│   ├── hooks-core/           # no_std, FFI decls + constants, no logic
-│   ├── hooks-macros/         # std, proc-macro crate (#[hook]/#[cbak], txn_template! internals)
-│   ├── hooks-lib/            # no_std, idiomatic wrapper (depends: hooks-core, hooks-macros)
-│   ├── hooks-build/          # std, bin+lib CLI (clap, wasmparser, wasm-encoder)
-│   └── xtask/                # std, bin CLI: header → hooks-core codegen
+│   ├── rshooks-core/           # no_std, FFI decls + constants, no logic
+│   ├── rshooks-macros/         # std, proc-macro crate (#[hook]/#[cbak], txn_template! internals)
+│   ├── rshooks/            # no_std, idiomatic wrapper (depends: rshooks-core, rshooks-macros)
+│   ├── rshooks-build/          # std, bin+lib CLI (clap, wasmparser, wasm-encoder)
+│   └── xtask/                # std, bin CLI: header → rshooks-core codegen
 └── examples/
     ├── Cargo.toml            # SEPARATE workspace (no_std cdylibs)
     ├── 01_accept-all/        # numbered = suggested reading order
@@ -184,13 +184,13 @@ rhooks/
 - Edition 2024, `rust-version = "1.85"` (wasm32v1-none is stable ≥ 1.84). A
   stable toolchain is pinned via `rust-toolchain.toml` (currently `1.89.0`,
   matching `mise.toml`'s `[tools] rust` pin — see §5.5 for why no nightly
-  feature is needed: `hooks-macros`, a small hand-rolled `proc_macro` crate,
+  feature is needed: `rshooks-macros`, a small hand-rolled `proc_macro` crate,
   covers what `${concat(...)}` used to); `rust-version` still tracks the
   language edition floor, not the exact pinned toolchain.
 - All crates `publish = false` for now.
 - All comments, docs, and identifiers in English.
 
-## 4. hooks-core
+## 4. rshooks-core
 
 `#![no_std]`, zero dependencies, zero logic. A faithful, mechanical
 translation of the headers. Layout:
@@ -211,7 +211,7 @@ src/
 `macro.h`: `KEYLET_*` (1–26), `COMPARE_*`, `tfCANONICAL`, the `atACCOUNT`
 family (amount/account offset constants), and the `amAMOUNT` family.
 Function-like macros in `macro.h` (`SBUF`, `BUFFER_EQUAL`, …) are C
-conveniences and are NOT ported here — their roles are covered by hooks-lib.
+conveniences and are NOT ported here — their roles are covered by rshooks.
 
 Rules:
 
@@ -221,7 +221,7 @@ Rules:
   cleverness at this layer.
 - Types: error codes `i64` (they are compared against Hook API `i64`
   returns); `sfcodes` `u32`; `tts` `u16` (matching `otxn_type`'s and
-  hooks-lib's `TxType::code()`'s width — the only one of these four
+  rshooks's `TxType::code()`'s width — the only one of these four
   constant families whose width was picked to match a specific consumer
   rather than "the field is conventionally `u32`"); flags `u32`.
 - The extern block mirrors `extern.h` exactly — `read_ptr`/`read_len` style
@@ -239,7 +239,7 @@ unsafe extern "C" {
 
 - **Host builds**: the extern block is `#[cfg(target_arch = "wasm32")]`.
   For other targets, same-signature deterministic stub fns are provided so
-  hooks-lib and its docs/tests compile *and run* on the host: every stub
+  rshooks and its docs/tests compile *and run* on the host: every stub
   returns `NOT_IMPLEMENTED` (no panicking `unimplemented!()`). A richer
   feature-gated mock host is possible later without changing this surface.
 - Each declaration carries a one-line doc comment naming the C prototype;
@@ -247,10 +247,10 @@ unsafe extern "C" {
   (`Xahau/xahaud`, branch `release`, `hook/<file>.h`) so re-generation diffs
   are reviewable.
 - **The source headers are vendored, not just referenced**: all eight
-  `hook/*.h` files live verbatim in `crates/hooks-core/vendor/xahaud-hook/`
+  `hook/*.h` files live verbatim in `crates/rshooks-core/vendor/xahaud-hook/`
   (own `VENDOR.md` + `SHA256SUMS`), synced by the same
   `scripts/sync-vendor.sh` / weekly drift workflow as the guard checker
-  (6.5). **Parity tests** in hooks-core parse the vendored headers at test
+  (6.5). **Parity tests** in rshooks-core parse the vendored headers at test
   time (C `#define`/enum extraction with a tiny shift-add expression
   evaluator, and `extern.h` prototype parsing) and compare complete
   name/value/signature sets against the Rust translation — so an upstream
@@ -258,29 +258,29 @@ unsafe extern "C" {
   parity tests fail until the Rust side is updated to match. The
   translation cannot silently rot.
 - **The translation itself is generated**: `cargo xtask gen-core`
-  (crates/xtask) parses the vendored headers and emits all of hooks-core's
+  (crates/xtask) parses the vendored headers and emits all of rshooks-core's
   translated sources (`error.rs`, `tts.rs`, `sfcodes.rs`, `ls_flags.rs`,
   `tx_flags.rs`, `consts.rs`, `api.rs` — everything except the hand-written
   `lib.rs`), each carrying an `@generated` marker. The same run also emits
-  one file outside hooks-core: hooks-lib's `tx_type.rs` (§5's `TxType`
+  one file outside rshooks-core: rshooks's `tx_type.rs` (§5's `TxType`
   enum), from the identical parsed `tts.h` data `tts.rs` renders as raw
   constants — a typed mirror one layer up, not a header translation, but
   still fully mechanical (every variant name is a pure function of its
   `tt*` name), so it is generated rather than hand-maintained the same way.
-  `gen-core --check` verifies every checked-in generated file (hooks-core's
-  and hooks-lib's `tx_type.rs` alike) matches regeneration (wired into CI),
+  `gen-core --check` verifies every checked-in generated file (rshooks-core's
+  and rshooks's `tx_type.rs` alike) matches regeneration (wired into CI),
   so the full sync flow is: `scripts/sync-vendor.sh` → `cargo xtask
   gen-core` → tests → commit. The xtask parser is deliberately independent
   from the parity tests' parser — the parity tests are the generator's
   correctness oracle, so they must not share code.
 
-## 5. hooks-lib
+## 5. rshooks
 
-`#![no_std]`, depends only on hooks-core. `#![deny(missing_docs)]`.
+`#![no_std]`, depends only on rshooks-core. `#![deny(missing_docs)]`.
 
 ```
 src/
-├── lib.rs         # prelude, panic handler (feature), re-export of hooks-core as `raw`
+├── lib.rs         # prelude, panic handler (feature), re-export of rshooks-core as `raw`
 ├── error.rs       # HookError + Result<T>
 ├── types.rs       # AccountId, Hash, Keylet, ... #[repr(transparent)] fixed-size newtypes
 ├── convert.rs     # ToBytes/FromBytes boundary conversion traits
@@ -289,8 +289,8 @@ src/
 ├── errors.rs      # hook_errors! user error enum -> rollback code mapping
 ├── xfl.rs         # XFL newtype over i64, checked Add/Sub/Mul/Div/Neg operators, compare/eq/lt/gt methods + PartialEq/PartialOrd
 ├── xfl_unchecked.rs # XFLUnchecked: poison-propagating hot-path counterpart to XFL
-├── tx_type.rs     # @generated (§4): TxType enum mirroring hooks-core's tts.rs, From<u16> + .code()
-├── sfield.rs      # @generated (§4): typed SField<T> field constants mirroring hooks-core's sfcodes.rs, + the 325-name parity test
+├── tx_type.rs     # @generated (§4): TxType enum mirroring rshooks-core's tts.rs, From<u16> + .code()
+├── sfield.rs      # @generated (§4): typed SField<T> field constants mirroring rshooks-core's sfcodes.rs, + the 325-name parity test
 ├── slot_obj.rs    # typed slot layer (§5.8): SlotObject<T>, SField<T>, sealed SlotKey/CastTarget, slot_path!
 ├── txn.rs         # txn_template! macro + generic field-encoding primitives
 ├── static_cell.rs # HookStatic: take-once cell for static hook buffers
@@ -340,7 +340,7 @@ the time of writing) — but only at a call site that actually inspects
 Err(HookError::Xxx) => ..., ... }`). A call site that only asks "did this
 fail" (`.is_err()`, `Err(_) => ...`, comparing the whole `Result` against
 one `Ok` value) never forces the decode, and the optimizer discards it
-entirely, keeping just the "is the raw code negative" branch. `hooks-build`'s
+entirely, keeping just the "is the raw code negative" branch. `rshooks-build`'s
 Guard-type pipeline inlines every function in a crate into `hook()`/`cbak()`
 (§6.2c) and then must keep the merged function's block/loop/if nesting under
 the vendored guard checker's 32-level limit (§6.3) — a crate with more than
@@ -366,18 +366,18 @@ whatever `HookError`-specific handling each already had), but a crate
 piling up several specific-variant comparisons against *either* enum adds
 up against the same 32-level ceiling.
 
-**hooks-lib's own internal paths must not use this pattern at all.** The
+**rshooks's own internal paths must not use this pattern at all.** The
 budget above ("at most one specific-variant match site per crate") is a
 concession for *hook authors*, who have no cheaper alternative once they
-need to branch on a particular `HookError`. `hooks-lib` itself is not in
+need to branch on a particular `HookError`. `rshooks` itself is not in
 that position: every one of its host-call wrappers already has the raw,
 undecoded `i64` return code in hand *before* it ever calls `res`/
 `HookError::from`, so comparing that code directly against a raw constant
-(`hooks_core::DOESNT_EXIST`, `hooks_core::NOT_IMPLEMENTED`, …) needs no
+(`rshooks_core::DOESNT_EXIST`, `rshooks_core::NOT_IMPLEMENTED`, …) needs no
 enum-decode machinery at all — zero specific-variant-match sites, not one.
 `crate::state::decode_read` (shared by `state_get`/`state_foreign_get`)
 and `crate::api::state::value_or_absent` (shared by every
-`state_update_*`) both compare the raw `code` against `hooks_core::
+`state_update_*`) both compare the raw `code` against `rshooks_core::
 DOESNT_EXIST` before any `HookError` is decoded, for exactly this reason —
 the `Err(HookError::from(code))` fallback path is unaffected, since every
 call site still only matches it as a bare `Err(_)`. Concretely: migrating
@@ -387,11 +387,11 @@ from 24 to 70 (over the limit); with it, nesting stays at 24 — see
 `examples/80_reward/src/lib.rs` for the migrated call site. (One further
 wrinkle: the raw-code helpers this needs — `state_raw_code`,
 `state_u64_raw_code`, `state_foreign_raw_code` in
-`crates/hooks-lib/src/api/state.rs` — are
+`crates/rshooks/src/api/state.rs` — are
 *not* called by the existing `state`/`state_u64`/`state_foreign` public
 wrappers, even though the logic is identical; routing those wrappers
 through the new helpers, even with both sides `#[inline(always)]`,
-measurably changed `hooks-build`'s unnest-pass output for an unrelated
+measurably changed `rshooks-build`'s unnest-pass output for an unrelated
 hook that never touches the new path at all. Each raw-code helper is
 instead an independent duplicate of its wrapper's body — a small amount of
 source duplication traded for a call-graph shape provably identical to
@@ -475,7 +475,7 @@ pub fn hook_account_buf() -> Result<AccountId>;   // fixed-size convenience
 - `accept`/`rollback` return `!` (call, then `unreachable` opcode — the host
   never returns from them).
 - Slot/keylet numbers are plain `u32` in v1 (no newtype ceremony); field
-  codes are `u32` taken from `hooks_core::sfcodes`.
+  codes are `u32` taken from `rshooks_core::sfcodes`.
 - **Pointer-direction discipline**: wrappers call the raw extern functions
   directly, spelling out `buf.as_mut_ptr() as u32` for `write_ptr` and
   `buf.as_ptr() as u32` for `read_ptr` at each call site. No generic
@@ -526,7 +526,7 @@ both backed by the same `float_compare` calls — see below for the fallback
 story that makes offering both possible.
 
 To keep multi-step arithmetic ergonomic despite `Add`/`Sub`/`Mul`/`Div`'s
-fallible `Output`, hooks-lib additionally implements each of those traits
+fallible `Output`, rshooks additionally implements each of those traits
 for `Result<XFL, HookError>` on either side of a plain `XFL` (legal here
 specifically because `XFL` is local to this crate — a downstream crate
 cannot replicate the trick for its own types; see `xfl.rs`'s module doc
@@ -581,7 +581,7 @@ a `float_negate` failure just propagates as a real `Err`, the same as
 every other arithmetic operator. Bitwise representation equality, if ever
 needed, gets an explicitly named method (`bits_eq`), not `==`.
 
-**`XFLUnchecked`** (`hooks_lib::xfl_unchecked`) is the poison-propagating
+**`XFLUnchecked`** (`rshooks::xfl_unchecked`) is the poison-propagating
 hot-path counterpart, for arithmetic chains where even the checked
 operators' per-step `Result` branch is the measured cost problem:
 
@@ -615,7 +615,7 @@ looks, on its face, like it might let `self` through unvalidated when
 reached only *after* the `DEFINE_HOOK_FUNCTION` wrapper's
 `RETURN_IF_INVALID_FLOAT` has already validated both operands.
 
-Measured (`crates/hooks-lib`'s scratch WCE bench against the actual shipped
+Measured (`crates/rshooks`'s scratch WCE bench against the actual shipped
 types, N=1/4/8 chained ops):
 
 | chain | marginal cost/op |
@@ -646,24 +646,24 @@ N=1/4/8 breakdown behind these marginal-cost figures).
   Guards are the developer's responsibility by default (see 6.3); the
   opt-in auto-guard pass exists mainly for compiler-generated loops.
 - `trace!("msg")`, `trace!("msg", data)`, `trace_num!`, `trace_float!` —
-  compiled to nothing unless **hooks-lib's** `trace` feature is enabled
+  compiled to nothing unless **rshooks's** `trace` feature is enabled
   (traces cost bytes and execution; examples enable it in dev). The feature
-  gate lives in hidden `#[inline(always)]` shim functions inside hooks-lib,
+  gate lives in hidden `#[inline(always)]` shim functions inside rshooks,
   NOT as a `#[cfg]` in the macro body — a cfg written in a `macro_rules!`
   body is evaluated against the *calling* crate's features, which would
   force every hook crate to re-declare a same-named feature. With the shim,
-  `hooks-lib = { features = ["trace"] }` on the dependency line is all a
+  `rshooks = { features = ["trace"] }` on the dependency line is all a
   hook crate needs.
 - `accept!()/accept!(msg, code)`, `rollback!(msg, code)` — terse exits.
 - `uninit_buf!()` is NOT provided: `MaybeUninit::uninit().assume_init()` for
   arrays is UB. Buffers are `[0u8; N]`; the cleaner/opt pipeline keeps the
   cost acceptable, and correctness wins.
-- Entry point: `#[hook]` / `#[cbak]` (from `hooks-macros`, re-exported as
-  `hooks_lib::hook`/`hooks_lib::cbak`) turn a plain, argument-less
+- Entry point: `#[hook]` / `#[cbak]` (from `rshooks-macros`, re-exported as
+  `rshooks::hook`/`rshooks::cbak`) turn a plain, argument-less
   `fn name() -> i64` into the required wasm export:
 
 ```rust
-use hooks_lib::hook;
+use rshooks::hook;
 
 #[hook]
 fn my_hook() -> i64 { ... }
@@ -679,7 +679,7 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
 ```
 
   `#[cbak]` is identical except it exports `cbak`. Both are hand-rolled
-  `proc_macro` (no `syn`/`quote` — see `hooks-macros`'s crate doc comment
+  `proc_macro` (no `syn`/`quote` — see `rshooks-macros`'s crate doc comment
   for why): they only ever need to recognize one token shape (a
   no-argument, `i64`-returning, non-generic, non-`async`/`unsafe`/`const`/
   `extern` `fn`), so a general Rust-item parser is unneeded weight. Every
@@ -699,7 +699,7 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
   line what
   previously took a separate `#[derive(HookKey)]`/`#[derive(HookData)]`/
   `#[derive(ParamName)]`/`#[derive(ParamValue)]` struct plus a
-  `Key => Value` pairing. See `hooks_lib::hook_state!`'s doc comment for the
+  `Key => Value` pairing. See `rshooks::hook_state!`'s doc comment for the
   full grammar and worked examples.
   **Every invocation names an entity first**, and the entity — not the
   key/name — is the primary surface: `hook_state!(DepositState, DepositKey
@@ -746,14 +746,14 @@ pub extern "C" fn hook(_reserved: u32) -> i64 {
   `E0446`/`E0445`. Generated items carry doc comments for the same reason
   they carry `#[allow(dead_code)]`: they land in the caller's crate, where
   `missing_docs` may well be denied.
-  **Function-like `#[proc_macro]`s in `hooks-macros`, not `macro_rules!`**
+  **Function-like `#[proc_macro]`s in `rshooks-macros`, not `macro_rules!`**
   (a change from the crate's original design): the grammar needs real
   lookahead disambiguation between forms (a `{`/bare `=`/`,`/second bare
   identifier immediately after the declared name) that `macro_rules!`
   transcribers can't express directly, and reuses the same struct-shape
   parsing/codegen `#[derive(HookKey)]`/`#[derive(HookData)]`/
   `#[derive(ParamName)]`/`#[derive(ParamValue)]` already provide (see
-  `hooks-macros`'s `decl_pair` module) rather than duplicating it in a
+  `rshooks-macros`'s `decl_pair` module) rather than duplicating it in a
   macro-by-example. Still hand-rolled `proc_macro::TokenStream` parsing, no
   `syn`/`quote` (same reasoning as `#[hook]`/`#[cbak]` above): a flat,
   randomly-indexable token buffer with 2–3-token bounded lookahead is
@@ -812,7 +812,7 @@ field pointers are pasted into the *hook's own source* and only generic
 helpers (`SET_UINT32`, `SET_NATIVE_AMOUNT`, `COPY_20`) are shared: a
 library-owned fixed template type (the first iteration's
 `PaymentTemplate`) was rejected because any new field or transaction type
-would require a hooks-lib release. Instead hooks-lib provides exactly two
+would require a rshooks release. Instead rshooks provides exactly two
 things:
 
 1. **Generic encoding primitives** (`txn::codec`): native-amount encoding
@@ -830,7 +830,7 @@ things:
    `const fn new()` template (⇒ data segment via `HookStatic`), and
    generates typed `set_<field>` setters plus an `emit_details_region()`
    accessor. Setter names are synthesized by splicing `set_` and the field
-   name (`[<set_ $field>]`) through `hooks-macros`'s `paste`-equivalent
+   name (`[<set_ $field>]`) through `rshooks-macros`'s `paste`-equivalent
    proc-macro (`$crate::__paste!`, wrapping the generated `impl` block) —
    a small, purpose-built identifier-concatenation macro that replaces
    nightly's `${concat(set_, $field)}` metavariable expression, letting
@@ -870,7 +870,7 @@ Result<Prepared<'_, Self>>` is generated unconditionally, resolving the six
 offsets by const lookup in the same table (`ledger_seq()+1`→FLS, FLS+4→LLS,
 `hook_account()`→account, `etxn_details` into the region — its returned
 length fixes the real blob length — then `etxn_fee_base` over the actual
-blob→fee). `Prepared<'a, T>` (`hooks_lib::txn::Prepared`) is a typestate
+blob→fee). `Prepared<'a, T>` (`rshooks::txn::Prepared`) is a typestate
 wrapper — `{ inner: &'a mut T, len: usize }` — that is the *only* way to
 reach an emit-sized slice (`Prepared::as_bytes`) or emit it
 (`Prepared::emit`, wrapping `api::etxn::emit_buf`): the unprepared template
@@ -888,7 +888,7 @@ in what a separate typestate lets you do with them — so setter existence
 is unchanged; only the FLS/LLS/Account/EmitDetails/Fee values themselves
 are inaccessible for emission until `prepare_for_emit` runs. Transaction
 *shape* remains entirely user-declared — new fields or txn types never
-require a hooks-lib change; only the fixed emit plumbing is canned. The
+require a rshooks change; only the fixed emit plumbing is canned. The
 `const fn new()` template always reserves
 the full `EMIT_DETAILS_MAX_LEN = 138` bytes of capacity for the
 emit-details region regardless of whether the module exports `cbak`, but
@@ -908,11 +908,11 @@ back to this section instead of re-explaining it.
 
 | Domain | Endianness | Concrete evidence | Lives in |
 |---|---|---|---|
-| Xahau Binary (the protocol's own STObject/tx wire format) | **Big-endian** | `txn.rs`'s `txn_template!`-generated setters write every multi-byte field with an explicit big-endian encoding (`u32`/`u16` field values, the `tts` transaction-type code, native-amount drops — see e.g. the `.to_be_bytes()` calls building setter bodies and the `tts::$tt as u16).to_be_bytes()` STObject field header); `examples/80_reward/src/mint_txn.rs` and `examples/81_govern/src/txn.rs` (hand-rolled "Tx Builder" equivalents for the genesis hooks) do the same by hand throughout | `crates/hooks-lib/src/txn.rs`, `examples/80_reward`, `examples/81_govern` |
+| Xahau Binary (the protocol's own STObject/tx wire format) | **Big-endian** | `txn.rs`'s `txn_template!`-generated setters write every multi-byte field with an explicit big-endian encoding (`u32`/`u16` field values, the `tts` transaction-type code, native-amount drops — see e.g. the `.to_be_bytes()` calls building setter bodies and the `tts::$tt as u16).to_be_bytes()` STObject field header); `examples/80_reward/src/mint_txn.rs` and `examples/81_govern/src/txn.rs` (hand-rolled "Tx Builder" equivalents for the genesis hooks) do the same by hand throughout | `crates/rshooks/src/txn.rs`, `examples/80_reward`, `examples/81_govern` |
 | Xahau Binary — the Hook API host's "as-int64" mode | **Big-endian** | `state`/`state_foreign`/`otxn_field`/`slot` called with `write_ptr = 0, write_len = 0` return the entry's raw bytes packed big-endian into the non-negative `i64` result (xahaud `applyHook.cpp`, `data_as_int64`) | `api::state::state_u64`/`state_foreign_u64`, `api::otxn::otxn_field_u64` |
-| Xahau Binary — keylets | **Big-endian** | A keylet's first two bytes are the ledger-entry-type tag, big-endian, per xahaud's own keylet construction. rhooks never assembles keylet bytes itself — every `keylet_xxx` helper (`api/keylet.rs`) calls the host's `util_keylet` and receives an already-built, opaque `Keylet`/`[u8; 34]` back — this row documents the host's own convention, not code in this crate | xahaud host (`util_keylet`); wrapped opaquely by `crates/hooks-lib/src/api/keylet.rs` |
-| Xahau Binary — short state/param keys | **Big-endian-flavored zero-padding**: a key shorter than the fixed key width is **left**-padded with zero bytes by the host (the value's bytes end up at the *end* of the fixed-width key, not the front) | rhooks' `StateKeyEncode` layer (`[u8; N]`, `state_keys!`, `#[derive(HookKey)]`) sends a short key at its own real length and relies on this host-side left-pad directly — see §5.7 for the full rule; `pad_left!` (`crates/hooks-lib/src/macros.rs`) reproduces this same left-pad *locally*, for the rarer case of needing the already-padded bytes themselves as a value, not as a `state`/`state_set` argument | host left-pad: xahaud; local equivalent: `pad_left!` (`crates/hooks-lib/src/macros.rs`) |
-| Hook-private data: state values, param values | **Little-endian** (the guest's own native memory image — LE on `wasm32v1-none`) | The C hook idiom `state(&native_int64, 8, key, klen)` — a raw pointer to a native `int64_t`, read/written in whatever the guest's own endianness is; `crates/hooks-lib/src/convert.rs`'s `ToBytes`/`FromBytes` traits (and every `hooks_lib::types` newtype, plus the `#[derive(HookKey)]`/`#[derive(HookData)]` macros built on them) encode/decode this way; `api::state::state_u32`/`state_i64`/`state_xfl` (+ their `state_set_*`/`state_update_*` twins) read/write this convention via the ordinary (non-as-int64) buffer path | `crates/hooks-lib/src/convert.rs`, `crates/hooks-lib/src/types.rs`, `api::state::state_u32`/`state_i64`/`state_xfl`/`state_u64_le`/`state_foreign_u64_le` |
+| Xahau Binary — keylets | **Big-endian** | A keylet's first two bytes are the ledger-entry-type tag, big-endian, per xahaud's own keylet construction. rhooks never assembles keylet bytes itself — every `keylet_xxx` helper (`api/keylet.rs`) calls the host's `util_keylet` and receives an already-built, opaque `Keylet`/`[u8; 34]` back — this row documents the host's own convention, not code in this crate | xahaud host (`util_keylet`); wrapped opaquely by `crates/rshooks/src/api/keylet.rs` |
+| Xahau Binary — short state/param keys | **Big-endian-flavored zero-padding**: a key shorter than the fixed key width is **left**-padded with zero bytes by the host (the value's bytes end up at the *end* of the fixed-width key, not the front) | rhooks' `StateKeyEncode` layer (`[u8; N]`, `state_keys!`, `#[derive(HookKey)]`) sends a short key at its own real length and relies on this host-side left-pad directly — see §5.7 for the full rule; `pad_left!` (`crates/rshooks/src/macros.rs`) reproduces this same left-pad *locally*, for the rarer case of needing the already-padded bytes themselves as a value, not as a `state`/`state_set` argument | host left-pad: xahaud; local equivalent: `pad_left!` (`crates/rshooks/src/macros.rs`) |
+| Hook-private data: state values, param values | **Little-endian** (the guest's own native memory image — LE on `wasm32v1-none`) | The C hook idiom `state(&native_int64, 8, key, klen)` — a raw pointer to a native `int64_t`, read/written in whatever the guest's own endianness is; `crates/rshooks/src/convert.rs`'s `ToBytes`/`FromBytes` traits (and every `rshooks::types` newtype, plus the `#[derive(HookKey)]`/`#[derive(HookData)]` macros built on them) encode/decode this way; `api::state::state_u32`/`state_i64`/`state_xfl` (+ their `state_set_*`/`state_update_*` twins) read/write this convention via the ordinary (non-as-int64) buffer path | `crates/rshooks/src/convert.rs`, `crates/rshooks/src/types.rs`, `api::state::state_u32`/`state_i64`/`state_xfl`/`state_u64_le`/`state_foreign_u64_le` |
 | Raw byte sequences (`AccountId`, `Hash`, ...) | **Neutral** — not a byte-order question | An `AccountId`/`Hash` is an opaque sequence of bytes with no numeric interpretation; scalar Hook API return values, `sfcode`s, and an `XFL`'s raw bit pattern are likewise "values," not multi-byte integers subject to a byte-order convention | — |
 
 **The one API surface that deliberately offers both conventions side by
@@ -942,7 +942,7 @@ bytes being read.
 `hook_param_exact`, `slot_exact`, ...) follows the same rule: a Xahau
 Binary field (an `Amount`, a `Sequence`, ...) must be decoded with an
 explicit `u64::from_be_bytes(...)`, never through this crate's `FromBytes`
-trait (which is little-endian) — see `crates/hooks-lib/src/api/otxn.rs`'s
+trait (which is little-endian) — see `crates/rshooks/src/api/otxn.rs`'s
 module doc comment and `examples/03_hook-params`/`examples/04_errors`
 (`u64::from_be_bytes(raw) & !NATIVE_AMOUNT_FLAG_BITS`) for the existing,
 now-documented-as-normative pattern.
@@ -1030,7 +1030,7 @@ Slot numbers never appear in hook source. The decisions behind it:
 
 - **Generated typed field constants.** `sfield.rs` is generated by
   `cargo xtask gen-core` from the same `sfcodes.h` parse that produces
-  hooks-core's raw table (the `tx_type.rs` precedent), so `typed.code() ==
+  rshooks-core's raw table (the `tx_type.rs` precedent), so `typed.code() ==
   raw` holds by construction — and is pinned anyway by a parity test that is
   itself generated into `sfield.rs`, one assertion per constant, so it covers
   all 325 names and cannot drift when upstream adds a field. The value type is a pure function of the serialized type ID packed
@@ -1071,7 +1071,7 @@ Slot numbers never appear in hook source. The decisions behind it:
   is borrowed and never cleared. Clearing a parent after deriving a child is
   sound because the host copies the parent's storage into the child slot;
   that is pinned by a live e2e test, not assumed. Measured nesting after
-  hooks-build's unnest pass is **1** at 1, 3 and 10 hops — far under the
+  rshooks-build's unnest pass is **1** at 1, 3 and 10 hops — far under the
   guard checker's 32 — and WCE grows linearly (46 / 94 / 255 instructions).
 - **MPT is out of scope** (a USER decision). MPT amounts need an amendment
   Xahau does not have. `AmountBytes`/`IssueData` classify by length and
@@ -1120,13 +1120,13 @@ compares a `u32` *value* — the `order = [...]` canonical-order array and the
 look codes up in — which is invisible to the declaration site. The
 consequence for callers is that a bare `u32` expression no longer works as a
 field code, in a template or in a const builder; both directions are pinned
-by trybuild fixtures. `hooks_lib::raw::sfcodes` stays exported, but nothing
+by trybuild fixtures. `rshooks::raw::sfcodes` stays exported, but nothing
 in the repo reads it outside tests.
 
 **Breaking changes** this introduced: the typed `sfXxx` constants replaced
 the raw `sfcodes` glob in the prelude (raw table at
-`hooks_lib::raw::sfcodes::*`); the numbered slot functions left the prelude
-(explicit `hooks_lib::api::slot::*` / `hooks_lib::api::otxn::otxn_slot`);
+`rshooks::raw::sfcodes::*`); the numbered slot functions left the prelude
+(explicit `rshooks::api::slot::*` / `rshooks::api::otxn::otxn_slot`);
 every runtime field-code parameter widened to `impl Into<u32>`, so a bare
 integer literal there now needs a `u32` suffix; and `txn_template!` takes
 typed constants only.
@@ -1145,7 +1145,7 @@ raw `slot_set` took a slice. `07_xfl-math` and `08_slot-ledger` got
 *cheaper* (−10 and −12), having dropped `slot_clear` calls the consuming
 reads make unnecessary.
 
-## 6. hooks-build
+## 6. rshooks-build
 
 `std` crate: `src/main.rs` (clap CLI) + `src/lib.rs` (pipeline as pure
 `bytes → Result<bytes>` functions, unit-testable). Dependencies: `clap`,
@@ -1155,11 +1155,11 @@ No walrus (C8).
 ### 6.1 CLI
 
 ```
-hooks-build build [--manifest-path <dir/Cargo.toml>] [-p <crate>]
+rshooks-build build [--manifest-path <dir/Cargo.toml>] [-p <crate>]
                   [--api-version 0|1] [--auto-guard] [--default-maxiter N]
                   [--out <dir>] [--allow-oversize]
-hooks-build clean <in.wasm> [-o out.wasm] [--api-version 0|1]   # post-process only
-hooks-build check <file.wasm> [--api-version 0|1]               # validate only, no output
+rshooks-build clean <in.wasm> [-o out.wasm] [--api-version 0|1]   # post-process only
+rshooks-build check <file.wasm> [--api-version 0|1]               # validate only, no output
 ```
 
 `build` =
@@ -1333,7 +1333,7 @@ trade-off):
   source-level with `guard!` (`state-counter`) build clean with no flags —
   the strict default is workable.
 - **The `--default-maxiter` CLI default must not be trusted for real
-  deployments**: hooks-build validates guard *shape*, not that maxiter
+  deployments**: rshooks-build validates guard *shape*, not that maxiter
   covers the loop's true runtime bound. maxiter 16 passes `check` for both
   examples above yet would raise `GUARD_VIOLATION` on-ledger (the compare
   loop runs up to 20 iterations; the memset bulk loop ~40). The examples
@@ -1351,13 +1351,13 @@ trade-off):
   `static`s (⇒ BSS: no data bytes, no code, and **no compiler-generated
   memset loop at all**). Exclusivity is sound — hooks are single-threaded
   and each invocation gets a fresh instance — and is packaged safely as
-  `hooks_lib::static_cell::HookStatic<T>` (take-once cell: `take()` yields
+  `rshooks::static_cell::HookStatic<T>` (take-once cell: `take()` yields
   the one `&'static mut`, second call returns `None`; the only `unsafe`
-  lives inside hooks-lib, and hook code needs no `unsafe` and no clippy
+  lives inside rshooks, and hook code needs no `unsafe` and no clippy
   allows). This removed emit-txn's memset entirely: no `--auto-guard`,
   WCE 6798 → 331 and 1272 bytes total (current-toolchain measurement, at
   this workspace's `opt-level = 3` default — see C6 above; exact figures
-  drift with compiler versions and profile settings, `hooks-build build`
+  drift with compiler versions and profile settings, `rshooks-build build`
   prints the authoritative numbers for any given build). The take-once
   flag costs a few dozen bytes over a raw `static mut`, which in turn
   required
@@ -1388,8 +1388,8 @@ against xahaud source plus a known-good C-built hook fixture):
 - Any export other than `hook`/`cbak`; missing `hook`; wrong signatures.
 - Any import from a module other than `env`, or a function name outside the
   whitelist (the whitelist is generated from `extern.h` — single source of
-  truth shared with hooks-core; kept as a checked-in table with a test that
-  it matches hooks-core's extern block). Import signature mismatch against
+  truth shared with rshooks-core; kept as a checked-in table with a test that
+  it matches rshooks-core's extern block). Import signature mismatch against
   `extern.h` types. Imported memories, tables, or globals.
 - A `start` section.
 - Passive data/element segments, `data count` section, or any element
@@ -1423,10 +1423,10 @@ external wasm (including C-built hooks).
 ### 6.5 Verdict authority: the vendored upstream checker
 
 The final accept/reject verdict for API-version-0 modules comes from
-**xahaud's own guard checker, compiled into hooks-build from vendored,
+**xahaud's own guard checker, compiled into rshooks-build from vendored,
 byte-identical upstream source** — not from a Rust reimplementation. A port,
 however careful, can diverge from what the node actually runs; the checker
-is consensus logic, not a reference tool, so divergence means "hooks-build
+is consensus logic, not a reference tool, so divergence means "rshooks-build
 says valid, SetHook says `temMALFORMED`" (or worse, vice versa).
 
 Vendored files (upstream `Xahau/xahaud`, branch `release`, kept verbatim —
@@ -1448,7 +1448,7 @@ author) exposes one `extern "C"` entry point: bytes in → verdict, the
 upstream log text (captured from `GuardLog`), and on success the
 worst-case instruction counts for `hook()`/`cbak()` that `validateGuards`
 computes. Built by `build.rs` via the `cc` crate (C++17); a host C++
-compiler becomes a build requirement of hooks-build.
+compiler becomes a build requirement of rshooks-build.
 
 `validateGuards` covers far more than loop guards (imports vs whitelist,
 export shape, `call_indirect`, memory limits, custom sections, instruction
@@ -1468,7 +1468,7 @@ legality), so the division of labor is:
   estimate, api-version 1 checks) plus pre-transform diagnostics with
   precise function/offset locations, which upstream's log lacks. If the
   Rust validator and the C++ checker ever disagree, the C++ verdict wins
-  and the disagreement is surfaced as a hooks-build bug.
+  and the disagreement is surfaced as a rshooks-build bug.
 
 The cleaner remains native Rust (upstream hook-cleaner is a separate
 project, and cleaning is a transform whose output the authoritative checker
@@ -1479,7 +1479,7 @@ fixtures, including the built examples.
 ### 6.6 Build-only Hook metadata
 
 A Hook crate may declare deployment metadata at module scope. Transaction
-types use the unit variants from `hooks_lib::tx_type::TxType`; the generated
+types use the unit variants from `rshooks::tx_type::TxType`; the generated
 JSON uses their canonical Xahau `TransactionType` spellings.
 
 ```rust
@@ -1511,7 +1511,7 @@ The proc macro serializes the declaration as compact JSON, hex-encodes it,
 and places it in the name of a wasm-only, unreachable export whose prefix is
 `__rhooks_metadata_v1_`. It does not put metadata in a static or a custom
 section: with Rust's wasm linker that payload can also become a live active
-data segment. `hooks-build` reads the carrier before cleaning; the normal
+data segment. `rshooks-build` reads the carrier before cleaning; the normal
 export restriction and reachability GC then remove both the extra export and
 its function. Tests compare cleaned modules built with and without a carrier
 byte-for-byte.
@@ -1553,7 +1553,7 @@ produce build warnings.
 The metadata schema follows the requested 2..=8 Unicode-character rule for
 `HookName`. Deployment tooling must additionally account for the current
 xahaud `SetHook` validator's byte-oriented 4..=16 UTF-8-byte constraint;
-`hooks-build` warns when a declared name falls outside that byte range.
+`rshooks-build` warns when a declared name falls outside that byte range.
 
 ## 7. examples/
 
@@ -1589,7 +1589,7 @@ digit) — see `examples/README.md`.
 | 10 | `emit-txn` | `etxn_reserve` + a user-declared `txn_template!` Payment + `cbak` |
 
 Each README shows the exact build command:
-`hooks-build build --manifest-path examples/02_state-counter/Cargo.toml`
+`rshooks-build build --manifest-path examples/02_state-counter/Cargo.toml`
 (or via mise task `mise run build-examples`, which builds all examples and
 `check`s the outputs — this doubles as the end-to-end test).
 
@@ -1607,25 +1607,25 @@ than stack locals (see §6.3's static-buffer idiom).
   `rust.unsafe_op_in_unsafe_fn = "deny"`, `clippy.all = "warn"`,
   `clippy.pedantic` selectively, `rust.missing_docs = "deny"` for the two
   library crates.
-- **Panic-free is enforced, not promised** (review finding): hooks-lib and
+- **Panic-free is enforced, not promised** (review finding): rshooks and
   every example crate additionally deny `clippy::unwrap_used`,
   `clippy::expect_used`, `clippy::panic`, `clippy::indexing_slicing`, and
   `clippy::arithmetic_side_effects` is at least `warn`. The documented
-  contract: hooks-lib wrappers are panic-free; hook crates keep that
+  contract: rshooks wrappers are panic-free; hook crates keep that
   property only by passing these lints (checked by `mise run lint`).
 - `mise.toml` tasks: `fmt`, `lint` (clippy `-D warnings`, both workspaces,
   host + wasm32v1-none targets), `test`, `build-wasm`, `build-examples`.
-  Target-specific caveats: `build-wasm` scopes to `-p hooks-core -p
-  hooks-lib` (hooks-build is a std CLI and must not be built for
+  Target-specific caveats: `build-wasm` scopes to `-p rshooks-core -p
+  rshooks` (rshooks-build is a std CLI and must not be built for
   wasm32v1-none), and clippy for the examples workspace uses `--lib`, not
   `--all-targets` — wasm32v1-none has no `test` crate, so the implicit
   test-profile target can never build (examples also set `[lib] test =
   false`).
-- Tests: hooks-build unit tests on `wat`-authored fixtures (cleaner strips
+- Tests: rshooks-build unit tests on `wat`-authored fixtures (cleaner strips
   exports; guard inserted at loop head byte-exactly; recursion detected;
-  float opcode rejected); hooks-core has a test asserting the whitelist
+  float opcode rejected); rshooks-core has a test asserting the whitelist
   table and extern block stay in sync; examples built+checked in
   `build-examples`.
 - `.gitignore`: `/target`, `/examples/target`, `/examples/**/out`, `out/`,
   `*.wasm` outside fixtures, `.DS_Store`. Binary test fixtures live in
-  `crates/hooks-build/tests/fixtures/` and are exempted.
+  `crates/rshooks-build/tests/fixtures/` and are exempted.

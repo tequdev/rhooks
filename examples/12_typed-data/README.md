@@ -24,10 +24,10 @@ purpose-built impls the separate derives generate —
 A key/name is only ever *encoded outward* (to locate something); a
 value/payload is only ever *decoded* (read back) — that read/write split is
 exactly why these are four separate roles rather than one covering
-everything. See `hooks_lib::hook_state!`'s doc comment for the full
+everything. See `rshooks::hook_state!`'s doc comment for the full
 declaration-macro grammar (six forms, from a fully-fixed key/name down to
 a fully composite, runtime-constructed one), and each underlying derive's
-own rustdoc (`hooks_lib::{HookKey, HookData, ParamName, ParamValue}`) for
+own rustdoc (`rshooks::{HookKey, HookData, ParamName, ParamValue}`) for
 the codegen rationale and `compile_fail` examples pinning misuse.
 
 ## The hook
@@ -63,7 +63,7 @@ is equivalent to separately declaring `#[derive(HookKey)] struct
 DepositKey { tag: u8, owner: AccountId }`, `#[derive(HookData)] struct
 DepositValue { amount: u64, deadline: u32, flags: u8 }`, and
 `hook_state!(DepositState, DepositKey => DepositValue)` to pair them (see
-`hooks_lib::hook_state!`'s doc comment for that longhand pairing form) — and used directly — no manual byte packing anywhere in
+`rshooks::hook_state!`'s doc comment for that longhand pairing form) — and used directly — no manual byte packing anywhere in
 `src/lib.rs`:
 
 ```rust
@@ -127,8 +127,8 @@ way. `Config`/
 the right type. Passing the wrong value type for `DepositKey` (e.g.
 `deposit.set_state(&some_other_struct)`) is now a compile error, not
 a silent bug waiting to be discovered on a live node — see
-`hooks_lib::state::TypedStateKey`'s and `hooks_lib::convert::TypedParamName`'s
-doc comments for the full rationale, and `hooks_lib::HookKey`'s doc
+`rshooks::state::TypedStateKey`'s and `rshooks::convert::TypedParamName`'s
+doc comments for the full rationale, and `rshooks::HookKey`'s doc
 comment for a `compile_fail` example pinning the mismatch case.
 The typed layer costs
 nothing beyond the loose functions it replaces, *for a plain-tag
@@ -142,7 +142,7 @@ either — per the Hook API itself, it's a genuine variable-length key of up
 to 32 bytes, and (exactly like a hook state key) can be a whole composite,
 struct-shaped value instead of a literal byte string. `hook_parameter!`/
 `otxn_parameter!` cover both, via the same declaration-macro grammar
-`hook_state!` uses (see `hooks_lib::hook_state!`'s doc comment for the full
+`hook_state!` uses (see `rshooks::hook_state!`'s doc comment for the full
 staircase) — Form 1 for a fully fixed name (`CfgName`/`InsName` above),
 Form 3 for a struct-shaped one constructed per call site (`AdminName`
 below) — and both are read by the exact same `get_value()`/
@@ -152,7 +152,7 @@ below) — and both are read by the exact same `get_value()`/
 generated `get_value()` calls `hook_param_typed` for one and
 `otxn_param_typed` for the other, so the declaration site fixes which of
 `hook_param`/`otxn_param` the name is read from; see
-`hooks_lib::convert::TypedParamName`'s doc comment.) Only a *plain,
+`rshooks::convert::TypedParamName`'s doc comment.) Only a *plain,
 already-known-at-compile-time* name is free, though — Form 1 (used above)
 overrides `TypedParamName::with_name_bytes` to hand over the already-`'static`
 literal bytes directly, at zero runtime cost. A composite name (Form 3,
@@ -169,9 +169,9 @@ those literal bytes back as `Cfg.get_name() -> &'static [u8]`, a
 such method.) When the name type has to be declared separately by the
 caller — to carry its own visibility, derives or docs — the `existing`
 keyword form does that: `hook_parameter!(Cfg, existing CfgName = b"CFG" =>
-Config)`; see `hooks_lib::hook_parameter!`'s doc comment for a worked
+Config)`; see `rshooks::hook_parameter!`'s doc comment for a worked
 example. See
-`hooks_lib::convert::TypedParamName`'s doc comment for the full zero-cost
+`rshooks::convert::TypedParamName`'s doc comment for the full zero-cost
 rationale, and the "Composite parameter names" section below for this hook's own worked composite-name example and
 its measured cost.
 
@@ -184,7 +184,7 @@ raw byte buffers — the way every hook (including this crate's `Config`/
 ```rust
 // Key: tag (1 byte) || owner (20 bytes) - 21 bytes total, sent to the
 // host exactly as-is: the host itself left-pads a key shorter than its
-// fixed 32-byte storage width (see `hooks_lib::state`'s module doc
+// fixed 32-byte storage width (see `rshooks::state`'s module doc
 // comment, "Key length and padding") - no local zero-padding here.
 fn make_key(owner: &AccountId) -> [u8; 21] {
     let mut out = [0u8; 21];
@@ -240,10 +240,10 @@ the root README's "`--auto-guard`" section). `#[derive(HookKey)]`/
 `ToBytes::write`/`FromBytes::read` call — see `HookData`'s doc comment's
 "Zero-cost by construction" section, which all three derives share) — but
 the only way to *prove* that is to build both versions through
-`hooks-build` and compare `hooks-build check`'s reported worst-case
+`rshooks-build` and compare `rshooks-build check`'s reported worst-case
 instruction count.
 
-This table is a real `hooks-build build`/`check` measurement, at this
+This table is a real `rshooks-build build`/`check` measurement, at this
 workspace's `opt-level = 3` default (`examples/Cargo.toml`, `docs/
 DESIGN.md`'s §2 C6), of this hook's core deposit-ledger logic (the state
 key/value pairing plus the plain-tag `CFG`/`INS` parameters; not yet
@@ -274,7 +274,7 @@ cheap, it's that the derive *always* generates that shape, by construction,
 without a hook author having to discover and apply the trick themselves.)
 
 No `--auto-guard`/`--default-maxiter` flags are needed for either version —
-`hooks-build check` reports both as guard-clean at the source level (see
+`rshooks-build check` reports both as guard-clean at the source level (see
 `examples/README.md`'s "On `--auto-guard`" section for what that means and
 why it's the idiom this crate prefers).
 
@@ -284,7 +284,7 @@ Both `CFG` (installed at `SetHook` time, named by `CfgName`) and `INS`
 (attached to each `Invoke` transaction, named by `InsName`) decode as
 `#[derive(ParamValue)]` structs, so their wire layout is exactly "every
 field, in declaration order, little-endian, back-to-back"
-(`hooks_lib::convert`'s crate-wide convention — see `Config`/
+(`rshooks::convert`'s crate-wide convention — see `Config`/
 `Instruction`'s generated field-layout rustdoc).
 
 `Config { min_amount: u64, lock_ledgers: u32 }` — **12 bytes**. For
@@ -375,7 +375,7 @@ key/value or a parameter *payload* (`PauseSwitch`, which — being something
 this hook actually reads back and decodes — gets `ParamValue`-equivalent
 codegen instead, same as `Config`/`Instruction`): a name is only ever
 **written**, to locate a value, never read back and decoded as itself —
-see `hooks_lib::ParamName`'s doc comment for the full rationale, and its
+see `rshooks::ParamName`'s doc comment for the full rationale, and its
 `compile_fail` examples pinning that a `ParamName`-shaped type can't be
 read back as a value. Because `AdminName` is composite (not a fixed byte
 string like `CfgName`/`InsName` above), its `TypedParamName` impl overrides
@@ -403,7 +403,7 @@ annotation.
 
 A Hook API parameter name must be **1 to 32 bytes** (`hook_api.h`:
 `TOO_SMALL` below 1, `TOO_BIG` above 32 — see
-`hooks_lib::convert::PARAM_NAME_MAX_LEN`). `AdminName` encodes to
+`rshooks::convert::PARAM_NAME_MAX_LEN`). `AdminName` encodes to
 `section` (1 byte) + `field` (1 byte) = **2 bytes**, comfortably inside
 that range. Unlike an oversized `HookData` struct (which has no such bound
 at all — a state *value* has no fixed size cap), `#[derive(ParamName)]`
@@ -412,13 +412,13 @@ checks this bound **unconditionally, at the struct's own definition** — a
 right there, before anything tried to use it as a parameter name at all
 (the same derive-time-check idea `#[derive(HookKey)]` applies to a
 33+-byte state key, just with an added *lower* bound a key doesn't have).
-See `hooks_lib::ParamName`'s doc comment for the `compile_fail` example
+See `rshooks::ParamName`'s doc comment for the `compile_fail` example
 pinning exactly that case.
 
 ### Hex encoding
 
 `AdminName { section: 0, field: 0 }` — **2 bytes** (`section`, then
-`field`, no padding — `hooks_lib::convert`'s crate-wide "every field, in
+`field`, no padding — `rshooks::convert`'s crate-wide "every field, in
 declaration order, back-to-back" convention, same as `Config`/
 `Instruction` above): `0000`.
 
@@ -447,7 +447,7 @@ the "Pairing a key with its value type" section above), a **composite**
 parameter name isn't free: `TypedParamName::with_name_bytes`'s
 composite-form override has to actually run `AdminName::write(..)` at
 runtime (Rust has no stable way to run a trait method at compile time —
-see `hooks_lib::convert::TypedParamName`'s doc comment). Measured by
+see `rshooks::convert::TypedParamName`'s doc comment). Measured by
 building this exact hook twice — once as committed (with the
 `AdminName`/`PauseSwitch` pause switch), once with that whole feature
 removed (everything else byte-for-byte identical):
@@ -478,7 +478,7 @@ Still guard-clean at the source level throughout: no `--auto-guard`/
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/12_typed-data/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/12_typed-data/Cargo.toml
 ```
 
 No extra flags — see "Zero-cost: measured, not assumed" above.
@@ -506,7 +506,7 @@ No extra flags — see "Zero-cost: measured, not assumed" above.
 
 ## Error codes
 
-`TypedDataError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`TypedDataError` (`rshooks::hook_errors!`, see `src/lib.rs`) is the
 `rollback!` code for each failure this hook can exit with:
 
 | variant | code | meaning |

@@ -8,10 +8,10 @@
 mod keys;
 mod txn;
 
-use hooks_lib::prelude::*;
-use hooks_lib::slot_path;
-use hooks_lib::static_cell::HookStatic;
-use hooks_lib::*;
+use rshooks::prelude::*;
+use rshooks::slot_path;
+use rshooks::static_cell::HookStatic;
+use rshooks::*;
 
 metadata! {
     name: "govern",
@@ -118,14 +118,14 @@ fn my_hook() -> i64 {
     // `state_u64`, not `state_i64`: govern.c's own `state_i64(key, len)` is
     // actually the Hook API's "as-int64" `state(0, 0, key, len)` idiom (the
     // host packs whatever bytes *are* stored, regardless of their actual
-    // length, into the return value) — the right hooks-lib match for that
+    // length, into the return value) — the right rshooks match for that
     // is [`state_u64`] (see its doc comment), not [`state_i64`] (which
     // requires an exact 8-byte stored entry via [`state_exact`] and would
     // therefore *always* fail on `"MC"`'s actual 1-byte stored value).
     //
     // Deliberately `Err(_)`, not `Err(HookError::DoesntExist)`: pattern
     // matching a *specific* `HookError` variant forces the compiler to
-    // fully resolve `hooks_lib::error::res`'s ~40-arm `HookError::from(i64)`
+    // fully resolve `rshooks::error::res`'s ~40-arm `HookError::from(i64)`
     // decode at this call site (measured: pushes local nesting depth to
     // 56, over the 32-level limit — see `crate`'s module doc comment).
     // Testing only `is_err()`-equivalent (never reading which specific
@@ -320,7 +320,7 @@ fn my_hook() -> i64 {
 /// Reads `IRR`/`IRD` (L1-table-only setup) and writes `"RR"`/`"RD"` state.
 /// Kept in its own `#[inline(never)]` function: reading both via
 /// `hook_param_typed` inline inside `setup` pushes `setup`'s own compiled
-/// nesting to 56 (over the 32-level limit) — `hooks-build`'s unnest pass
+/// nesting to 56 (over the 32-level limit) — `rshooks-build`'s unnest pass
 /// is sensitive to a function's overall compiled shape, not just each
 /// call site's isolated cost. This function boundary keeps nesting at 22.
 #[inline(never)]
@@ -448,7 +448,7 @@ fn action_hook(hook_accid: &AccountId, n: u8, topic_data_zero: bool, topic_data:
         };
         // Existence check only — the handle is dropped without reading, and
         // the slot lives until the hook ends (the C cost model; see
-        // `hooks_lib::slot_obj`).
+        // `rshooks::slot_obj`).
         if SlotObject::from_keylet(&hdef_keylet).is_err() {
             GovernError::BadParameter
                 .nope(b"Goverance: Hook Hash doesn't exist on ledger while actioning hook.");

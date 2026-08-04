@@ -5,8 +5,8 @@
 
 #![no_std]
 
-use hooks_lib::prelude::*;
-use hooks_lib::*;
+use rshooks::prelude::*;
+use rshooks::*;
 
 metadata! {
     name: "keylets",

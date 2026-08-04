@@ -1,10 +1,10 @@
 //! Orchestrates `cargo xtask gen-core`: reads the vendored xahaud headers
-//! (`crates/hooks-core/vendor/xahaud-hook/`), parses them once into a single
+//! (`crates/rshooks-core/vendor/xahaud-hook/`), parses them once into a single
 //! [`crate::ir::HookApiSpec`], round-trips that spec through
-//! `crates/hooks-core/hook_api.json`, runs each per-file generator in
+//! `crates/rshooks-core/hook_api.json`, runs each per-file generator in
 //! [`crate::codegen`] against the round-tripped spec, formats the output
 //! with `rustfmt` under the repo's `rustfmt.toml`, and either writes the
-//! result into `crates/hooks-core/` or (`--check`) compares it against
+//! result into `crates/rshooks-core/` or (`--check`) compares it against
 //! what's already there without touching the working tree.
 
 use std::collections::BTreeMap;
@@ -17,7 +17,7 @@ use anyhow::{Context, Result, bail};
 use crate::codegen;
 use crate::ir::{self, HookApiSpec};
 
-/// The set of `hooks-core/src/`-relative `.rs` files this generator owns.
+/// The set of `rshooks-core/src/`-relative `.rs` files this generator owns.
 /// `lib.rs` is deliberately excluded (`docs/DESIGN.md` §4): it's hand-wired
 /// module/re-export plumbing, not a header translation, and the spec calls
 /// it out as NOT generated.
@@ -32,15 +32,15 @@ const GENERATED_FILES: &[&str] = &[
     "host.rs",
 ];
 
-/// The set of `hooks-lib/src/`-relative `.rs` files this generator owns —
-/// disjoint from [`GENERATED_FILES`] (which are all `hooks-core/src/`-
+/// The set of `rshooks/src/`-relative `.rs` files this generator owns —
+/// disjoint from [`GENERATED_FILES`] (which are all `rshooks-core/src/`-
 /// relative): [`codegen::tx_type`]'s typed `TxType` enum and
 /// [`codegen::sfield`]'s typed `SField` constants are the
-/// generated file that lands in `hooks-lib` instead of `hooks-core`.
+/// generated file that lands in `rshooks` instead of `rshooks-core`.
 const GENERATED_FILES_HOOKS_LIB: &[&str] = &["sfield.rs", "tx_type.rs"];
 
 /// The generated intermediate-representation file, checked in at the
-/// `hooks-core` crate root (not under `src/`, since it isn't Rust source):
+/// `rshooks-core` crate root (not under `src/`, since it isn't Rust source):
 /// the pipeline's `hook_api.json` artifact (module docs on [`crate::ir`]).
 const HOOK_API_JSON: &str = "hook_api.json";
 
@@ -55,24 +55,24 @@ fn repo_root() -> PathBuf {
 }
 
 fn vendor_dir() -> PathBuf {
-    repo_root().join("crates/hooks-core/vendor/xahaud-hook")
+    repo_root().join("crates/rshooks-core/vendor/xahaud-hook")
 }
 
-/// `crates/hooks-core`'s crate root — where `hook_api.json` lives, one level
+/// `crates/rshooks-core`'s crate root — where `hook_api.json` lives, one level
 /// above `src/`.
 fn crate_dir() -> PathBuf {
-    repo_root().join("crates/hooks-core")
+    repo_root().join("crates/rshooks-core")
 }
 
 fn src_dir() -> PathBuf {
     crate_dir().join("src")
 }
 
-/// `crates/hooks-lib`'s `src/` directory — where [`codegen::tx_type`]'s
-/// output lands (the one generated file outside `hooks-core`; see its own
+/// `crates/rshooks`'s `src/` directory — where [`codegen::tx_type`]'s
+/// output lands (the one generated file outside `rshooks-core`; see its own
 /// module doc comment for why).
-fn hooks_lib_src_dir() -> PathBuf {
-    repo_root().join("crates/hooks-lib/src")
+fn rshooks_src_dir() -> PathBuf {
+    repo_root().join("crates/rshooks/src")
 }
 
 fn read(path: &Path) -> Result<String> {
@@ -111,7 +111,7 @@ fn build_hook_api_json() -> Result<String> {
 
 /// Generates every target `.rs` file's *unformatted* content, keyed by its
 /// `src/`-relative filename, from `hook_api_json` — the same JSON text that
-/// gets written to (or checked against) `crates/hooks-core/hook_api.json`.
+/// gets written to (or checked against) `crates/rshooks-core/hook_api.json`.
 /// The JSON is deserialized back into a [`HookApiSpec`] here (rather than
 /// reusing the in-memory spec that produced it) so every generator
 /// genuinely consumes the intermediate representation, not the parser's
@@ -147,11 +147,11 @@ fn generate_rust_files(hook_api_json: &str) -> Result<BTreeMap<&'static str, Str
     Ok(out)
 }
 
-/// Generates every `hooks-lib`-targeted file's *unformatted* content, keyed
-/// by its `hooks-lib/src/`-relative filename, from the same `hook_api_json`
+/// Generates every `rshooks`-targeted file's *unformatted* content, keyed
+/// by its `rshooks/src/`-relative filename, from the same `hook_api_json`
 /// [`generate_rust_files`] consumes — [`codegen::sfield`]'s `sfield.rs` and
 /// [`codegen::tx_type`]'s `tx_type.rs`.
-fn generate_hooks_lib_files(hook_api_json: &str) -> Result<BTreeMap<&'static str, String>> {
+fn generate_rshooks_files(hook_api_json: &str) -> Result<BTreeMap<&'static str, String>> {
     let spec: HookApiSpec =
         serde_json::from_str(hook_api_json).context("deserializing hook_api.json")?;
 
@@ -228,17 +228,17 @@ fn format_all(
 }
 
 /// `cargo xtask gen-core`: writes `hook_api.json`, then the generated +
-/// `rustfmt`-formatted `.rs` files, into `crates/hooks-core/` and (for
+/// `rustfmt`-formatted `.rs` files, into `crates/rshooks-core/` and (for
 /// [`codegen::sfield`]'s and [`codegen::tx_type`]'s output)
-/// `crates/hooks-lib/`, then runs `cargo fmt
-/// -p hooks-core -p hooks-lib` as a belt-and-braces final pass over the
+/// `crates/rshooks/`, then runs `cargo fmt
+/// -p rshooks-core -p rshooks` as a belt-and-braces final pass over the
 /// real files.
 pub fn run_update() -> Result<()> {
     let hook_api_json = build_hook_api_json()?;
     let generated = generate_rust_files(&hook_api_json)?;
     let formatted = format_all(&generated)?;
-    let generated_hooks_lib = generate_hooks_lib_files(&hook_api_json)?;
-    let formatted_hooks_lib = format_all(&generated_hooks_lib)?;
+    let generated_rshooks = generate_rshooks_files(&hook_api_json)?;
+    let formatted_rshooks = format_all(&generated_rshooks)?;
 
     let json_path = crate_dir().join(HOOK_API_JSON);
     fs::write(&json_path, &hook_api_json)
@@ -252,28 +252,28 @@ pub fn run_update() -> Result<()> {
         println!("wrote {}", path.display());
     }
 
-    let hooks_lib_dir = hooks_lib_src_dir();
-    for (name, content) in &formatted_hooks_lib {
-        let path = hooks_lib_dir.join(name);
+    let rshooks_dir = rshooks_src_dir();
+    for (name, content) in &formatted_rshooks {
+        let path = rshooks_dir.join(name);
         fs::write(&path, content).with_context(|| format!("writing {}", path.display()))?;
         println!("wrote {}", path.display());
     }
 
     let status = Command::new("cargo")
-        .args(["fmt", "-p", "hooks-core", "-p", "hooks-lib"])
+        .args(["fmt", "-p", "rshooks-core", "-p", "rshooks"])
         .current_dir(repo_root())
         .status()
-        .context("running `cargo fmt -p hooks-core -p hooks-lib`")?;
+        .context("running `cargo fmt -p rshooks-core -p rshooks`")?;
     if !status.success() {
-        bail!("`cargo fmt -p hooks-core -p hooks-lib` failed");
+        bail!("`cargo fmt -p rshooks-core -p rshooks` failed");
     }
     Ok(())
 }
 
 /// `cargo xtask gen-core --check`: regenerates `hook_api.json` and formats
 /// the `.rs` files in a scratch directory, then byte-compares both against
-/// `crates/hooks-core/hook_api.json`, `crates/hooks-core/src/*.rs`, and
-/// [`codegen::sfield`]'s and [`codegen::tx_type`]'s `crates/hooks-lib/src/`
+/// `crates/rshooks-core/hook_api.json`, `crates/rshooks-core/src/*.rs`, and
+/// [`codegen::sfield`]'s and [`codegen::tx_type`]'s `crates/rshooks/src/`
 /// output, without writing
 /// anything there. Returns an error naming every mismatched file if any
 /// differ (the CI-facing exit-1 path); prints a confirmation and returns
@@ -282,8 +282,8 @@ pub fn run_check() -> Result<()> {
     let hook_api_json = build_hook_api_json()?;
     let generated = generate_rust_files(&hook_api_json)?;
     let formatted = format_all(&generated)?;
-    let generated_hooks_lib = generate_hooks_lib_files(&hook_api_json)?;
-    let formatted_hooks_lib = format_all(&generated_hooks_lib)?;
+    let generated_rshooks = generate_rshooks_files(&hook_api_json)?;
+    let formatted_rshooks = format_all(&generated_rshooks)?;
 
     let mut mismatched = Vec::new();
 
@@ -300,9 +300,9 @@ pub fn run_check() -> Result<()> {
         }
     }
 
-    let hooks_lib_dir = hooks_lib_src_dir();
-    for (name, content) in &formatted_hooks_lib {
-        let on_disk = read(&hooks_lib_dir.join(name)).unwrap_or_default();
+    let rshooks_dir = rshooks_src_dir();
+    for (name, content) in &formatted_rshooks {
+        let on_disk = read(&rshooks_dir.join(name)).unwrap_or_default();
         if *content != on_disk {
             mismatched.push(*name);
         }
@@ -310,7 +310,7 @@ pub fn run_check() -> Result<()> {
 
     if mismatched.is_empty() {
         println!(
-            "cargo xtask gen-core --check: crates/hooks-core/hook_api.json, crates/hooks-core/src/*.rs, and crates/hooks-lib/src/sfield.rs + tx_type.rs are up to date"
+            "cargo xtask gen-core --check: crates/rshooks-core/hook_api.json, crates/rshooks-core/src/*.rs, and crates/rshooks/src/sfield.rs + tx_type.rs are up to date"
         );
         Ok(())
     } else {

@@ -24,12 +24,12 @@ fn min_drops() -> u64 {
 }
 ```
 
-`hook_param_exact` (`hooks_lib::api::hook_ctx::hook_param_exact`) wraps the
+`hook_param_exact` (`rshooks::api::hook_ctx::hook_param_exact`) wraps the
 caller-buffer `hook_param` call and requires the result to be exactly as
 long as its return type — here inferred as `[u8; 8]` from
 `.map(u64::from_be_bytes)`, no turbofish needed (`hook_param_exact`'s
-return type is generic over any `hooks_lib::convert::FixedRead` type, most
-commonly a `hooks_lib::types` newtype or a raw `[u8; N]`; see that
+return type is generic over any `rshooks::convert::FixedRead` type, most
+commonly a `rshooks::types` newtype or a raw `[u8; N]`; see that
 function's doc comment) — collapsing "not configured at all"
 (`Err(HookError::DoesntExist)`) and "configured with a value of the wrong
 size" into the same `Err`. Both fall back to the default via
@@ -45,7 +45,7 @@ accepted; `Iou` (and any read error) falls to the same "unsupported" arm.
 The top two bits of a serialized native amount are format flags, not
 part of the drops value (`0x80` = "not an IOU", `0xC0`'s low bit = sign,
 always set since XRP/XAH amounts are never negative) — see
-`hooks_lib::txn::codec::encode_native_amount_const`'s doc comment for the
+`rshooks::txn::codec::encode_native_amount_const`'s doc comment for the
 same bit layout used in the other direction (encoding a drops value for an
 emitted transaction). Masking `NATIVE_AMOUNT_FLAG_BITS` off recovers the
 plain drops magnitude.
@@ -83,7 +83,7 @@ above. Omitting the `MIN` entry entirely falls back to the compiled-in
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/03_hook-params/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/03_hook-params/Cargo.toml
 ```
 
 No extra flags needed: every comparison here is between plain integers
@@ -103,7 +103,7 @@ two `[u8; 20]`s and needs `--auto-guard`).
 
 ## Error codes
 
-`HookParamsError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`HookParamsError` (`rshooks::hook_errors!`, see `src/lib.rs`) is the
 `rollback!` code for each failure this hook can exit with:
 
 | variant | code | meaning |

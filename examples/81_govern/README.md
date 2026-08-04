@@ -10,7 +10,7 @@ is the **L1 table**; installed on any other (blackholed) account it is an
 "actioned" — applied directly (seat/hook/reward change) or, for an L2
 table voting on an L1 topic, forwarded to L1 as an `Invoke`.
 
-Build: `hooks-build build --manifest-path examples/81_govern/Cargo.toml`
+Build: `rshooks-build build --manifest-path examples/81_govern/Cargo.toml`
 (also wired into `mise run build-examples`).
 
 - Worst-case instructions: **44465** (`hook`), 0 (`cbak` — none declared)
@@ -26,7 +26,7 @@ Build: `hooks-build build --manifest-path examples/81_govern/Cargo.toml`
 | `src/txn.rs` | Byte-exact encoders for the two transactions this hook emits (L1-vote-forward `Invoke`, `HookSet`) |
 
 This crate has no `raw` module: every Hook API call goes through
-`hooks_lib::api`'s ordinary `Result`-based wrappers — see "Toolchain
+`rshooks::api`'s ordinary `Result`-based wrappers — see "Toolchain
 limitation" below for why, and for the one call site that needed a small
 structural (not `raw`) adjustment to fit under the nesting limit.
 
@@ -89,9 +89,9 @@ implementation (`src/xrpld/app/hook/detail/HookAPI.cpp`/`applyHook.cpp`):
 
 **`V` left raw — variable length, unrelated to the length-strictness question below.** The expected length (`topic_size`) is chosen at runtime from `t`, not fixed. Splitting into three typed declarations (one per topic type) was considered but rejected: the read value is used as **opaque bytes** for the rest of the function (front-padded into a shared scratch buffer, then written to state/emitted-transaction bytes verbatim, never decoded into a semantic value anywhere in this crate) — decoding it into a typed value only to immediately re-encode it back into the same buffer would add real complexity for no type-safety benefit.
 
-**`IMC`/`IRR`/`IRD` migrated, *with* an intentional behavior difference from govern.c** — see the "Differences from govern.c" table below (#6) for the full argument. `XFL` gained a `FixedRead` impl for this migration (`crates/hooks-lib/src/convert.rs`), reusing `<[u8; 8]>::read_exact`'s exact-length machinery and the same little-endian raw `i64` bit pattern `ToBytes`/`FromBytes` for `XFL` already use.
+**`IMC`/`IRR`/`IRD` migrated, *with* an intentional behavior difference from govern.c** — see the "Differences from govern.c" table below (#6) for the full argument. `XFL` gained a `FixedRead` impl for this migration (`crates/rshooks/src/convert.rs`), reusing `<[u8; 8]>::read_exact`'s exact-length machinery and the same little-endian raw `i64` bit pattern `ToBytes`/`FromBytes` for `XFL` already use.
 
-Reading `IRR`/`IRD` via `hook_param_typed` inline inside `setup` pushes its compiled nesting to 56 (over the 32-level limit) — `hooks-build`'s unnest pass is sensitive to a function's overall compiled shape, not just each call site's isolated cost. `setup_initial_reward_rate_and_delay`, a separate `#[inline(never)]` function, keeps nesting at 22.
+Reading `IRR`/`IRD` via `hook_param_typed` inline inside `setup` pushes its compiled nesting to 56 (over the 32-level limit) — `rshooks-build`'s unnest pass is sensitive to a function's overall compiled shape, not just each call site's isolated cost. `setup_initial_reward_rate_and_delay`, a separate `#[inline(never)]` function, keeps nesting at 22.
 
 ## Behavior-equivalence table
 
@@ -139,7 +139,7 @@ garbage-collection double loop bounds, and the L1/L2 threshold formulas
 
 ## Emitted transactions
 
-Both built in `txn.rs` from `hooks_lib::txn::codec`'s STObject primitives
+Both built in `txn.rs` from `rshooks::txn::codec`'s STObject primitives
 (the same ones `txn_template!` and `../80_reward/src/mint_txn.rs` use),
 **not** `txn_template!` itself (both have shapes it doesn't support: a
 variable-position `Hooks` array and, for the `Invoke`, a `Parameters`
@@ -163,7 +163,7 @@ GenesisMint, which bakes in reward.c's own 35-byte zero-filled form).
 ## Slot API: the typed layer
 
 `action_hook` reads the currently-installed hook hash through
-`hooks_lib::slot_obj` rather than numbered slots:
+`rshooks::slot_obj` rather than numbered slots:
 
 ```rust
 if let Ok(hook_acc) = SlotObject::from_keylet(&Keylet(*keylet)) {
@@ -192,7 +192,7 @@ described below, which is not about slots.
 ## Toolchain limitation: `HookError` decoding and nesting depth
 
 See `examples/80_reward`'s README for the mechanism this section refers
-to throughout: `hooks_lib::error::res`'s `HookError::from(i64)` decode
+to throughout: `rshooks::error::res`'s `HookError::from(i64)` decode
 compiles to a ~40-nested-`block` `br_table`, but **only** at a call site
 that pattern-matches a *specific* `HookError` variant — a call site that
 only asks "did this fail" (`.is_err()`, `.unwrap_or(default)`, comparing
@@ -205,15 +205,15 @@ setup(...)` (see the comment at that call site in `lib.rs`), rather than
 `Err(HookError::DoesntExist) => ...`, that call site — like every other
 Hook API call in this crate — never forces the decode, so this crate
 needs **no `raw` module at all**: every call goes through
-`hooks_lib::api`'s ordinary `Result`-based wrappers (`_exact`/`_buf`
+`rshooks::api`'s ordinary `Result`-based wrappers (`_exact`/`_buf`
 convenience variants where they fit, the plain wrapper otherwise).
 
 An earlier version of this crate *did* route every Hook API call through
 a `raw` module the same way `examples/80_reward`'s reward-rate math still
 does — before the single fix above was isolated, replacing every
-`Result`-based call with `hooks_lib::api`'s wrappers pushed `hook()`'s
+`Result`-based call with `rshooks::api`'s wrappers pushed `hook()`'s
 nesting to depth 56 (over the 32-level limit; confirmed via
-`crates/hooks-build/examples/diag.rs` + `wasm-tools print`, which showed
+`crates/rshooks-build/examples/diag.rs` + `wasm-tools print`, which showed
 the inlined ~43-nested-`block` `br_table` from exactly that one
 `Err(HookError::DoesntExist)` match sitting inside an already ~13-deep
 branch context). Making just that one call site stop inspecting the
@@ -226,7 +226,7 @@ Three additional findings from porting this hook specifically, beyond
 
 - **Floating point is rejected outright, not just costly.** The Hook
   API's guard checker flags any `f64`/`f32` wasm opcode as a hard error
-  for a Guard-type hook (`hooks-build` reports "uses a floating-point
+  for a Guard-type hook (`rshooks-build` reports "uses a floating-point
   opcode"), independent of the nesting-depth issue. govern.c's `q80`/
   `q51` threshold computation (`member_count * 0.8` as a C `double`) had
   to be replaced with exact integer arithmetic — see the differences

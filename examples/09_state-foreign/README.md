@@ -20,12 +20,12 @@ match state_foreign(&mut flag, &ENABLED_KEY, None, &target) {
 `state_foreign(out, key, namespace, account)` takes two optional
 parameters beyond the plain `state` call: `namespace` and `account`, both
 defaulting to "this hook's own" when `None` (see
-`hooks_lib::api::state::state_foreign`'s doc comment). `key` accepts
+`rshooks::api::state::state_foreign`'s doc comment). `key` accepts
 `&ENABLED_KEY` directly, no `.as_ref()` needed (`state_foreign`'s `key`
 parameter is generic over `AsRef<[u8]>`); `namespace`/`account` accept
 either `None` (absent) or a bare reference like `&target` (present, any
 `AsRef<[u8]>` type — no `.as_ref()` needed there either), via the
-`hooks_lib::api::state::ForeignRef` trait — see its doc comment for why
+`rshooks::api::state::ForeignRef` trait — see its doc comment for why
 that's a bare reference and not `Some(&target)` (a generic `Option<...>`
 parameter can't also accept a bare `None` literal without becoming
 ambiguous). Passing
@@ -59,14 +59,14 @@ the key would silently change which 32-byte state slot gets read).
 `state_foreign`'s `Err(HookError::DoesntExist)` (no entry at all — the
 common, expected "not configured" case) is deliberately distinguished from
 every other `Err` (e.g. a malformed `target` or an unexpected host
-failure), each rolling back with its own [`hooks_lib::hook_errors!`] code
+failure), each rolling back with its own [`rshooks::hook_errors!`] code
 and message — see `examples/04_errors` for the same "give each failure a
 distinct outcome" idea, and the code table below.
 
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/09_state-foreign/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/09_state-foreign/Cargo.toml
 ```
 
 No extra flags needed: every comparison here is a scalar (`usize`/`u8`)
@@ -98,7 +98,7 @@ this repo (see `docs/DESIGN.md` §1 non-goals).
 
 ## Error codes
 
-`StateForeignError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`StateForeignError` (`rshooks::hook_errors!`, see `src/lib.rs`) is the
 `rollback!` code for each failure this hook can exit with:
 
 | variant | code | meaning |

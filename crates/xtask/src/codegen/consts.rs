@@ -1,4 +1,4 @@
-//! Generates `crates/hooks-core/src/consts.rs` from `hookapi.h`'s and
+//! Generates `crates/rshooks-core/src/consts.rs` from `hookapi.h`'s and
 //! `macro.h`'s parsed [`ConstSpec`] families (`crates/xtask/src/ir.rs`,
 //! `hook_api.json`).
 
@@ -14,10 +14,10 @@ const MODULE_DOC: &str = "\
 //! Upstream: `Xahau/xahaud`, branch `release`, `hook/hookapi.h` (`KEYLET_*`,
 //! `COMPARE_*`) and `hook/macro.h` (`tfCANONICAL`, the `atACCOUNT` family,
 //! the `amAMOUNT` family), vendored at
-//! `crates/hooks-core/vendor/xahaud-hook/hookapi.h` and
-//! `crates/hooks-core/vendor/xahaud-hook/macro.h`. Function-like macros from
+//! `crates/rshooks-core/vendor/xahaud-hook/hookapi.h` and
+//! `crates/rshooks-core/vendor/xahaud-hook/macro.h`. Function-like macros from
 //! `macro.h` (`SBUF`, `BUFFER_EQUAL`, `GUARD`, ...) are C conveniences, not
-//! constants, and are NOT ported here — hooks-lib covers their roles with
+//! constants, and are NOT ported here — rshooks covers their roles with
 //! real functions/macros.
 ";
 
@@ -87,7 +87,7 @@ pub fn generate(
     )?;
 
     Ok(with_generated_marker(
-        "hookapi.h, crates/hooks-core/vendor/xahaud-hook/macro.h",
+        "hookapi.h, crates/rshooks-core/vendor/xahaud-hook/macro.h",
         MODULE_DOC,
     ) + &body)
 }

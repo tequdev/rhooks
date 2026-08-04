@@ -1,9 +1,9 @@
 //! Encodes governance `Invoke` and `HookSet` emissions.
 
-use hooks_lib::prelude::*;
-use hooks_lib::static_cell::HookStatic;
-use hooks_lib::txn::codec;
-use hooks_lib::*;
+use rshooks::prelude::*;
+use rshooks::static_cell::HookStatic;
+use rshooks::txn::codec;
+use rshooks::*;
 
 /// Rolls back an emission failure.
 #[inline(always)]

@@ -1,4 +1,4 @@
-//! Generates `crates/hooks-core/src/tts.rs` from `tts.h`'s parsed
+//! Generates `crates/rshooks-core/src/tts.rs` from `tts.h`'s parsed
 //! [`ConstSpec`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
@@ -11,7 +11,7 @@ const MODULE_DOC: &str = "\
 //! Transaction type (`ttXXX`) codes.
 //!
 //! Upstream: `Xahau/xahaud`, branch `release`, `hook/tts.h`, vendored at
-//! `crates/hooks-core/vendor/xahaud-hook/tts.h`.
+//! `crates/rshooks-core/vendor/xahaud-hook/tts.h`.
 ";
 
 /// Renders `tts.rs`'s full contents from `tts.h`'s parsed [`ConstSpec`]s.

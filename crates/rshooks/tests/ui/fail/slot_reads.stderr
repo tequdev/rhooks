@@ -1,0 +1,34 @@
+error[E0599]: no method named `value` found for struct `rshooks::slot_obj::SlotObject<rshooks::types::STObject>` in the current scope
+  --> tests/ui/fail/slot_reads.rs:11:22
+   |
+11 |         let _ = root.value()?;
+   |                      ^^^^^ method not found in `rshooks::slot_obj::SlotObject<rshooks::types::STObject>`
+   |
+   = note: the method was found for
+           - `rshooks::slot_obj::SlotObject<AccountId>`
+           - `rshooks::slot_obj::SlotObject<Amount>`
+           - `rshooks::slot_obj::SlotObject<CurrencyCode>`
+           - `rshooks::slot_obj::SlotObject<Issue>`
+           and 5 more types
+
+error[E0599]: no method named `value` found for struct `rshooks::slot_obj::SlotObject` in the current scope
+  --> tests/ui/fail/slot_reads.rs:17:22
+   |
+17 |         let _ = blob.value()?;
+   |                      ^^^^^ method not found in `rshooks::slot_obj::SlotObject`
+   |
+   = note: the method was found for
+           - `rshooks::slot_obj::SlotObject<AccountId>`
+           - `rshooks::slot_obj::SlotObject<Amount>`
+           - `rshooks::slot_obj::SlotObject<CurrencyCode>`
+           - `rshooks::slot_obj::SlotObject<Issue>`
+           and 5 more types
+
+error[E0599]: no method named `as_xfl` found for struct `rshooks::slot_obj::SlotObject<u32>` in the current scope
+  --> tests/ui/fail/slot_reads.rs:23:21
+   |
+23 |         let _ = seq.as_xfl()?;
+   |                     ^^^^^^ method not found in `rshooks::slot_obj::SlotObject<u32>`
+   |
+   = note: the method was found for
+           - `rshooks::slot_obj::SlotObject<Amount>`

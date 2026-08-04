@@ -13,9 +13,9 @@ crate-type = ["cdylib"]
 test = false
 
 [dependencies]
-# The `trace` feature turns hooks-lib's trace! macros into real host calls;
+# The `trace` feature turns rshooks's trace! macros into real host calls;
 # without it they compile to nothing.
-hooks-lib = { path = "../../crates/hooks-lib", features = ["trace", "host-panic-handler"] }
+rshooks = { path = "../../crates/rshooks", features = ["trace", "host-panic-handler"] }
 
 [lints]
 workspace = true

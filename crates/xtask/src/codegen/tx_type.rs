@@ -1,4 +1,4 @@
-//! Generates the typed `hooks-lib::TxType` model from `tts.h` constants.
+//! Generates the typed `rshooks::TxType` model from `tts.h` constants.
 
 use std::fmt::Write as _;
 
@@ -12,7 +12,7 @@ const MODULE_DOC: &str = "\
 //! Transaction type (`TxType`) model.
 //!
 //! [`TxType`] is a typed, exhaustive-by-construction mirror of the raw
-//! `tt*` transaction-type codes in `hooks_core::tts` (plus
+//! `tt*` transaction-type codes in `rshooks_core::tts` (plus
 //! [`TxType::Unknown`] for forward-compatibility with codes this crate
 //! does not yet know about) — the same pattern [`crate::error::HookError`]
 //! uses for the Hook API's negative error-code channel, applied here to
@@ -82,13 +82,13 @@ pub fn generate(tts: &[ConstSpec]) -> Result<String> {
         writeln!(variants, "    {variant},").context("writing variant")?;
         writeln!(
             from_arms,
-            "            hooks_core::{} => TxType::{variant},",
+            "            rshooks_core::{} => TxType::{variant},",
             d.name
         )
         .context("writing From arm")?;
         writeln!(
             code_arms,
-            "            TxType::{variant} => hooks_core::{},",
+            "            TxType::{variant} => rshooks_core::{},",
             d.name
         )
         .context("writing code() arm")?;
@@ -104,7 +104,7 @@ pub fn generate(tts: &[ConstSpec]) -> Result<String> {
          /// # Examples\n\
          ///\n\
          /// ```\n\
-         /// use hooks_lib::tx_type::TxType;\n\
+         /// use rshooks::tx_type::TxType;\n\
          ///\n\
          /// let ty = TxType::from(5);\n\
          /// assert_eq!(ty, TxType::SetRegularKey);\n\
@@ -116,7 +116,7 @@ pub fn generate(tts: &[ConstSpec]) -> Result<String> {
     body.push_str(&variants);
     body.push('\n');
     body.push_str(
-        "    /// A code this version of hooks-lib does not recognize yet. Carries\n\
+        "    /// A code this version of rshooks does not recognize yet. Carries\n\
          /// the raw code for forward-compatibility.\n\
          Unknown(u16),\n\
          }\n\

@@ -10,13 +10,13 @@ starting point for a new Hook.
 ## Build
 
 ```sh
-hooks-build build --manifest-path examples/01_accept-all/Cargo.toml
+rshooks-build build --manifest-path examples/01_accept-all/Cargo.toml
 ```
 
 or, from the repo root:
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/01_accept-all/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/01_accept-all/Cargo.toml
 ```
 
 No extra flags needed — this example is guard-clean without `--auto-guard`.

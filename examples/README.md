@@ -1,10 +1,10 @@
 # examples/
 
-Runnable Xahau Hooks written with `hooks-lib`, buildable with `hooks-build`.
+Runnable Xahau Hooks written with `rshooks`, buildable with `rshooks-build`.
 This is its own Cargo workspace (see `Cargo.toml`), separate from the root
 workspace, because these crates are `no_std` `cdylib`s with a Hook-specific
-release profile that must not leak into `hooks-core`/`hooks-lib`/
-`hooks-build`, and they don't build for host targets.
+release profile that must not leak into `rshooks-core`/`rshooks`/
+`rshooks-build`, and they don't build for host targets.
 
 Every example declares `metadata!` in `src/lib.rs`. A build therefore writes
 both `out/<crate>.wasm` and `out/<crate>.json`; the JSON contains raw SetHook
@@ -33,8 +33,8 @@ directory is prefixed) and matches what its own README, `Cargo.toml`, and
 | 09 | [`state-foreign`](09_state-foreign) | `state_foreign`: reading another (hook-parameter-configured) account's hook state |
 | 10 | [`emit-txn`](10_emit-txn) | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` |
 | 12 | [`typed-data`](12_typed-data) | `#[derive(HookData)]`: composite (multi-field) state keys/values and `otxn_param`/`hook_param` structs, in place of hand-packed byte buffers |
-| 13 | [`keylets`](13_keylets) | `hooks_lib::api::keylet`'s 26 typed `keylet_xxx` helpers (one per `KEYLET_*` constant), in place of the single untyped `util_keylet` |
-| 14 | [`account-id-macro`](14_account-id-macro) | `hooks_lib::account_id!`: compile-time r-address -> `AccountId` decode, cross-checked against `hook_account`/`util_accid`/`util_raddr` |
+| 13 | [`keylets`](13_keylets) | `rshooks::api::keylet`'s 26 typed `keylet_xxx` helpers (one per `KEYLET_*` constant), in place of the single untyped `util_keylet` |
+| 14 | [`account-id-macro`](14_account-id-macro) | `rshooks::account_id!`: compile-time r-address -> `AccountId` decode, cross-checked against `hook_account`/`util_accid`/`util_raddr` |
 | 15 | [`slot-objects`](15_slot-objects) | the typed slot layer's live acceptance harness: account-root walk, native-amount drops round-trip, parent-clear/child-read, and two 300-iteration loops proving `take_*` recycling and leak-free `slot_path!` failures |
 
 ## 80+: Production hooks in Rust
@@ -57,11 +57,11 @@ three more findings).
 ## Entry points: `#[hook]` / `#[cbak]`
 
 Every example declares its entry point as a plain, safe function annotated
-with `hooks_lib::hook` (or `hooks_lib::cbak` for the optional settlement
+with `rshooks::hook` (or `rshooks::cbak` for the optional settlement
 callback), not a hand-written `extern "C"` export:
 
 ```rust
-use hooks_lib::hook;
+use rshooks::hook;
 
 #[hook]
 fn my_hook() -> i64 {
@@ -71,7 +71,7 @@ fn my_hook() -> i64 {
 
 `#[hook]` expands to the wasm export shape the Hook host requires
 (`#[unsafe(no_mangle)] pub extern "C" fn hook(_reserved: u32) -> i64`,
-calling the annotated function) — see `hooks-macros`'s crate doc comment
+calling the annotated function) — see `rshooks-macros`'s crate doc comment
 for the exact signature it enforces (no arguments, `-> i64`, no
 `async`/`unsafe`/`const`/`extern`/generics). The annotated function's own
 name is arbitrary (`my_hook` here is just a convention); what matters is
@@ -80,17 +80,17 @@ the export it produces.
 ## Building
 
 ```sh
-mise run build-examples   # builds every example through hooks-build and checks the output
+mise run build-examples   # builds every example through rshooks-build and checks the output
 ```
 
 This is also the toolchain's end-to-end test: each example is built via
-`cargo run -p hooks-build -- build ...` from the root workspace, and the
-resulting `out/<name>.wasm` is re-validated with `hooks-build check`.
+`cargo run -p rshooks-build -- build ...` from the root workspace, and the
+resulting `out/<name>.wasm` is re-validated with `rshooks-build check`.
 
 Each example can also be built individually, e.g.:
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
 ```
 
 See each example's own README for its exact command — none currently need
@@ -111,7 +111,7 @@ root workspace's panic-free set) and by review:
 - No `unwrap`/`expect`/`panic!` (all denied by `[lints]`); handle every
   `Result` explicitly, typically by rolling back on `Err`.
 - A `rollback!`/`accept!` exit that carries a meaningful (non-zero, non-`-1`
-  placeholder) code defines its codes with `hooks_lib::hook_errors!` rather
+  placeholder) code defines its codes with `rshooks::hook_errors!` rather
   than bare integer literals — see `firewall`, `state-counter`, and
   `emit-txn` for worked examples, and each crate's own README for its error
   code table.
@@ -139,7 +139,7 @@ stack locals (see `emit-txn` for the worked example):
   `static` lands in linear-memory **BSS** — zero bytes of data segment,
   zero code, because wasm memory is zero-initialized by definition.
 
-Use `hooks_lib::static_cell::HookStatic` (in the prelude) rather than a
+Use `rshooks::static_cell::HookStatic` (in the prelude) rather than a
 raw `static mut`: `HookStatic::new(...)` is `const` (so the data placement
 above still applies), and `take()` hands out the buffer's one exclusive
 `&'static mut` safely — the second `take()` returns `None`, so aliasing is
@@ -152,14 +152,14 @@ loops entirely (no `--auto-guard` needed) and cut its worst-case
 instruction count by an order of magnitude (6798 → 331 as of the current
 toolchain and this workspace's `opt-level = 3` default, see
 `docs/DESIGN.md` §2 C6; exact numbers drift a little between compiler
-versions and profile settings — the `hooks-build build` output prints the
+versions and profile settings — the `rshooks-build build` output prints the
 authoritative figures). The take-once flag costs a few dozen bytes over a
 raw `static mut` — the
 price of keeping hook code free of `unsafe`.
 
 ## On `--auto-guard`
 
-`hooks-build build` defaults to treating an unguarded `loop` as a hard
+`rshooks-build build` defaults to treating an unguarded `loop` as a hard
 error (see `docs/DESIGN.md` §6.3 and §10.1) — missing a `guard!` in your
 own code is a bug, not something to paper over. The trap is that
 `opt-level = "z"` on `wasm32v1-none` (which has no bulk-memory
@@ -176,8 +176,8 @@ that `maxiter` covers the loop's true runtime bound, so an under-sized
 node. Two source-level idioms avoid the compiler-generated loop (and the
 `--auto-guard` footgun) entirely, and are preferred wherever they apply:
 
-- **Fixed-size buffer equality**: use `hooks_lib::buf_eq_8`/`_20`/`_32`/
-  `_33`/`_34`/`_40`/`_48`/`_64` (see `crates/hooks-lib/src/buf_eq.rs`) instead
+- **Fixed-size buffer equality**: use `rshooks::buf_eq_8`/`_20`/`_32`/
+  `_33`/`_34`/`_40`/`_48`/`_64` (see `crates/rshooks/src/buf_eq.rs`) instead
   of `==`. Each function compares its buffer as a fixed sequence of
   word-sized (`u64`, with a narrower tail word where the size isn't a
   multiple of 8) chunks built from source-level literal byte indices, so the
@@ -206,6 +206,6 @@ does and doesn't protect against); and `account-id-macro`'s buffers (a
 20-byte `AccountId`, a 34-byte r-address) are compared with `buf_eq_20`/
 `buf_eq_34` and are far too small for LLVM to prefer an out-of-line loop
 regardless. `--auto-guard` remains
-available in `hooks-build` for cases none of these idioms cover — size
+available in `rshooks-build` for cases none of these idioms cover — size
 `--default-maxiter` from the loop's true worst-case iteration count (found
 via disassembly), never trust the default.
