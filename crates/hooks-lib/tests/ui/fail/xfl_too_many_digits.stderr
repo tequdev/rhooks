@@ -1,0 +1,15 @@
+error: XFL holds at most 16 significant decimal digits; this literal has 17 -- round it before using XFL!
+ --> tests/ui/fail/xfl_too_many_digits.rs:8:5
+  |
+8 |     XFL!(12345678901234567);
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: XFL holds at most 16 significant decimal digits; this literal has 17 -- round it before using XFL!
+ --> tests/ui/fail/xfl_too_many_digits.rs:9:5
+  |
+9 |     XFL!(1.2345678901234567);
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)

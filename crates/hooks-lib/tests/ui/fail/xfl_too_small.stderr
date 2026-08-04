@@ -1,0 +1,23 @@
+error: XFL! value is too small to represent (the smallest positive magnitude is 1e-81); this literal's effective exponent is -97
+ --> tests/ui/fail/xfl_too_small.rs:8:5
+  |
+8 |     XFL!(9.99e-82);
+  |     ^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: XFL! value is too small to represent (the smallest positive magnitude is 1e-81); this literal's effective exponent is -97
+ --> tests/ui/fail/xfl_too_small.rs:9:5
+  |
+9 |     XFL!(-9.99e-82);
+  |     ^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: XFL! value is too small to represent (the smallest positive magnitude is 1e-81); this literal's effective exponent is -215
+  --> tests/ui/fail/xfl_too_small.rs:10:5
+   |
+10 |     XFL!(1e-200);
+   |     ^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)

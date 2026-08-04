@@ -85,9 +85,13 @@ impl XFL {
     /// (see the type doc comment) — a negative `bits` (e.g. a smuggled-in
     /// error code) becomes a large `u64`, not an error, since this
     /// constructor performs no validation either way.
+    ///
+    /// `const fn` so [`crate::XFL!`](crate) — which expands to
+    /// `XFL::from_raw_bits(<bits>i64)` — can populate a `const`/`static`
+    /// item, e.g. `const RATE: XFL = XFL!(0.003333333333333333);`.
     #[inline(always)]
     #[must_use]
-    pub fn from_raw_bits(bits: i64) -> XFL {
+    pub const fn from_raw_bits(bits: i64) -> XFL {
         XFL(bits as u64)
     }
 
@@ -96,9 +100,13 @@ impl XFL {
     /// to `i64` from the internal `u64` storage (see the type doc comment)
     /// — lossless and exactly reverses [`XFL::from_raw_bits`] for every
     /// input, including a negative one.
+    ///
+    /// `const fn` for the same reason as [`XFL::from_raw_bits`] — lets a
+    /// `const`/`static` XFL's raw bits be read back out in another const
+    /// context.
     #[inline(always)]
     #[must_use]
-    pub fn raw_bits(self) -> i64 {
+    pub const fn raw_bits(self) -> i64 {
         self.0 as i64
     }
 

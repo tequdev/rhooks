@@ -1,0 +1,47 @@
+error: XFL! expects a single numeric literal, e.g. XFL!(0.1) (found a string, char, or byte literal -- XFL! only accepts a plain decimal number)
+ --> tests/ui/fail/xfl_invalid_literal.rs:8:5
+  |
+8 |     XFL!("0.1");
+  |     ^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: XFL! expects a single numeric literal, e.g. XFL!(0.1) (unexpected extra tokens)
+ --> tests/ui/fail/xfl_invalid_literal.rs:9:5
+  |
+9 |     XFL!(1, 2);
+  |     ^^^^^^^^^^
+  |
+  = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: XFL! does not accept a numeric literal suffix -- write the plain decimal value, e.g. XFL!(1.5), not XFL!(1.5f64)
+  --> tests/ui/fail/xfl_invalid_literal.rs:10:5
+   |
+10 |     XFL!(1.0f64);
+   |     ^^^^^^^^^^^^
+   |
+   = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: XFL! expects a single numeric literal, e.g. XFL!(0.1) (hexadecimal/octal/binary literals are not accepted -- XFL! parses plain decimal text)
+  --> tests/ui/fail/xfl_invalid_literal.rs:11:5
+   |
+11 |     XFL!(0x1A);
+   |     ^^^^^^^^^^
+   |
+   = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: XFL! expects a single numeric literal, e.g. XFL!(0.1)
+  --> tests/ui/fail/xfl_invalid_literal.rs:12:5
+   |
+12 |     XFL!();
+   |     ^^^^^^
+   |
+   = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: XFL! expects a single numeric literal, e.g. XFL!(0.1)
+  --> tests/ui/fail/xfl_invalid_literal.rs:16:5
+   |
+16 |     XFL!(.5);
+   |     ^^^^^^^^
+   |
+   = note: this error originates in the macro `XFL` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -165,6 +165,115 @@ pub use hooks_macros::metadata;
 /// ```
 pub use hooks_macros::account_id;
 
+/// Encodes a numeric literal into a Xahau [`xfl::XFL`] value at compile
+/// time, bit-exact — entirely via integer/string arithmetic, never `f64`.
+///
+/// # Why this exists
+///
+/// XFL is a decimal floating-point format (see [`xfl`]'s module doc
+/// comment for the full bit layout): every value expressible in decimal —
+/// `0.1`, `2600000`, `0.003333333333333333` — has exactly one correct XFL
+/// encoding, and hand-computing that encoding's raw bit pattern (as a
+/// `const DEFAULT_REWARD_RATE_BITS: i64 = 6_038_156_834_009_797_973;`,
+/// say) is both opaque at the call site and exactly the kind of manual
+/// arithmetic a compile-time macro exists to replace. `XFL!` takes the
+/// decimal value itself:
+///
+/// ```
+/// use hooks_lib::XFL;
+/// use hooks_lib::xfl::XFL as XflType;
+///
+/// const DEFAULT_REWARD_RATE: XflType = XFL!(0.003333333333333333);
+/// assert_eq!(DEFAULT_REWARD_RATE.raw_bits(), 6_038_156_834_009_797_973);
+/// ```
+///
+/// Bit-exactness is the entire reason this macro parses the literal's text
+/// by hand instead of routing it through `f64`: `f64` cannot represent
+/// `0.1` (or most decimal fractions) exactly, so a `f64`-based encoder
+/// would silently reintroduce the very rounding error XFL exists to avoid.
+/// Every digit of the literal, up to XFL's 16-significant-digit limit, is
+/// preserved exactly.
+///
+/// # Grammar
+///
+/// An optional leading `-`, then exactly one numeric literal token:
+///
+/// - a plain integer (`0`, `123456789`), optionally with `_` digit
+///   separators (`1_000_000`)
+/// - a decimal (`0.1`, `1.`, `1.50`)
+/// - either of the above with a decimal exponent (`1e-5`, `2.6E6`,
+///   `1e+3`), which may itself contain `_` separators
+///
+/// Trailing zeros are normalized away rather than counted against the
+/// digit limit below — `1.50`, `1_000`, and `2600000` all encode exactly
+/// as if written `1.5`, `1e3`, and `2.6e6`.
+///
+/// # What gets rejected
+///
+/// Every rejection is a `compile_error!` at the macro invocation — never a
+/// panic:
+///
+/// - anything that is not a single numeric literal token: missing input,
+///   extra tokens, a string/char/byte literal, or a hexadecimal/octal/
+///   binary integer (`0x..`/`0o..`/`0b..`)
+/// - a numeric type suffix (`1i64`, `1.0f64`) — `XFL!` always produces its
+///   own `i64` expansion, so a suffix can only ever be a mistake
+/// - more than 16 significant decimal digits (after trailing-zero
+///   normalization) — XFL's mantissa cannot hold them, and this macro
+///   never silently rounds; round the literal explicitly instead
+/// - a magnitude outside XFL's representable range: roughly `1e-81` to
+///   `1e96` (see [`xfl`]'s module doc comment for the exact unbiased
+///   exponent bounds, `-96..=80`) — reported as a distinct "too small" or
+///   "too large" message
+///
+/// # Examples
+///
+/// The reference vectors below, verified against xahaud's own `float.c`-
+/// equivalent encoder (`hook_float::make_float` in
+/// `src/xrpld/app/hook/HookAPI.h`):
+///
+/// ```
+/// use hooks_lib::XFL;
+///
+/// assert_eq!(XFL!(0).raw_bits(), 0);
+/// assert_eq!(XFL!(0.0).raw_bits(), 0);
+/// assert_eq!(XFL!(-0).raw_bits(), 0);
+/// assert_eq!(XFL!(-0.0).raw_bits(), 0);
+/// assert_eq!(XFL!(1).raw_bits(), 6_089_866_696_204_910_592);
+/// assert_eq!(XFL!(-1).raw_bits(), 1_478_180_677_777_522_688);
+/// assert_eq!(XFL!(0.1).raw_bits(), 6_071_852_297_695_428_608);
+/// assert_eq!(XFL!(123456789).raw_bits(), 6_234_216_452_170_766_464);
+/// assert_eq!(
+///     XFL!(0.003333333333333333).raw_bits(),
+///     6_038_156_834_009_797_973
+/// );
+/// assert_eq!(XFL!(2600000).raw_bits(), 6_199_553_087_261_802_496);
+/// ```
+///
+/// Used directly in a `const`, since [`xfl::XFL::from_raw_bits`] (what
+/// this macro expands to) is a `const fn`:
+///
+/// ```
+/// use hooks_lib::XFL;
+/// use hooks_lib::xfl::XFL as XflType;
+///
+/// const ONE: XflType = XFL!(1);
+/// static REWARD_DELAY: XflType = XFL!(2600000);
+/// assert_eq!(ONE.raw_bits(), 6_089_866_696_204_910_592);
+/// assert_eq!(REWARD_DELAY.raw_bits(), 6_199_553_087_261_802_496);
+/// ```
+///
+/// More than 16 significant digits fails to compile:
+/// ```compile_fail
+/// hooks_lib::XFL!(1.2345678901234567);
+/// ```
+///
+/// A magnitude too large to represent fails to compile:
+/// ```compile_fail
+/// hooks_lib::XFL!(1e96);
+/// ```
+pub use hooks_macros::XFL;
+
 /// Derives [`convert::ToBytes`] and an explicit [`state::StateKeyEncode`]
 /// impl for a fixed-size, named-field struct used as a **composite
 /// hook-state key** — a tag byte plus an `AccountId`, say — with no
@@ -1447,6 +1556,11 @@ pub mod prelude {
     pub use crate::types::*;
     pub use crate::xfl::XFL;
     pub use crate::xfl_unchecked::XFLUnchecked;
+    // The `XFL!` macro and the `xfl::XFL` type above share a name but live
+    // in different namespaces (macro vs. type — the same relationship as
+    // std's `Clone` trait and its `#[derive(Clone)]` macro), so both glob
+    // imports coexist here without ambiguity.
+    pub use hooks_macros::XFL;
     // `sfcodes::*` is deliberately absent: `crate::sfield`'s typed `sfXxx`
     // constants take those names. The raw `u32` table is still there for
     // const contexts that need it — `hooks_lib::raw::sfcodes::*`.
