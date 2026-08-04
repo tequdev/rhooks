@@ -20,11 +20,11 @@ metadata! {
     HookCanEmit: [GenesisMint],
 }
 
-/// Default reward rate as raw XFL bits.
-const DEFAULT_REWARD_RATE_BITS: i64 = 6_038_156_834_009_797_973;
+/// Default reward rate, mirroring reward.c's default (~1/300 per claim).
+const DEFAULT_REWARD_RATE: XFL = XFL!(0.003333333333333333);
 
-/// Default reward delay as raw XFL bits.
-const DEFAULT_REWARD_DELAY_BITS: i64 = 6_199_553_087_261_802_496;
+/// Default reward delay: reward.c's own default of 2,600,000 seconds.
+const DEFAULT_REWARD_DELAY: XFL = XFL!(2600000);
 
 // Governance-controlled reward settings.
 hook_state!(RewardRate, RewardRateKey = b"RR" => XFL);
@@ -176,11 +176,11 @@ fn my_hook() -> i64 {
     let rr = RewardRate
         .get_state()
         .unwrap_or(None)
-        .unwrap_or(XFL::from_raw_bits(DEFAULT_REWARD_RATE_BITS));
+        .unwrap_or(DEFAULT_REWARD_RATE);
     let rd = RewardDelay
         .get_state()
         .unwrap_or(None)
-        .unwrap_or(XFL::from_raw_bits(DEFAULT_REWARD_DELAY_BITS));
+        .unwrap_or(DEFAULT_REWARD_DELAY);
     let rewards_disabled = (rr.raw_bits() <= 0) | (rd.raw_bits() <= 0);
     if rewards_disabled {
         RewardError::RewardsDisabled.rollback(b"Reward: Rewards are disabled by governance.");

@@ -18,6 +18,7 @@ mod hook_key;
 mod param_name;
 mod param_value;
 mod shape;
+mod xfl_literal;
 
 /// Turns a plain `fn name() -> i64 { .. }` into the Hook host's required
 /// `hook` export.
@@ -225,6 +226,28 @@ pub fn account_id(input: TokenStream) -> TokenStream {
     );
     src.parse::<TokenStream>()
         .unwrap_or_else(|_| err(span, "hooks-macros: internal account_id! expansion failed"))
+}
+
+/// Encodes a numeric literal (optionally preceded by a bare `-`) into a
+/// Xahau XFL raw bit pattern at compile time, entirely via pure
+/// integer/string arithmetic (see [`xfl_literal::encode`] -- never `f64`,
+/// since exactness is the whole point).
+///
+/// The full usage docs -- bit layout, worked examples, and the
+/// `compile_fail` cases -- live at `hooks_lib::XFL`'s doc comment (this
+/// crate's re-export point), since that's what Hook authors actually
+/// depend on and read docs for.
+///
+/// Input grammar: an optional leading `-` token, then exactly one numeric
+/// literal token (integer or decimal, with an optional exponent,
+/// underscores allowed as digit separators). String/char/byte literals,
+/// hex/octal/binary integers, a type suffix, more than 16 significant
+/// decimal digits, or a magnitude outside XFL's representable range are all
+/// reported as a `compile_error!` at the macro invocation, never a panic.
+#[allow(non_snake_case)]
+#[proc_macro]
+pub fn XFL(input: TokenStream) -> TokenStream {
+    xfl_literal::expand(input)
 }
 
 /// Strips a `proc_macro::Literal`'s `to_string()` output down to a plain
