@@ -159,8 +159,13 @@ fn absent_trigger_selection_serializes_as_null_raw_hook_on() {
     assert_eq!(metadata.incoming_hook_on, None);
     assert_eq!(metadata.outgoing_hook_on, None);
 
-    let built = build_metadata(metadata, &no_emit_wasm(), &ValidationReport::default(), None)
-        .expect("metadata generation succeeds");
+    let built = build_metadata(
+        metadata,
+        &no_emit_wasm(),
+        &ValidationReport::default(),
+        None,
+    )
+    .expect("metadata generation succeeds");
     let value = serde_json::to_value(built.document).expect("serialize metadata document");
     assert!(value["HookOn"].is_null());
     assert!(value.get("HookOnIncoming").is_none());
@@ -322,7 +327,9 @@ fn builder_provenance_carries_detected_rustc_and_sits_between_wce_and_human() {
     let builder_name_pos = text
         .find("\"name\":\"rshooks-build\"")
         .expect("builder.name key present");
-    let builder_version_pos = text.find("\"version\"").expect("builder.version key present");
+    let builder_version_pos = text
+        .find("\"version\"")
+        .expect("builder.version key present");
     let builder_rustc_pos = text.find("\"rustc\"").expect("builder.rustc key present");
     assert!(
         builder_pos < builder_name_pos
@@ -343,8 +350,13 @@ fn serializes_directional_trigger_masks_and_human_values() {
         hook_can_emit: Some(vec!["Payment".to_string()]),
         hook_name: Some("支払".to_string()),
     };
-    let built = build_metadata(metadata, &no_emit_wasm(), &ValidationReport::default(), None)
-        .expect("metadata generation succeeds");
+    let built = build_metadata(
+        metadata,
+        &no_emit_wasm(),
+        &ValidationReport::default(),
+        None,
+    )
+    .expect("metadata generation succeeds");
     let value = serde_json::to_value(built.document).expect("serialize metadata document");
 
     assert!(value.get("HookOn").is_none());

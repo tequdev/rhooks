@@ -254,7 +254,10 @@ fn cmd_build(
     let wasm = std::fs::read(&artifact)
         .with_context(|| format!("reading build artifact {}", artifact.display()))?;
     let metadata = extract_metadata(&wasm)?;
-    let rustc = metadata.is_some().then(|| detect_rustc_version(&cargo)).flatten();
+    let rustc = metadata
+        .is_some()
+        .then(|| detect_rustc_version(&cargo))
+        .flatten();
 
     let out_dir = out.unwrap_or_else(|| default_out_dir(manifest_path.as_deref()));
     std::fs::create_dir_all(&out_dir)
