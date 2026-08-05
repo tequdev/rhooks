@@ -57,7 +57,7 @@ call, but every worked example in this book uses `rshooks`'s typed,
   typed slot/keylet layers for reading ledger objects.
 - **Emitting Transactions** covers building and submitting a new
   transaction from inside a Hook.
-- **Build Toolchain** documents the `rshooks-build` CLI itself and the
+- **Build Toolchain** documents the `rshooks` CLI itself and the
   `metadata!` declaration it consumes.
 - **Reference** is a lookup appendix: the full macro list, the prelude's
   contents, the raw FFI layer, and an index of the runnable examples in the

@@ -86,7 +86,7 @@ These come from xahaud's SetHook validation (`SetHook.cpp`,
     `guard!`-bounded loops: `opt-level = 3` unrolls them, so WCE dropped
     ~54% while size grew ~109% — see that example's own README for the
     exact before/after table). Every example stayed comfortably under the
-    65,535-byte limit and `rshooks-build check` (no unguarded loops, no
+    65,535-byte limit and `rshooks check` (no unguarded loops, no
     nesting-limit violations) passed for all of them. The one-time
     `SetHook` fee delta (`bytes × 5000` drops) this causes per example is
     small in absolute terms even where size grew. `mise run build-examples`
@@ -132,7 +132,7 @@ These come from xahaud's SetHook validation (`SetHook.cpp`,
     | `80_reward` | 13698 → 13680 | 7205 → 7175 |
     | `81_govern` | 44560 → 44560 | 14373 → 14373 |
 
-    Every row's "after" build also passed `rshooks-build check` (no
+    Every row's "after" build also passed `rshooks check` (no
     unguarded loops, nesting depth within the 32-level limit) and the full
     live e2e suite (`mise run e2e:node-up`, `pnpm --dir e2e test`) against
     a standalone Xahau node, asserting each example's live
@@ -1155,11 +1155,11 @@ No walrus (C8).
 ### 6.1 CLI
 
 ```
-rshooks-build build [--manifest-path <dir/Cargo.toml>] [-p <crate>]
+rshooks build [--manifest-path <dir/Cargo.toml>] [-p <crate>]
                   [--api-version 0|1] [--auto-guard] [--default-maxiter N]
                   [--out <dir>] [--allow-oversize]
-rshooks-build clean <in.wasm> [-o out.wasm] [--api-version 0|1]   # post-process only
-rshooks-build check <file.wasm> [--api-version 0|1]               # validate only, no output
+rshooks clean <in.wasm> [-o out.wasm] [--api-version 0|1]   # post-process only
+rshooks check <file.wasm> [--api-version 0|1]               # validate only, no output
 ```
 
 `build` =
@@ -1357,7 +1357,7 @@ trade-off):
   allows). This removed emit-txn's memset entirely: no `--auto-guard`,
   WCE 6798 → 331 and 1272 bytes total (current-toolchain measurement, at
   this workspace's `opt-level = 3` default — see C6 above; exact figures
-  drift with compiler versions and profile settings, `rshooks-build build`
+  drift with compiler versions and profile settings, `rshooks build`
   prints the authoritative numbers for any given build). The take-once
   flag costs a few dozen bytes over a raw `static mut`, which in turn
   required
@@ -1589,7 +1589,7 @@ digit) — see `examples/README.md`.
 | 10 | `emit-txn` | `etxn_reserve` + a user-declared `txn_template!` Payment + `cbak` |
 
 Each README shows the exact build command:
-`rshooks-build build --manifest-path examples/02_state-counter/Cargo.toml`
+`rshooks build --manifest-path examples/02_state-counter/Cargo.toml`
 (or via mise task `mise run build-examples`, which builds all examples and
 `check`s the outputs — this doubles as the end-to-end test).
 

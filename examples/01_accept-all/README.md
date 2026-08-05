@@ -10,7 +10,7 @@ starting point for a new Hook.
 ## Build
 
 ```sh
-rshooks-build build --manifest-path examples/01_accept-all/Cargo.toml
+rshooks build --manifest-path examples/01_accept-all/Cargo.toml
 ```
 
 or, from the repo root:

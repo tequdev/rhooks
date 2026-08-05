@@ -11,7 +11,7 @@ keywords = ["xahau", "hooks", "wasm", "cli", "build-tool"]
 categories = ["development-tools::build-utils", "wasm", "cryptography::cryptocurrencies"]
 
 [[bin]]
-name = "rshooks-build"
+name = "rshooks"
 path = "src/main.rs"
 
 [lib]

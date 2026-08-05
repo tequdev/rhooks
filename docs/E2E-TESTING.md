@@ -1,6 +1,6 @@
 # End-to-end testing
 
-`rshooks-build check` verifies that a Hook wasm binary is valid for SetHook.
+`rshooks check` verifies that a Hook wasm binary is valid for SetHook.
 The end-to-end suite also deploys the built examples to a standalone Xahau
 node and verifies their runtime behavior.
 

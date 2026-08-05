@@ -74,7 +74,7 @@ successfully for that same loop yet risks a real on-ledger
 16 covers. `firewall`'s README works through the exact reasoning for `24`.
 This example's `accounts_equal` sidesteps the whole problem: because the
 loop is hand-written, its `guard!` is present in the source and its
-`maxiter` is exact — `rshooks-build build` needs **no extra flags at all**
+`maxiter` is exact — `rshooks build` needs **no extra flags at all**
 for this function.
 
 ## 3. `guard_m!`: what it actually protects against
@@ -99,7 +99,7 @@ one line.
 
 **What actually happens if you get this wrong** was checked empirically,
 not assumed: changing one of the two `guard_m!(8, 1)`/`guard_m!(8, 2)`
-calls above so both loops share id `1` still passes `rshooks-build build`
+calls above so both loops share id `1` still passes `rshooks build`
 (and `check`) without any error — the static checker only verifies loop
 *shape* (a guard call at the top of every loop), never that ids are
 unique across the module. The real hazard is a **runtime** one: `_g`
@@ -112,7 +112,7 @@ even though nothing here will stop you if you don't.
 
 ## Measured worst-case instruction count
 
-Numbers from this repo's own `rshooks-build build` output (they'll drift a
+Numbers from this repo's own `rshooks build` output (they'll drift a
 little across compiler versions — these are current-toolchain
 measurements, not a guarantee), at this workspace's `opt-level = 3`
 default (`examples/Cargo.toml`, see `docs/DESIGN.md` §2 C6):

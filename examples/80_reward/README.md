@@ -10,7 +10,7 @@ hook state, normally written by [`../81_govern`](../81_govern)), and
 emits a `GenesisMint` transaction crediting the claimant and every
 active-validator L1 governance seat.
 
-Build: `rshooks-build build --manifest-path examples/80_reward/Cargo.toml`
+Build: `rshooks build --manifest-path examples/80_reward/Cargo.toml`
 (also wired into `mise run build-examples`).
 
 - Worst-case instructions: **13680** (`hook`), 0 (`cbak` — none declared)

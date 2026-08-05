@@ -1,6 +1,7 @@
-//! `rshooks-build` CLI: drives `cargo build --target wasm32v1-none`, then
-//! post-processes and validates the resulting wasm into a SetHook-legal
-//! Hook binary. See `docs/DESIGN.md` §6.1 for the full command reference.
+//! The `rshooks` CLI (package `rshooks-build`): drives `cargo build --target
+//! wasm32v1-none`, then post-processes and validates the resulting wasm into
+//! a SetHook-legal Hook binary. See `docs/DESIGN.md` §6.1 for the full
+//! command reference.
 
 use std::io::{BufRead, Write as _};
 use std::path::{Path, PathBuf};
@@ -13,7 +14,7 @@ use rshooks_build::{ApiVersion, Options, ValidationReport};
 
 /// A CLI toolchain for building and validating Xahau Hook wasm binaries.
 #[derive(Parser)]
-#[command(name = "rshooks-build", version, about)]
+#[command(name = "rshooks", version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Cmd,
@@ -375,7 +376,7 @@ fn find_cargo() -> Result<PathBuf> {
         }
     }
     bail!(
-        "could not find `cargo` on PATH; run `rshooks-build build` from a shell where \
+        "could not find `cargo` on PATH; run `rshooks build` from a shell where \
          `cargo build` already works"
     )
 }

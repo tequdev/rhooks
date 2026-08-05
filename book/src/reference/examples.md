@@ -1,7 +1,7 @@
 # Examples Index
 
 `examples/` is a runnable catalog of Hooks written with `rshooks`, built
-with `rshooks-build` — its own Cargo workspace, separate from the root
+with `rshooks` (from the `rshooks-build` package) — its own Cargo workspace, separate from the root
 workspace, because these crates are `no_std` `cdylib`s with a Hook-specific
 release profile that must not leak into `rshooks-core`/`rshooks`/
 `rshooks-build`, and they don't build for host targets. Every code sample in
@@ -54,7 +54,7 @@ discovered while porting them.
 Build every example (this is also the toolchain's own end-to-end test: each
 one is built via `cargo run -p rshooks-build -- build ...` from the root
 workspace, and the resulting `out/<name>.wasm` is re-validated with
-`rshooks-build check`):
+`rshooks check`):
 
 ```sh
 mise run build-examples
@@ -66,7 +66,7 @@ Build a single example directly:
 cargo run -p rshooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
 ```
 
-See [The rshooks-build CLI](../build/cli.md) for the CLI itself, and each
+See [The rshooks CLI](../build/cli.md) for the CLI itself, and each
 example's own README for its exact command.
 
 ## E2E tests

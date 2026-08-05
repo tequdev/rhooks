@@ -31,7 +31,7 @@
 
 # Build Toolchain
 
-- [The rshooks-build CLI](build/cli.md)
+- [The rshooks CLI](build/cli.md)
 - [Hook Metadata](build/metadata.md)
 
 # Reference

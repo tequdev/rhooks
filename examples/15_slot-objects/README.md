@@ -64,7 +64,7 @@ check here:
   and ORs the accept codes.
 
 Every loop is `guard!`-bounded by its own iteration count, so the hook is
-guard-clean with no extra `rshooks-build` flags.
+guard-clean with no extra `rshooks` flags.
 
 ## Build
 

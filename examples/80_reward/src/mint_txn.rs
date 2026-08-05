@@ -125,7 +125,7 @@ impl MintTxn {
     /// codegen lower each `copy_from_slice` to a handful of stores. A
     /// single function taking a runtime-length `&[u8]` and called from a
     /// dozen sites with different lengths compiles to a genuine byte-copy
-    /// loop instead (empirically: `rshooks-build build` rejects it as an
+    /// loop instead (empirically: `rshooks build` rejects it as an
     /// unguarded compiler-generated loop).
     #[inline(always)]
     fn push<const N: usize>(&mut self, src: &[u8; N]) -> usize {
