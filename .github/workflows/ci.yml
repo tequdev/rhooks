@@ -40,14 +40,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Generated hooks-core sources are up to date
+      - name: Generated rshooks-core sources are up to date
         run: cargo run -q -p xtask -- gen-core --check
 
       - name: Clippy (host, deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Clippy (wasm32v1-none, deny warnings)
-        run: cargo clippy -p hooks-core -p hooks-lib --target wasm32v1-none -- -D warnings
+        run: cargo clippy -p rshooks-core -p rshooks --target wasm32v1-none -- -D warnings
 
       - name: Build
         run: cargo build --workspace
@@ -56,7 +56,7 @@ jobs:
         run: cargo test --workspace
 
       - name: Build no_std crates for wasm32v1-none
-        run: cargo build -p hooks-core -p hooks-lib --target wasm32v1-none --release
+        run: cargo build -p rshooks-core -p rshooks --target wasm32v1-none --release
 
   # Build & check every example (end-to-end): one independent job per
   # example (matrix, fail-fast: false), so one example failing never

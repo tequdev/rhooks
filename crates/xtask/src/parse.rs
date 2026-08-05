@@ -1,11 +1,11 @@
 //! Parsing for the vendored xahaud `hook/*.h` C headers.
 //!
 //! This is a from-scratch parser written for `xtask`. It is deliberately
-//! independent of `crates/hooks-core/tests/common/mod.rs`, which parses the
+//! independent of `crates/rshooks-core/tests/common/mod.rs`, which parses the
 //! same headers for a different purpose (parity assertions at test time):
 //! that module is this generator's correctness oracle, and if the two
 //! shared code, a bug in the shared parser would be invisible to the parity
-//! tests. See `crates/hooks-core/vendor/xahaud-hook/VENDOR.md` and
+//! tests. See `crates/rshooks-core/vendor/xahaud-hook/VENDOR.md` and
 //! `docs/DESIGN.md` §4 for the header set this parses.
 //!
 //! The header dialect handled here is narrow on purpose — object-like

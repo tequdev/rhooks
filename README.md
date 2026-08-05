@@ -10,12 +10,18 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full design.
 
 | crate | description |
 |---|---|
-| `hooks-core` | `no_std`, zero-logic FFI layer: raw Hook API declarations and every constant from the xahaud `hook/` headers, translated 1:1 into Rust. |
-| `hooks-lib` | `no_std`, ergonomic wrapper over `hooks-core` (`Result`-based APIs, typed buffers, XFL type, guard/trace macros, panic handler). |
-| `hooks-build` | CLI that turns a Rust crate into a SetHook-valid WASM binary (cargo build + hook-cleaner + guard-checker, natively in Rust). |
+| `rshooks-core` | `no_std`, zero-logic FFI layer: raw Hook API declarations and every constant from the xahaud `hook/` headers, translated 1:1 into Rust. |
+| `rshooks-macros` | Procedural macros for `rshooks` (declarations, metadata, XFL literals). |
+| `rshooks` | `no_std`, ergonomic wrapper over `rshooks-core` (`Result`-based APIs, typed buffers, XFL type, guard/trace macros, panic handler). |
+| `rshooks-build` | CLI that turns a Rust crate into a SetHook-valid WASM binary (cargo build + hook-cleaner + guard-checker, natively in Rust). |
 
 `examples/` (a separate workspace) holds runnable Hooks built with
-`hooks-lib`.
+`rshooks`.
+
+## Installation
+
+Hook crates depend on [`rshooks`](https://crates.io/crates/rshooks); the
+build CLI installs with `cargo install rshooks-build`.
 
 ## Building
 
@@ -45,7 +51,7 @@ Numbered in suggested reading order — see
 | 10 | [`emit-txn`](examples/10_emit-txn) | `etxn_reserve` + a user-declared `txn_template!` Payment, with a `cbak` |
 
 ```sh
-mise run build-examples   # builds all ten through hooks-build and checks the output
+mise run build-examples   # builds all ten through rshooks-build and checks the output
 ```
 
 Each Hook can declare build-only metadata next to its entry point:
@@ -60,7 +66,7 @@ metadata! {
 }
 ```
 
-`hooks-build build` writes a matching `.json` sidecar beside the cleaned
+`rshooks-build build` writes a matching `.json` sidecar beside the cleaned
 `.wasm`. Its top-level SetHook fields use deployable raw values (transaction
 masks and hex `HookName`); the readable declarations are under `human`. The
 sidecar also includes the final binary's `HookHash` and static `WCE`
@@ -74,7 +80,7 @@ of the ten examples need it any more).
 
 ## E2E tests
 
-`e2e/` deploys the examples' `hooks-build` output to a real,
+`e2e/` deploys the examples' `rshooks-build` output to a real,
 standalone `xahaud` (via `SetHook`) and asserts on the resulting
 transaction metadata and ledger state — proof of runtime behavior, not
 just that the binaries are SetHook-valid. See

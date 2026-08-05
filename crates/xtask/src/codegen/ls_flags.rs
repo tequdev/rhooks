@@ -1,4 +1,4 @@
-//! Generates `crates/hooks-core/src/ls_flags.rs` from `ls_flags.h`'s parsed
+//! Generates `crates/rshooks-core/src/ls_flags.rs` from `ls_flags.h`'s parsed
 //! [`ConstGroup`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
@@ -11,7 +11,7 @@ const MODULE_DOC: &str = "\
 //! Ledger entry flags (`lsfXxx`).
 //!
 //! Upstream: `Xahau/xahaud`, branch `release`, `hook/ls_flags.h`, vendored at
-//! `crates/hooks-core/vendor/xahaud-hook/ls_flags.h`.
+//! `crates/rshooks-core/vendor/xahaud-hook/ls_flags.h`.
 //!
 //! The header groups these into several unnamed-in-Rust C enums, one per
 //! ledger entry type (`ltACCOUNT_ROOT`, `ltOFFER`, ...). This translation

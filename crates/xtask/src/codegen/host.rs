@@ -1,4 +1,4 @@
-//! Generates `crates/hooks-core/src/host.rs`: the `HookHost` trait and its
+//! Generates `crates/rshooks-core/src/host.rs`: the `HookHost` trait and its
 //! `Guest` implementor, from `extern.h`'s parsed [`FunctionSpec`]s
 //! (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
@@ -12,7 +12,7 @@ const MODULE_DOC: &str = "\
 //! `HookHost`: the raw Hook API as a trait, plus `Guest`, the trait's one
 //! real implementor.
 //!
-//! Generated from `crates/hooks-core/hook_api.json` (`crates/xtask/src/ir.rs`),
+//! Generated from `crates/rshooks-core/hook_api.json` (`crates/xtask/src/ir.rs`),
 //! itself generated from `extern.h` (`docs/DESIGN.md` §4). Every method here
 //! is a 1:1 forward to the same-named function in [`crate::api`] — same
 //! name, same signature (raw `u32`/`i64` Hook API types), same safety
@@ -20,11 +20,11 @@ const MODULE_DOC: &str = "\
 //! logic: swap `Guest` for another `HookHost` implementor (e.g. a native
 //! test host) and every Hook API call routes through it instead.
 //!
-//! `hooks-lib` and the examples do not use this trait today — the flat
+//! `rshooks` and the examples do not use this trait today — the flat
 //! free-function API in [`crate::api`] remains the public surface they call
 //! (`docs/DESIGN.md` §4/§5). `HookHost`/`Guest` exist so a future,
 //! independently-developed native test host has a stable substitution
-//! point, without hooks-core committing to it as its own runtime dispatch
+//! point, without rshooks-core committing to it as its own runtime dispatch
 //! mechanism.
 ";
 

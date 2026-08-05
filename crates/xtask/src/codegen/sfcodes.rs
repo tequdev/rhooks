@@ -1,4 +1,4 @@
-//! Generates `crates/hooks-core/src/sfcodes.rs` from `sfcodes.h`'s parsed
+//! Generates `crates/rshooks-core/src/sfcodes.rs` from `sfcodes.h`'s parsed
 //! [`ConstSpec`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
@@ -11,7 +11,7 @@ const MODULE_DOC: &str = "\
 //! Serialized field (`sfXxx`) codes.
 //!
 //! Upstream: `Xahau/xahaud`, branch `release`, `hook/sfcodes.h`, vendored at
-//! `crates/hooks-core/vendor/xahaud-hook/sfcodes.h`.
+//! `crates/rshooks-core/vendor/xahaud-hook/sfcodes.h`.
 //!
 //! Each code packs a type code and a field index: `(type << 16) + index`,
 //! mirrored verbatim from the header (325 fields).

@@ -9,10 +9,10 @@ mod message;
 mod mint_txn;
 mod raw;
 
-use hooks_lib::prelude::*;
-use hooks_lib::static_cell::HookStatic;
-use hooks_lib::*;
 use mint_txn::{L1_SEATS, MintTxn};
+use rshooks::prelude::*;
+use rshooks::static_cell::HookStatic;
+use rshooks::*;
 
 metadata! {
     name: "reward",

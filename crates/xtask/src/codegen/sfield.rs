@@ -1,19 +1,19 @@
-//! Generates `crates/hooks-lib/src/sfield.rs`: typed `SField<T>` field
-//! constants mirroring `hooks_core::sfcodes`'s raw `sfXxx` `u32` codes, from
+//! Generates `crates/rshooks/src/sfield.rs`: typed `SField<T>` field
+//! constants mirroring `rshooks_core::sfcodes`'s raw `sfXxx` `u32` codes, from
 //! `sfcodes.h`'s parsed [`ConstSpec`]s (`crates/xtask/src/ir.rs`,
 //! `hook_api.json`) — the same source data [`super::sfcodes`] renders as
-//! hooks-core's raw `u32` constants.
+//! rshooks-core's raw `u32` constants.
 //!
 //! Like [`super::tx_type`] — the two generators whose output lands in
-//! `hooks-lib` rather than `hooks-core` — a typed mirror is the
-//! `hooks-lib` layer's job per `docs/DESIGN.md` §5, while a mechanical 1:1
-//! header translation is `hooks-core`'s per §4. It is still fully mechanical
+//! `rshooks` rather than `rshooks-core` — a typed mirror is the
+//! `rshooks` layer's job per `docs/DESIGN.md` §5, while a mechanical 1:1
+//! header translation is `rshooks-core`'s per §4. It is still fully mechanical
 //! *within* that typed layer — every constant's value type is a pure
 //! function of the serialized type ID packed into its own code — so it is
 //! generated rather than hand-maintained, exactly as `sfcodes.rs` is.
 //!
 //! The `SField<T>` type and the wire-type markers it names are hand-written
-//! in `hooks-lib`'s `types` module; only the 325 constants are generated
+//! in `rshooks`'s `types` module; only the 325 constants are generated
 //! here. That placement is deliberate: a field constant describes the wire
 //! format and must not depend on the slot layer that happens to read it.
 
@@ -28,7 +28,7 @@ use crate::render::render_shift_add;
 const MODULE_DOC: &str = "\
 //! Typed serialized-field constants ([`SField<T>`](crate::types::SField)).
 //!
-//! One constant per `sfXxx` code in [`hooks_core::sfcodes`], carrying the
+//! One constant per `sfXxx` code in [`rshooks_core::sfcodes`], carrying the
 //! Rust type that field's value reads back as. `sfSequence` is an
 //! `SField<u32>`, `sfAccount` an `SField<AccountId>`, `sfBalance` an
 //! `SField<Amount>` — so
@@ -36,7 +36,7 @@ const MODULE_DOC: &str = "\
 //! already-typed handle and its `value()` needs no turbofish:
 //!
 //! ```
-//! use hooks_lib::prelude::*;
+//! use rshooks::prelude::*;
 //!
 //! // The type comes from the constant, not from an annotation.
 //! let _: SField<u32> = sfSequence;
@@ -44,7 +44,7 @@ const MODULE_DOC: &str = "\
 //!
 //! // `.code()` is the const-context bridge back to the raw `u32`.
 //! const SEQ: u32 = sfSequence.code();
-//! assert_eq!(SEQ, hooks_lib::raw::sfcodes::sfSequence);
+//! assert_eq!(SEQ, rshooks::raw::sfcodes::sfSequence);
 //! ```
 //!
 //! # How the value type is chosen
@@ -64,7 +64,7 @@ const MODULE_DOC: &str = "\
 //! # Naming
 //!
 //! `#[allow(non_upper_case_globals)]`, because these mirror C constant names
-//! verbatim — the same rule [`hooks_core::sfcodes`] follows, and for the
+//! verbatim — the same rule [`rshooks_core::sfcodes`] follows, and for the
 //! same reason: a hook author reading xahaud's own sources should find the
 //! identical spelling here.
 ";
@@ -165,7 +165,7 @@ pub fn generate(sfcodes: &[ConstSpec]) -> Result<String> {
     for d in sfcodes {
         writeln!(
             body,
-            "        assert_eq!(super::{name}.code(), ::hooks_core::sfcodes::{name}, \"{name}\");",
+            "        assert_eq!(super::{name}.code(), ::rshooks_core::sfcodes::{name}, \"{name}\");",
             name = d.name,
         )
         .context("writing parity assertion")?;

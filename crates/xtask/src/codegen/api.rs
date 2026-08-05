@@ -1,4 +1,4 @@
-//! Generates `crates/hooks-core/src/api.rs` from `extern.h`'s
+//! Generates `crates/rshooks-core/src/api.rs` from `extern.h`'s
 //! [`FunctionSpec`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
@@ -11,7 +11,7 @@ const MODULE_DOC: &str = "\
 //! Raw Hook API function declarations.
 //!
 //! Upstream: `Xahau/xahaud`, branch `release`, `hook/extern.h`, vendored at
-//! `crates/hooks-core/vendor/xahaud-hook/extern.h`.
+//! `crates/rshooks-core/vendor/xahaud-hook/extern.h`.
 //!
 //! This mirrors `extern.h` exactly, in header order: 75 functions total
 //! (`_g` plus 74 Hook API functions), all imported from wasm import module
@@ -19,7 +19,7 @@ const MODULE_DOC: &str = "\
 //! style `u32`, `i64` returns) so C hook source and this file can be
 //! compared line by line.
 //!
-//! On non-`wasm32` targets (host builds, so hooks-lib and its tests/docs can
+//! On non-`wasm32` targets (host builds, so rshooks and its tests/docs can
 //! compile and run) the same signatures are provided as deterministic stub
 //! functions that return [`crate::error::NOT_IMPLEMENTED`] (the `_g` stub
 //! returns `0`, i.e. \"guard check passed\"). None of the stubs panic.
@@ -82,7 +82,7 @@ pub fn generate(fns: &[FunctionSpec]) -> Result<String> {
     out.push_str("}\n");
     out.push('\n');
     out.push_str("/// Non-wasm host stubs mirroring the `extern.h` signatures exactly, so\n");
-    out.push_str("/// hooks-lib and its docs/tests compile and run on the host. Every stub is a\n");
+    out.push_str("/// rshooks and its docs/tests compile and run on the host. Every stub is a\n");
     out.push_str("/// deterministic, non-panicking placeholder: it returns\n");
     out.push_str("/// [`crate::error::NOT_IMPLEMENTED`] (the `_g` stub returns `0`, meaning\n");
     out.push_str("/// \"guard check passed\").\n");

@@ -17,14 +17,14 @@ not discarded — xahaud records it in the transaction's metadata as
 `hook-e2e-testing` skill). This is this hook's own application-defined
 result code, distinct from (and not to be confused with) the Hook API's
 internal `-1..=-45`/`-10024` error codes returned by individual host calls
-like `otxn_field` (see `hooks_lib::error::HookError`) — those are about
+like `otxn_field` (see `rshooks::error::HookError`) — those are about
 *why a host call failed*, not about *why the hook rejected the
 transaction*. This example's codes are chosen well outside that range
 (`-101..=-104`) specifically so they're unambiguous at a glance.
 
 ## Code walkthrough
 
-`RejectReason` is defined with [`hooks_lib::hook_errors!`] — one variant
+`RejectReason` is defined with [`rshooks::hook_errors!`] — one variant
 per rejection reason, each given its own explicit negative discriminant —
 plus a small hand-written `impl` for the parts the macro doesn't generate
 (a message per variant, and a `rollback` convenience):
@@ -76,7 +76,7 @@ falls through to the `_ => {}` arm and continues.
 | `-103` | `NotNativeAmount` | `errors: unsupported (non-native) Amount` |
 | `-104` | `AmountTooLarge` | `errors: amount exceeds policy limit` |
 
-(Compare with `hooks_lib::error::HookError`'s codes, `-1..=-45` plus
+(Compare with `rshooks::error::HookError`'s codes, `-1..=-45` plus
 `-10024` — a *Hook API* failure surfaces as one of those instead, from
 whichever host call failed, before this hook ever gets to choose one of its
 own codes.)
@@ -84,7 +84,7 @@ own codes.)
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/04_errors/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/04_errors/Cargo.toml
 ```
 
 No extra flags needed: `SourceTag`/`Amount` comparisons here are all

@@ -47,7 +47,7 @@ read buffer only ever needs to be sized for the native case this example
 supports (rejecting an IOU `Amount` as out of scope, rather than always
 allocating room for the larger encoding just to check its length after the
 fact). Every step returns a `Result`, each handled with its own
-[`hooks_lib::hook_errors!`] rollback code and message.
+[`rshooks::hook_errors!`] rollback code and message.
 
 ## Why there are no `slot_clear` calls
 
@@ -67,7 +67,7 @@ multi-hop `slot_path!` clears its intermediates automatically.
 
 This example was rewritten from the raw numbered API (`otxn_slot` →
 `slot_subfield` → `slot_exact`) to the typed one. Four variants, all built
-through `hooks-build` at this workspace's `opt-level = 3`:
+through `rshooks-build` at this workspace's `opt-level = 3`:
 
 | version | worst-case instructions | wasm size |
 |---|---|---|
@@ -101,7 +101,7 @@ overhead — and it is the right one when the size *isn't* already known.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/08_slot-ledger/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/08_slot-ledger/Cargo.toml
 ```
 
 No extra flags needed: every comparison here is a scalar (`usize`)
@@ -121,7 +121,7 @@ compiler-generated `bcmp`-style loop to guard.
 
 ## Error codes
 
-`SlotLedgerError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`SlotLedgerError` (`rshooks::hook_errors!`, see `src/lib.rs`) is the
 `rollback!` code for each failure this hook can exit with:
 
 | variant | code | meaning |

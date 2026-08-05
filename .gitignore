@@ -4,12 +4,12 @@
 /examples/target
 /examples/**/target
 
-# hooks-build outputs
+# rshooks-build outputs
 out/
 *.wasm
 
 # Keep binary test fixtures
-!crates/hooks-build/tests/fixtures/**/*.wasm
+!crates/rshooks-build/tests/fixtures/**/*.wasm
 
 # OS / editor noise
 .DS_Store

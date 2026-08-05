@@ -1,6 +1,6 @@
 #![no_std]
 
-use hooks_lib::*;
+use rshooks::*;
 
 metadata! {
     name: "accept-all",

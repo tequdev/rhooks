@@ -1,0 +1,17 @@
+[package]
+name = "rshooks-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT AND ISC"
+repository.workspace = true
+readme.workspace = true
+description = "Raw no_std FFI bindings and constants for the Xahau Hooks API"
+keywords = ["xahau", "hooks", "xrpl", "wasm", "no-std"]
+categories = ["no-std", "wasm", "api-bindings", "cryptography::cryptocurrencies"]
+
+[dev-dependencies]
+sha2 = "0.10"
+
+[lints]
+workspace = true

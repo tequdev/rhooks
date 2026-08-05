@@ -2,8 +2,8 @@
 
 ## What you'll learn
 
-How to use `hooks_lib::api::keylet`'s 26 typed `keylet_xxx` helpers — one
-per `hooks_core::consts::KEYLET_*` constant — in place of the single
+How to use `rshooks::api::keylet`'s 26 typed `keylet_xxx` helpers — one
+per `rshooks_core::consts::KEYLET_*` constant — in place of the single
 untyped `util_keylet`/`util_keylet_buf` (which takes a `keylet_type` plus
 six same-typed `u32` components meaning something different per type), and
 how 25 of those 26 results get independently verified end-to-end against
@@ -68,7 +68,7 @@ None.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/13_keylets/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/13_keylets/Cargo.toml
 ```
 
 No extra flags — see "Toolchain note" below for why this needs neither
@@ -88,17 +88,17 @@ default puts `Keylet`'s 34 bytes comfortably under that 64-byte ceiling,
 so the zero-init lowers to plain stores — never the unguarded `memset`
 call a `"z"`/`"s"` build of the same source would need
 `--auto-guard --default-maxiter 34` to guard (see
-`hooks_lib::api::util::util_keylet_buf`'s own doc comment for that case).
+`rshooks::api::util::util_keylet_buf`'s own doc comment for that case).
 
 Measured (25 of the 26 `keylet_xxx` calls actually exercised — see "e2e
 verification scope" below for why not all 26): **4150** worst-case
-instructions, 1 nesting level after `hooks-build`'s own ladder-flattening
+instructions, 1 nesting level after `rshooks-build`'s own ladder-flattening
 pass, 9638 bytes — up from an earlier, `opt-level = "z"`-plus-per-package-
 override measurement of 3637/8436 taken before this workspace's default
 switched to `opt-level = 3` everywhere (`docs/DESIGN.md`'s §2 C6): a
 per-package override that raised only *this* crate's own optimization
 level produced measurably different inlining than the same level applied
-workspace-wide (`hooks-lib`/`hooks-core` now also build at `opt-level =
+workspace-wide (`rshooks`/`rshooks-core` now also build at `opt-level =
 3`), and this hook's 25 near-identical `compute`/`store` call sites
 compound that difference more than most examples do. Still comfortably
 under the 65,535-byte `SetHook` limit, and still guard-clean (no
@@ -145,8 +145,8 @@ current `Sequence`, all rejected identically) — even though:
 
 This looks like a genuine gap in this specific `xahaud` build's
 `util_keylet` implementation for `KEYLET_TICKET` specifically, not a bug
-in `hooks_lib::api::keylet::keylet_ticket`'s argument marshaling. The
-helper stays in `hooks_lib::api::keylet` regardless (it matches the
+in `rshooks::api::keylet::keylet_ticket`'s argument marshaling. The
+helper stays in `rshooks::api::keylet` regardless (it matches the
 documented argument shape, and a different/future host build may support
 it) — only this example's hook, and this e2e suite, skip exercising it.
 `KeyletKey::Ticket` stays declared in `src/lib.rs` (so no other variant's

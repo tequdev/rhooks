@@ -1,0 +1,99 @@
+error[E0425]: cannot find function `slot_clear` in this scope
+  --> tests/ui/fail/prelude_absences.rs:13:13
+   |
+13 |     let _ = slot_clear(1);
+   |             ^^^^^^^^^^
+   |
+  ::: src/api/float.rs
+   |
+   | pub fn slot_float(slot_no: u32) -> Result<XFL> {
+   | ---------------------------------------------- similarly named function `slot_float` defined here
+   |
+help: a function with a similar name exists
+   |
+13 -     let _ = slot_clear(1);
+13 +     let _ = slot_float(1);
+   |
+help: consider importing one of these functions
+   |
+9  + use rshooks::api::slot_clear;
+   |
+9  + use rshooks_core::slot_clear;
+   |
+
+error[E0425]: cannot find function `slot_set` in this scope
+  --> tests/ui/fail/prelude_absences.rs:14:13
+   |
+14 |     let _ = slot_set(&[0u8; 34], 1);
+   |             ^^^^^^^^ not found in this scope
+   |
+help: consider importing one of these functions
+   |
+9  + use rshooks::api::slot_set;
+   |
+9  + use rshooks_core::slot_set;
+   |
+
+error[E0425]: cannot find function `otxn_slot` in this scope
+  --> tests/ui/fail/prelude_absences.rs:15:13
+   |
+15 |     let _ = otxn_slot(0);
+   |             ^^^^^^^^^ not found in this scope
+   |
+help: consider importing one of these functions
+   |
+9  + use rshooks::api::otxn_slot;
+   |
+9  + use rshooks_core::otxn_slot;
+   |
+
+error[E0425]: cannot find function `meta_slot` in this scope
+  --> tests/ui/fail/prelude_absences.rs:16:13
+   |
+16 |     let _ = meta_slot(0);
+   |             ^^^^^^^^^ not found in this scope
+   |
+help: consider importing one of these functions
+   |
+9  + use rshooks::api::meta_slot;
+   |
+9  + use rshooks_core::meta_slot;
+   |
+
+error[E0425]: cannot find function `slot_subarray` in this scope
+  --> tests/ui/fail/prelude_absences.rs:17:13
+   |
+17 |     let _ = slot_subarray(1, 0, 0);
+   |             ^^^^^^^^^^^^^
+   |
+  ::: src/api/sto.rs
+   |
+   | pub fn sto_subarray(array: &[u8], index: u32) -> Result<i64> {
+   | ------------------------------------------------------------ similarly named function `sto_subarray` defined here
+   |
+help: a function with a similar name exists
+   |
+17 -     let _ = slot_subarray(1, 0, 0);
+17 +     let _ = sto_subarray(1, 0, 0);
+   |
+help: consider importing one of these functions
+   |
+9  + use rshooks::api::slot_subarray;
+   |
+9  + use rshooks_core::slot_subarray;
+   |
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/prelude_absences.rs:21:18
+   |
+21 |     let _: u32 = sfSequence;
+   |            ---   ^^^^^^^^^^ expected `u32`, found `SField<u32>`
+   |            |
+   |            expected due to this
+   |
+   = note: expected type `u32`
+            found struct `SField<u32>`
+help: call `Into::into` on this expression to convert `SField<u32>` into `u32`
+   |
+21 |     let _: u32 = sfSequence.into();
+   |                            +++++++

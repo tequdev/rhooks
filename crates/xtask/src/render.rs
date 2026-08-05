@@ -1,5 +1,5 @@
 //! Renders parsed header values back out in the exact literal styles the
-//! hand-written `hooks-core` translation uses (`docs/DESIGN.md` §4): plain
+//! hand-written `rshooks-core` translation uses (`docs/DESIGN.md` §4): plain
 //! decimal for small counters/codes, underscore-grouped 8-digit hex for
 //! bitflags, and the `(a << 16) + b` shift-add form for `sfcodes.h`.
 

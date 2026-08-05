@@ -5,7 +5,7 @@ count (defaulting to zero if absent or of unexpected size), increments it,
 writes it back, and accepts with the new count as the return-code
 payload.
 
-This is the minimal tutorial for `hooks_lib`'s **typed storage layer**
+This is the minimal tutorial for `rshooks`'s **typed storage layer**
 (`crate::state`'s typed accessors, declared via `hook_state!`'s **Form 2** —
 a struct key with a fixed instance) — no hand-rolled `[0u8; 8]` buffer, no
 manual `from_le_bytes`/`to_le_bytes`, no length check, and (unlike the
@@ -39,7 +39,7 @@ Counter.set_state(&next);
 Both types carry the role traits, so either can be handed to the free
 functions (`state_get_typed(&CounterKey { name: *b"counter" })` reaches the
 identical entry). Only the **entity** carries the accessors — the key is the
-address of the thing, not the thing. See `hooks_lib::hook_state!`'s doc
+address of the thing, not the thing. See `rshooks::hook_state!`'s doc
 comment for the full grammar staircase this is one step of.
 
 ## Why a struct key, not a bare `[u8; 7]` key
@@ -48,18 +48,18 @@ comment for the full grammar staircase this is one step of.
 bare `*b"counter"` array key would — see "Same slot as before" below — so
 this isn't about the bytes on the wire. It's required by Rust's **orphan
 rule**: `hook_state!`'s expansion includes `impl TypedStateKey for Counter`
-(and one for `CounterKey`), and implementing a `hooks_lib` trait for a bare
+(and one for `CounterKey`), and implementing a `rshooks` trait for a bare
 `[u8; 7]` (a
-`core` type, foreign to this hook crate) from outside `hooks_lib` itself is
+`core` type, foreign to this hook crate) from outside `rshooks` itself is
 not allowed — only implementing it for a type *this crate defines* is. See
-`hooks_lib::hook_state!`'s doc comment for the full explanation and a
+`rshooks::hook_state!`'s doc comment for the full explanation and a
 `compile_fail` example of the bare-array case.
 
 ## Same slot as before: real-length encoding, host left-pads
 
 `CounterKey`'s only field is a plain `[u8; 7]`, and `hook_state!`'s Form 2
 sends a struct at its own real encoded length (7 bytes here — see
-`hooks_lib::state`'s module doc comment, "Key length and padding," and
+`rshooks::state`'s module doc comment, "Key length and padding," and
 `docs/DESIGN.md` §5.7) — never locally zero-padded up to the fixed 32-byte
 key space. That is exactly the same 7 bytes a bare `*b"counter"` array key
 sends, so `CounterKey { name: *b"counter" }` lands on the identical,
@@ -69,14 +69,14 @@ host-left-padded on-ledger slot — the same idiom as the C hook
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
 ```
 
 No extra flags needed — this example is guard-clean without `--auto-guard`.
 
 ## Error codes
 
-`StateCounterError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`StateCounterError` (`rshooks::hook_errors!`, see `src/lib.rs`) is the
 `rollback!` code for each failure this hook can exit with:
 
 | variant | code | meaning |
@@ -90,7 +90,7 @@ byte-order code) isn't free: `state_get_typed`/`state_set_typed` go
 through `crate::state`'s generic, 32-byte-scratch-buffer machinery
 (`MAX_TYPED_STATE_LEN`), rather than this hook reading/writing a plain
 8-byte buffer via the raw `state`/`state_set` calls directly. Measured
-(`hooks-build build`/`check`): 254 worst-case instructions / 740 bytes,
+(`rshooks-build build`/`check`): 254 worst-case instructions / 740 bytes,
 versus 58 / 349 for the previous, hand-rolled-buffer version of this same
 hook. Still guard-clean at the source level — no `--auto-guard`/
 `--default-maxiter` needed. For a hook this simple (one `u64` counter,

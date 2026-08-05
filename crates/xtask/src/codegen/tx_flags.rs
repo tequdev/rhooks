@@ -1,4 +1,4 @@
-//! Generates `crates/hooks-core/src/tx_flags.rs` from `tx_flags.h`'s parsed
+//! Generates `crates/rshooks-core/src/tx_flags.rs` from `tx_flags.h`'s parsed
 //! [`ConstGroup`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
@@ -11,7 +11,7 @@ const MODULE_DOC: &str = "\
 //! Transaction flags (`tfXxx`) and account flags (`asfXxx`).
 //!
 //! Upstream: `Xahau/xahaud`, branch `release`, `hook/tx_flags.h`, vendored at
-//! `crates/hooks-core/vendor/xahaud-hook/tx_flags.h`.
+//! `crates/rshooks-core/vendor/xahaud-hook/tx_flags.h`.
 //!
 //! The header groups these into several C enums, one per transaction type
 //! (or `AccountFlags` for the `asfXxx` `AccountSet` sub-flags). This

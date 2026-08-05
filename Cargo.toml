@@ -5,8 +5,10 @@ members = ["crates/*"]
 [workspace.package]
 edition = "2024"
 rust-version = "1.85"
+version = "0.1.0"
 license = "MIT"
-publish = false
+repository = "https://github.com/tequdev/rhooks"
+readme = "README.md"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

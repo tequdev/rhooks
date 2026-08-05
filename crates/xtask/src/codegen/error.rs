@@ -1,4 +1,4 @@
-//! Generates `crates/hooks-core/src/error.rs` from `error.h`'s parsed
+//! Generates `crates/rshooks-core/src/error.rs` from `error.h`'s parsed
 //! [`ConstSpec`]s (`crates/xtask/src/ir.rs`, `hook_api.json`).
 
 use anyhow::Result;
@@ -11,7 +11,7 @@ const MODULE_DOC: &str = "\
 //! Hook API error codes.
 //!
 //! Upstream: `Xahau/xahaud`, branch `release`, `hook/error.h`, vendored at
-//! `crates/hooks-core/vendor/xahaud-hook/error.h`.
+//! `crates/rshooks-core/vendor/xahaud-hook/error.h`.
 //!
 //! Every Hook API function returns an `i64`; non-negative values are
 //! success payloads (often \"bytes written\"), negative values are one of

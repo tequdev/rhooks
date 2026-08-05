@@ -1,0 +1,45 @@
+error[E0382]: borrow of moved value: `root`
+  --> tests/ui/fail/slot_affine.rs:11:17
+   |
+8  |     fn no_copy(root: SlotObject<STObject>) -> Result<()> {
+   |                ---- move occurs because `root` has type `rshooks::slot_obj::SlotObject<rshooks::types::STObject>`, which does not implement the `Copy` trait
+9  |         let moved = root;
+   |                     ---- value moved here
+10 |         // `root` was moved, not copied.
+11 |         let _ = root.field_code()?;
+   |                 ^^^^ value borrowed here after move
+
+error[E0382]: borrow of moved value: `root`
+  --> tests/ui/fail/slot_affine.rs:19:17
+   |
+16 |     fn moved_after_clear(root: SlotObject<STObject>) -> Result<()> {
+   |                          ---- move occurs because `root` has type `rshooks::slot_obj::SlotObject<rshooks::types::STObject>`, which does not implement the `Copy` trait
+17 |         root.clear()?;
+   |              ------- `root` moved due to this method call
+18 |         // `clear` consumed it.
+19 |         let _ = root.field_code()?;
+   |                 ^^^^ value borrowed here after move
+   |
+note: `rshooks::slot_obj::SlotObject::<T>::clear` takes ownership of the receiver `self`, which moves `root`
+  --> src/slot_obj.rs
+   |
+   |     pub fn clear(self) -> Result<()> {
+   |                  ^^^^
+
+error[E0382]: use of moved value: `seq`
+  --> tests/ui/fail/slot_affine.rs:26:23
+   |
+23 |     fn use_after_value(seq: SlotObject<u32>) -> Result<()> {
+   |                        --- move occurs because `seq` has type `rshooks::slot_obj::SlotObject<u32>`, which does not implement the `Copy` trait
+24 |         let _first = seq.value()?;
+   |                          ------- `seq` moved due to this method call
+25 |         // A terminal read consumed the handle.
+26 |         let _second = seq.value()?;
+   |                       ^^^ value used here after move
+   |
+note: `rshooks::slot_obj::SlotObject::<u32>::value` takes ownership of the receiver `self`, which moves `seq`
+  --> src/slot_obj.rs
+   |
+   | int_value!(u32, "`u32`");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: this error originates in the macro `int_value` (in Nightly builds, run with -Z macro-backtrace for more info)

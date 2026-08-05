@@ -3,7 +3,7 @@
 //! [`build`] parses the vendored xahaud `hook/*.h` headers (via
 //! [`crate::parse`]) exactly once into a single serializable [`HookApiSpec`]
 //! tree. `gen_core` then round-trips that tree through JSON — serializing it
-//! to `crates/hooks-core/hook_api.json`, then deserializing it back — before
+//! to `crates/rshooks-core/hook_api.json`, then deserializing it back — before
 //! handing it to the per-file generators in [`crate::codegen`]. Those
 //! generators therefore never touch header text or [`crate::parse`] types
 //! directly; they consume only this IR, so `hook_api.json` is the true
@@ -12,7 +12,7 @@
 //! documentation side-effect of it.
 //!
 //! This is a data-shape change only: every generator's rendering logic is
-//! unchanged, so `crates/hooks-core/src/*.rs` stays byte-for-byte identical
+//! unchanged, so `crates/rshooks-core/src/*.rs` stays byte-for-byte identical
 //! (`cargo xtask gen-core --check`, `docs/DESIGN.md` §4).
 
 use anyhow::Result;
@@ -76,8 +76,8 @@ pub struct ConstGroup {
 }
 
 /// The complete Hook API surface, parsed from the vendored headers: every
-/// host function plus every constant family `hooks-core` translates.
-/// Serialized verbatim as `crates/hooks-core/hook_api.json`.
+/// host function plus every constant family `rshooks-core` translates.
+/// Serialized verbatim as `crates/rshooks-core/hook_api.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookApiSpec {
     /// The `HookApiVersion` this snapshot of the vendored headers describes.

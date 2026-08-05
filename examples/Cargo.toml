@@ -46,7 +46,7 @@ panic = "abort"
 # per-package `opt-level = 3` override to fit the Hook API's 32-level
 # block/loop/if nesting limit (at `"z"`, LLVM leaves enough dead
 # `HookError`-decoding/error-handling machinery in place that
-# `hooks-build`'s inlining pass doesn't fit once every function in the
+# `rshooks-build`'s inlining pass doesn't fit once every function in the
 # crate is inlined into `hook()`). That override is now the workspace
 # default instead, because it also fixes a second, independent problem:
 # `wasm32v1-none`'s LLVM backend only inlines a `[0u8; N]` zero-init as

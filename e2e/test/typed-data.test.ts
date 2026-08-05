@@ -250,7 +250,7 @@ describe('typed-data', () => {
   })
 
   it('deletes the state entry on a full withdrawal', async () => {
-    // The live proof of `hooks_lib::state::state_delete` /
+    // The live proof of `rshooks::state::state_delete` /
     // `key.delete_state()`: the entry that the deposit test just observed
     // is now **gone** from the namespace directory, not present-and-zeroed.
     // Nothing on a host build can demonstrate this - every Hook API call

@@ -2,7 +2,7 @@
 
 ## What you'll learn
 
-What the **typed slot layer** (`hooks_lib::slot_obj`) actually does on a real
+What the **typed slot layer** (`rshooks::slot_obj`) actually does on a real
 node — and, more to the point, how the claims it is built on were checked.
 
 This example is a live acceptance harness, not a tutorial. Read
@@ -38,7 +38,7 @@ same ceiling, and the reason `docs/DESIGN.md` §5.8 recommends keeping
 `slot_path!` chains short.
 
 For the record, `slot_path!` itself is not the problem: measured on its own,
-its nesting after `hooks-build`'s unnest pass is **1** at 1, 3 *and* 10 hops,
+its nesting after `rshooks-build`'s unnest pass is **1** at 1, 3 *and* 10 hops,
 with worst-case instructions growing linearly (46 / 94 / 255).
 
 ## Cost
@@ -64,18 +64,18 @@ check here:
   and ORs the accept codes.
 
 Every loop is `guard!`-bounded by its own iteration count, so the hook is
-guard-clean with no extra `hooks-build` flags.
+guard-clean with no extra `rshooks-build` flags.
 
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/15_slot-objects/Cargo.toml
-cargo run -p hooks-build -- check examples/15_slot-objects/out/slot_objects.wasm
+cargo run -p rshooks-build -- build --manifest-path examples/15_slot-objects/Cargo.toml
+cargo run -p rshooks-build -- check examples/15_slot-objects/out/slot_objects.wasm
 ```
 
 ## Error codes
 
-`SlotObjectsError` (`hooks_lib::hook_errors!`, see `src/lib.rs`):
+`SlotObjectsError` (`rshooks::hook_errors!`, see `src/lib.rs`):
 
 | variant | code | meaning |
 |---|---|---|

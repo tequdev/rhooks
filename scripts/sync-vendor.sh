@@ -111,12 +111,12 @@ sync_group() {
 }
 
 sync_group "guard-checker" \
-    "crates/hooks-build/vendor/xahaud" \
+    "crates/rshooks-build/vendor/xahaud" \
     "include/xrpl/hook" \
     Guard.h Enum.h hook_api.macro
 
 sync_group "hook-headers" \
-    "crates/hooks-core/vendor/xahaud-hook" \
+    "crates/rshooks-core/vendor/xahaud-hook" \
     "hook" \
     error.h extern.h hookapi.h ls_flags.h macro.h sfcodes.h tts.h tx_flags.h
 
@@ -130,8 +130,8 @@ if [ "${MODE}" = "check" ]; then
 fi
 
 echo ""
-echo "Done. Review any changes with:  git diff crates/hooks-build/vendor/ crates/hooks-core/vendor/"
-echo "If the hook-headers group changed, regenerate hooks-core's translated sources:"
+echo "Done. Review any changes with:  git diff crates/rshooks-build/vendor/ crates/rshooks-core/vendor/"
+echo "If the hook-headers group changed, regenerate rshooks-core's translated sources:"
 echo "  cargo xtask gen-core"
 echo "Then run the test suite (vendored behavior/translations may have changed):"
 echo "  cargo test --workspace"

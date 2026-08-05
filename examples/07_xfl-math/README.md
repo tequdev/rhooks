@@ -6,7 +6,7 @@ How to read a transaction's `Amount` as an **XFL** (Xahau's decimal
 floating-point type) regardless of whether it's a native (XRP/XAH) or IOU
 amount, do a ratio computation (`mulratio`) on it, and compare the result —
 handling every step's `Result` explicitly, since every XFL host call is
-fallible. Also: hooks-lib's XFL **operator** API end to end — the checked
+fallible. Also: rshooks's XFL **operator** API end to end — the checked
 `Add`/`Sub`/`Mul`/`Div`/`Neg` operators (all fallible host round trips), the
 `.eq()`/`.lt()`/`.gt()`/`.compare()` comparison methods, the `==`/`<`/`>`
 (`PartialEq`/`PartialOrd`) comparison *operators* on plain `XFL` (used
@@ -49,8 +49,8 @@ the two slot numbers itself and calls `slot_clear` on both at the end. Those
 functions are no longer in the prelude — mixing them with the typed
 `SlotObject` layer would silently corrupt handles, since both address the
 same 255 registers — so the source names them explicitly
-(`hooks_lib::api::slot::{slot_clear, slot_subfield}`,
-`hooks_lib::api::otxn::otxn_slot`). The typed equivalent of the walkthrough
+(`rshooks::api::slot::{slot_clear, slot_subfield}`,
+`rshooks::api::otxn::otxn_slot`). The typed equivalent of the walkthrough
 above is one line shorter and needs no slot numbers at all:
 
 ```rust
@@ -79,7 +79,7 @@ have `PartialEq`/`PartialOrd` (`==`/`<`/`>`/...) — but this hook uses
 `.lt()` here instead, deliberately: those two traits' methods return a
 bare `bool`/`Option<Ordering>`, with no room for an `Err` case, so they
 fall back to `false`/`None` on a `float_compare` failure rather than
-propagating it (see `hooks_lib::xfl`'s module doc comment, and this
+propagating it (see `rshooks::xfl`'s module doc comment, and this
 README's "Migrating from the pre-operator method API" section below, for
 why that's a reasonable choice for the operators in general but the wrong
 one for a comparison that gates whether this hook rolls back). `.lt()`
@@ -105,7 +105,7 @@ match remaining.compare(XFL::from_raw_bits(0), COMPARE_LESS | COMPARE_EQUAL) {
 `Sub`'s `Output` is `Result<XFL, HookError>` — implemented as `self + (-rhs)?`:
 one `float_negate` host call (via the `Neg` operator) plus one `float_sum`
 host call. There is no dedicated `float_subtract` host function, and `Neg`
-is *not* a local sign-bit flip — see `hooks_lib::xfl`'s module doc comment,
+is *not* a local sign-bit flip — see `rshooks::xfl`'s module doc comment,
 which covers both why `Neg` still has to be a host round trip and why its
 `Output` can be `Result<XFL, HookError>` even though `PartialEq`/
 `PartialOrd` can't (unlike those two, `Neg`'s `Output` type isn't fixed by
@@ -129,7 +129,7 @@ let compounded = match compounded_raw.validate() {
 };
 ```
 
-`XFLUnchecked` (`hooks_lib::xfl_unchecked`) is the poison-propagating
+`XFLUnchecked` (`rshooks::xfl_unchecked`) is the poison-propagating
 counterpart to `XFL`: every one of its operators is still a host round
 trip (there is no local-only fast path — see its module doc comment for
 why `Neg` in particular has to be `float_negate`, not a bit flip), but with
@@ -142,7 +142,7 @@ correct implementation actually needs. The three-multiply compounding
 chain here is purely illustrative — it's nowhere near where per-step
 `Result` handling would actually be the measured bottleneck worth
 optimizing away — included solely to show the pattern's shape; see
-`hooks_lib::xfl_unchecked`'s module doc comment for the full soundness
+`rshooks::xfl_unchecked`'s module doc comment for the full soundness
 argument (why a poisoned/invalid operand can never produce a
 spuriously-valid result from any of these operators) and its audit table.
 
@@ -185,7 +185,7 @@ let min_share = XFL::new(-21, 1_000_000_000_000_000)?;
 ```
 
 XFL's mantissa is normalized to 16 significant digits (`10^15` to
-`10^16 - 1`, per `hooks_lib::xfl`'s module doc comment on the bit layout),
+`10^16 - 1`, per `rshooks::xfl`'s module doc comment on the bit layout),
 so `0.000001` (1e-6) is written as mantissa `1_000_000_000_000_000` (1e15)
 with exponent `-21` (`1e15 * 10^-21 == 10^-6`) — not exponent `-6`, which
 with that mantissa would be `1e9`. Getting this wrong is an easy mistake;
@@ -197,7 +197,7 @@ exponent `-15`.
 
 ## Migrating from the pre-operator method API
 
-`hooks_lib::xfl::XFL` used to expose `mul`/`add`/`div`/`neg` as named
+`rshooks::xfl::XFL` used to expose `mul`/`add`/`div`/`neg` as named
 methods; `eq`/`lt`/`gt`/`compare` stay named methods (see below for why).
 The four arithmetic methods are now gone, replaced by operators (this is
 the breaking change this example demonstrates end to end):
@@ -230,7 +230,7 @@ share is not below the minimum," i.e. silently accepting a transaction
 this hook could not actually validate. `==`/`<`/`>` are a reasonable
 choice specifically when a comparison failure and a genuine
 inequality/incomparable both deserve the same handling (see
-`hooks_lib::xfl`'s module doc comment's "Comparison: both methods and
+`rshooks::xfl`'s module doc comment's "Comparison: both methods and
 operators, both via `float_compare`" section) — true for
 `compounded > remaining` here, not true for any of the other three
 comparisons in this hook.
@@ -239,11 +239,11 @@ comparisons in this hook.
 there's no dedicated `float_subtract` host function; it's built from `Neg`
 plus `float_sum` (two host calls total). Chains that mix a plain `XFL` with
 an already-`Result<XFL, HookError>` value on either side (`a + b + c`) work
-without an explicit `?` between steps; see `hooks_lib::xfl`'s module doc
+without an explicit `?` between steps; see `rshooks::xfl`'s module doc
 comment for exactly which combinations are (and, for one specific
 combination that Rust's orphan rules make impossible, are not) supported.
 For hot paths where even that per-step `Result` handling is the measured
-cost problem, there's the new `XFLUnchecked` (`hooks_lib::xfl_unchecked`),
+cost problem, there's the new `XFLUnchecked` (`rshooks::xfl_unchecked`),
 demonstrated above.
 
 ## Handling XFL's failure modes
@@ -273,7 +273,7 @@ site.
 ## Build
 
 ```sh
-cargo run -p hooks-build -- build --manifest-path examples/07_xfl-math/Cargo.toml
+cargo run -p rshooks-build -- build --manifest-path examples/07_xfl-math/Cargo.toml
 ```
 
 No extra flags needed: every operation here is either a host call
@@ -296,7 +296,7 @@ demonstration — measures **357** (up from 162; see below for where that
 comes from).
 
 Chained-operator benchmark against the actual shipped types
-(`hooks_lib::xfl`/`hooks_lib::xfl_unchecked`, N=1/4/8 chained ops,
+(`rshooks::xfl`/`rshooks::xfl_unchecked`, N=1/4/8 chained ops,
 `opt-level = "z"`, `lto = "fat"`):
 
 | chain | N=1 | N=4 | N=8 | marginal cost/op |
@@ -327,7 +327,7 @@ implementation actually needs.
 
 ## Error codes
 
-`XflMathError` (`hooks_lib::hook_errors!`, see `src/lib.rs`) is the
+`XflMathError` (`rshooks::hook_errors!`, see `src/lib.rs`) is the
 `rollback!` code for each failure this hook can exit with:
 
 | variant | code | meaning |
