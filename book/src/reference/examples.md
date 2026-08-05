@@ -1,0 +1,77 @@
+# Examples Index
+
+`examples/` is a runnable catalog of Hooks written with `rshooks`, built
+with `rshooks-build` — its own Cargo workspace, separate from the root
+workspace, because these crates are `no_std` `cdylib`s with a Hook-specific
+release profile that must not leak into `rshooks-core`/`rshooks`/
+`rshooks-build`, and they don't build for host targets. Every code sample in
+this book is adapted from one of these.
+
+## Reading order: 01–15
+
+Numbered in **suggested reading order** — start at `01_accept-all` and work
+down; each one builds on ideas from the examples before it. The `example`
+column is each crate's actual package name (Cargo package names can't start
+with a digit, so only the directory is prefixed).
+
+| # | example | demonstrates | book chapter |
+|---|---|---|---|
+| 01 | `accept-all` | minimal hook: `accept` everything (starter template) | [Anatomy of a Hook](../concepts/anatomy.md) |
+| 02 | `state-counter` | `state`/`state_set` round-trip, counter in hook state | [Hook State](../data/state.md) |
+| 03 | `hook-params` | `hook_param`-configurable threshold, with a compiled-in default | [Hook and Transaction Parameters](../data/parameters.md) |
+| 04 | `errors` | a meaningful `hook_errors!`-based rollback error-code system, matched to `HookReturnCode` | [Accept, Rollback, and Errors](../concepts/errors.md) |
+| 05 | `firewall` | read `otxn_field(sfAccount)` + a hook parameter blacklist → `rollback` | [Reading the Originating Transaction](../data/otxn.md) |
+| 06 | `guard-patterns` | `guard!`/`guard_m!` correctness, choosing `maxiter`, and the array-`==` memcmp-loop pitfall | [Guards and Loops](../concepts/guards.md) |
+| 07 | `xfl-math` | reading `Amount` as XFL (`slot_float`/`sto_set`), `mulratio`, checked `Add`/`Sub`/`Mul`/`Div`/`Neg` operators, `.compare()`-family methods, and `XFLUnchecked`'s hot-path chain | [XFL: Decimal Floating Point](../data/xfl.md) |
+| 08 | `slot-ledger` | the typed slot layer: `SlotObject::from_otxn()` → `.get(sfXxx)` → `.value()`, with no slot numbers in sight, measured against the raw numbered API it replaced | [Slots and Ledger Objects](../data/slots.md) |
+| 09 | `state-foreign` | `state_foreign`: reading another (hook-parameter-configured) account's hook state | [Hook State](../data/state.md) |
+| 10 | `emit-txn` | `etxn_reserve` + a `txn_template!`-declared Payment/`emit`, with a `cbak` | [Emitting Transactions](../emit/emitting.md) |
+| 12 | `typed-data` | `#[derive(HookData)]`: composite (multi-field) state keys/values and `otxn_param`/`hook_param` structs, in place of hand-packed byte buffers | [Typed Data with Derives](../data/typed-data.md) |
+| 13 | `keylets` | `rshooks::api::keylet`'s 26 typed `keylet_xxx` helpers (one per `KEYLET_*` constant), in place of the single untyped `util_keylet` | [Keylets](../data/keylets.md) |
+| 14 | `account-id-macro` | `rshooks::account_id!`: compile-time r-address → `AccountId` decode, cross-checked against `hook_account`/`util_accid`/`util_raddr` | [Reading the Originating Transaction](../data/otxn.md) |
+| 15 | `slot-objects` | the typed slot layer's live acceptance harness: account-root walk, native-amount drops round-trip, parent-clear/child-read, and two 300-iteration loops proving `take_*` recycling and leak-free `slot_path!` failures | [Slots and Ledger Objects](../data/slots.md) |
+
+There is no `11` — the numbering follows the historical example order, with
+gaps where an example was retired.
+
+## 80+: production hooks in Rust
+
+Unlike `01`–`15` (one concept each, in suggested reading order), the `80`+
+series are behavior-equivalent Rust ports of real, deployed xahaud C hooks —
+read them after `01`–`15`, not instead of them. Each has its own README with
+a full behavior-equivalence table against its C source, a differences table
+for any intentional deviation, and a "Toolchain limitation" section
+documenting a real Guard-type nesting-depth/floating-point constraint
+discovered while porting them.
+
+| # | example | ports |
+|---|---|---|
+| 80 | `reward` | [`hook/genesis/reward.c`](https://raw.githubusercontent.com/Xahau/xahaud/dev/hook/genesis/reward.c) — the `RewardHook`: computes and emits a `GenesisMint` crediting `ClaimReward` claimants and active-validator L1 seats |
+| 81 | `govern` | [`hook/genesis/govern.c`](https://raw.githubusercontent.com/Xahau/xahaud/dev/hook/genesis/govern.c) — the `GovernanceHook`: the 20-seat L1/L2 round-table governance state machine |
+
+## Building
+
+Build every example (this is also the toolchain's own end-to-end test: each
+one is built via `cargo run -p rshooks-build -- build ...` from the root
+workspace, and the resulting `out/<name>.wasm` is re-validated with
+`rshooks-build check`):
+
+```sh
+mise run build-examples
+```
+
+Build a single example directly:
+
+```sh
+cargo run -p rshooks-build -- build --manifest-path examples/02_state-counter/Cargo.toml
+```
+
+See [The rshooks-build CLI](../build/cli.md) for the CLI itself, and each
+example's own README for its exact command.
+
+## E2E tests
+
+`e2e/` deploys the examples' `rshooks-build` output to a real, standalone
+`xahaud` node (via `SetHook`) and asserts on the resulting transaction
+metadata and ledger state — proof of runtime behavior, not just that the
+binaries are SetHook-valid.
