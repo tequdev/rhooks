@@ -90,6 +90,6 @@ State](../data/state.md).
 
 | macro | purpose | sketch |
 |---|---|---|
-| `metadata!` | Declare a Hook's descriptive/SetHook-facing metadata (name, `HookOn`, `HookCanEmit`, ...) for `rshooks-build` to extract into a sidecar JSON. Build-only — adds nothing to the final wasm. | `metadata! { name: "accept-all", HookOn: [Invoke], HookName: "accept" }` |
+| `metadata!` | Declare a Hook's descriptive/SetHook-facing metadata (name, `HookOn`, `HookCanEmit`, ...) for `rshooks` to extract into a sidecar JSON. Build-only — adds nothing to the final wasm. | `metadata! { name: "accept-all", HookOn: [Invoke], HookName: "accept" }` |
 
 See [Hook Metadata](../build/metadata.md).

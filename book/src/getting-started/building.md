@@ -1,12 +1,12 @@
 # Building a Hook
 
-The previous chapter ran `rshooks-build build` without explaining what it
+The previous chapter ran `rshooks build` without explaining what it
 actually does. This chapter walks through the pipeline stage by stage, so
 the printed report and the `check` subcommand make sense on their own.
 
 ## The pipeline
 
-`rshooks-build build` runs cargo, then a fixed sequence of post-processing
+`rshooks build` runs cargo, then a fixed sequence of post-processing
 and validation steps on the resulting `.wasm`:
 
 1. **`cargo build --release --target wasm32v1-none`** — compiles your
@@ -69,10 +69,10 @@ wrote out/my_hook.json
 
 ## Validating a binary without building it
 
-`rshooks-build check <file>` runs the same guard-checker and validator
+`rshooks check <file>` runs the same guard-checker and validator
 steps against an existing wasm file, without invoking cargo or writing any
 output. It works on any SetHook-shaped wasm, including one this toolchain
-didn't build — see [The `rshooks-build` CLI](../build/cli.md) for its full
+didn't build — see [The `rshooks` CLI](../build/cli.md) for its full
 flag reference, and [`build`](../build/cli.md)'s and [`clean`](../build/cli.md)'s
 as well.
 

@@ -1,6 +1,7 @@
 # examples/
 
-Runnable Xahau Hooks written with `rshooks`, buildable with `rshooks-build`.
+Runnable Xahau Hooks written with `rshooks`, buildable with `rshooks` (the
+`rshooks-build` package).
 This is its own Cargo workspace (see `Cargo.toml`), separate from the root
 workspace, because these crates are `no_std` `cdylib`s with a Hook-specific
 release profile that must not leak into `rshooks-core`/`rshooks`/
@@ -85,7 +86,7 @@ mise run build-examples   # builds every example through rshooks-build and check
 
 This is also the toolchain's end-to-end test: each example is built via
 `cargo run -p rshooks-build -- build ...` from the root workspace, and the
-resulting `out/<name>.wasm` is re-validated with `rshooks-build check`.
+resulting `out/<name>.wasm` is re-validated with `rshooks check`.
 
 Each example can also be built individually, e.g.:
 
@@ -152,14 +153,14 @@ loops entirely (no `--auto-guard` needed) and cut its worst-case
 instruction count by an order of magnitude (6798 → 331 as of the current
 toolchain and this workspace's `opt-level = 3` default, see
 `docs/DESIGN.md` §2 C6; exact numbers drift a little between compiler
-versions and profile settings — the `rshooks-build build` output prints the
+versions and profile settings — the `rshooks build` output prints the
 authoritative figures). The take-once flag costs a few dozen bytes over a
 raw `static mut` — the
 price of keeping hook code free of `unsafe`.
 
 ## On `--auto-guard`
 
-`rshooks-build build` defaults to treating an unguarded `loop` as a hard
+`rshooks build` defaults to treating an unguarded `loop` as a hard
 error (see `docs/DESIGN.md` §6.3 and §10.1) — missing a `guard!` in your
 own code is a bug, not something to paper over. The trap is that
 `opt-level = "z"` on `wasm32v1-none` (which has no bulk-memory
@@ -206,6 +207,6 @@ does and doesn't protect against); and `account-id-macro`'s buffers (a
 20-byte `AccountId`, a 34-byte r-address) are compared with `buf_eq_20`/
 `buf_eq_34` and are far too small for LLVM to prefer an out-of-line loop
 regardless. `--auto-guard` remains
-available in `rshooks-build` for cases none of these idioms cover — size
+available in `rshooks` for cases none of these idioms cover — size
 `--default-maxiter` from the loop's true worst-case iteration count (found
 via disassembly), never trust the default.

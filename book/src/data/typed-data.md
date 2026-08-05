@@ -241,7 +241,7 @@ every field read/write delegates straight to that field's own
 size this toolchain's release profile still lowers to inlined stores
 rather than a `memset`/`memcpy` builtin call) no unguarded loop at all.
 `examples/12_typed-data`'s README backs this with a real
-`rshooks-build build`/`check` measurement: this hook's core deposit-ledger
+`rshooks build`/`check` measurement: this hook's core deposit-ledger
 logic, built twice — once with the derives as committed, once with all
 four hand-packed instead, everything else byte-for-byte identical:
 

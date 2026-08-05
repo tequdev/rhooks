@@ -1,7 +1,7 @@
 # Installation
 
 Building a Hook needs two things beyond a normal Rust setup: the
-`wasm32v1-none` compilation target, and the `rshooks-build` CLI that
+`wasm32v1-none` compilation target, and the `rshooks` CLI that
 post-processes cargo's output into a SetHook-valid binary. This page sets
 up both, plus the shape of a new Hook crate's `Cargo.toml`.
 
@@ -31,9 +31,10 @@ rustup target add wasm32v1-none
 cargo install rshooks-build
 ```
 
-This installs the `rshooks-build` binary used throughout this book. It
-wraps `cargo build --target wasm32v1-none` and does not replace your
-regular `cargo` — you still need a working Rust install on `PATH`.
+This installs a binary named `rshooks` (from the `rshooks-build` package)
+used throughout this book. It wraps `cargo build --target wasm32v1-none`
+and does not replace your regular `cargo` — you still need a working Rust
+install on `PATH`.
 
 ## Adding `rshooks` to a new crate
 
@@ -69,9 +70,9 @@ strip = "symbols"
 A few things worth noting about this shape:
 
 - **`crate-type = ["cdylib"]`** — a Hook compiles to a C-compatible dynamic
-  library; that's the artifact `rshooks-build` post-processes into a `.wasm`
+  library; that's the artifact `rshooks` post-processes into a `.wasm`
   binary. Plain `cargo build` output from a `cdylib` also exports `memory`,
-  which `rshooks-build` strips along the way (SetHook rejects a module that
+  which `rshooks` strips along the way (SetHook rejects a module that
   exports anything besides `hook`/`cbak`).
 - **The crate itself is `#![no_std]`** (declared in `src/lib.rs`, not
   `Cargo.toml`) — there is no allocator, no `std`, and no panic machinery on

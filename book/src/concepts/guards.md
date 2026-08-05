@@ -92,7 +92,7 @@ line.
 
 **What `$n` does and doesn't protect against**, verified empirically by
 `examples/06_guard-patterns`: giving both loops above the same `n` (so
-they collide on one guard id) still passes `rshooks-build build`/`check`
+they collide on one guard id) still passes `rshooks build`/`check`
 without any error — the static checker only verifies loop *shape* (a guard
 call at the top of every loop), never that ids are unique across the
 module. The real hazard is a **runtime** one: `_g` tracks each guard id's
@@ -123,7 +123,7 @@ cargo run -p rshooks-build -- build --manifest-path examples/05_firewall/Cargo.t
   --auto-guard --default-maxiter 24
 ```
 
-`rshooks-build build` defaults to treating an unguarded loop as a hard
+`rshooks build` defaults to treating an unguarded loop as a hard
 build error — missing a `guard!` in your own code is a bug, not something
 to silently paper over. `--auto-guard` is the escape hatch for loops the
 guard checker finds that your source never wrote.
@@ -193,5 +193,5 @@ guessed — every time.
   including the safety argument for its take-once exclusivity.
 - [Accept, Rollback, and Errors](errors.md) covers how a hook actually
   terminates once its checks — guarded loops included — are done.
-- [The rshooks-build CLI](../build/cli.md) covers `--auto-guard` and
+- [The rshooks CLI](../build/cli.md) covers `--auto-guard` and
   `--default-maxiter` as build flags in full.

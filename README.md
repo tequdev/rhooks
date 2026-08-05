@@ -21,7 +21,9 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full design.
 ## Installation
 
 Hook crates depend on [`rshooks`](https://crates.io/crates/rshooks); the
-build CLI installs with `cargo install rshooks-build`.
+build CLI installs with `cargo install rshooks-build`, which installs a
+binary named `rshooks` (run as `rshooks build`, `rshooks check`, `rshooks
+clean`).
 
 ## Building
 
@@ -66,7 +68,7 @@ metadata! {
 }
 ```
 
-`rshooks-build build` writes a matching `.json` sidecar beside the cleaned
+`rshooks build` writes a matching `.json` sidecar beside the cleaned
 `.wasm`. Its top-level SetHook fields use deployable raw values (transaction
 masks and hex `HookName`); the readable declarations are under `human`. The
 sidecar also includes the final binary's `HookHash` and static `WCE`

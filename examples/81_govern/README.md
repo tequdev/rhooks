@@ -10,7 +10,7 @@ is the **L1 table**; installed on any other (blackholed) account it is an
 "actioned" — applied directly (seat/hook/reward change) or, for an L2
 table voting on an L1 topic, forwarded to L1 as an `Invoke`.
 
-Build: `rshooks-build build --manifest-path examples/81_govern/Cargo.toml`
+Build: `rshooks build --manifest-path examples/81_govern/Cargo.toml`
 (also wired into `mise run build-examples`).
 
 - Worst-case instructions: **44465** (`hook`), 0 (`cbak` — none declared)
@@ -226,7 +226,7 @@ Three additional findings from porting this hook specifically, beyond
 
 - **Floating point is rejected outright, not just costly.** The Hook
   API's guard checker flags any `f64`/`f32` wasm opcode as a hard error
-  for a Guard-type hook (`rshooks-build` reports "uses a floating-point
+  for a Guard-type hook (`rshooks` reports "uses a floating-point
   opcode"), independent of the nesting-depth issue. govern.c's `q80`/
   `q51` threshold computation (`member_count * 0.8` as a C `double`) had
   to be replaced with exact integer arithmetic — see the differences

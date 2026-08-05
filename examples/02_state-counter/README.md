@@ -90,7 +90,7 @@ byte-order code) isn't free: `state_get_typed`/`state_set_typed` go
 through `crate::state`'s generic, 32-byte-scratch-buffer machinery
 (`MAX_TYPED_STATE_LEN`), rather than this hook reading/writing a plain
 8-byte buffer via the raw `state`/`state_set` calls directly. Measured
-(`rshooks-build build`/`check`): 254 worst-case instructions / 740 bytes,
+(`rshooks build`/`check`): 254 worst-case instructions / 740 bytes,
 versus 58 / 349 for the previous, hand-rolled-buffer version of this same
 hook. Still guard-clean at the source level — no `--auto-guard`/
 `--default-maxiter` needed. For a hook this simple (one `u64` counter,

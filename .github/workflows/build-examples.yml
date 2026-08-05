@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Per-example `rshooks-build build` flag overrides. This is the
+          # Per-example `rshooks build` flag overrides. This is the
           # ONLY place per-example build flags are declared for CI — add
           # one line per example that needs non-default flags (keyed by
           # its examples/ directory name) and both ci.yml and e2e.yml
@@ -94,7 +94,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: rshooks-build-bin
-          path: target/release/rshooks-build
+          path: target/release/rshooks
           if-no-files-found: error
           retention-days: 1
 
@@ -144,15 +144,15 @@ jobs:
       # Building each example through rshooks-build and then `check`ing the
       # produced binary doubles as the end-to-end test of the whole
       # toolchain (cleaner, guard pass, validator) — no_std cdylib hooks
-      # have no runnable unit tests. `bin/rshooks-build` is the binary
+      # have no runnable unit tests. `bin/rshooks` is the binary
       # `build-tool` built once and shared above, so it isn't recompiled
       # once per example here.
       - name: Build and check
         run: |
           set -euo pipefail
-          chmod +x bin/rshooks-build
-          bin/rshooks-build build --manifest-path "${{ matrix.dir }}/Cargo.toml" ${{ matrix.args }}
-          bin/rshooks-build check "${{ matrix.dir }}/out/${{ matrix.wasm }}.wasm"
+          chmod +x bin/rshooks
+          bin/rshooks build --manifest-path "${{ matrix.dir }}/Cargo.toml" ${{ matrix.args }}
+          bin/rshooks check "${{ matrix.dir }}/out/${{ matrix.wasm }}.wasm"
 
       - name: Upload hook binary
         uses: actions/upload-artifact@v7

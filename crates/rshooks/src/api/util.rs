@@ -137,7 +137,7 @@ pub fn util_keylet<B: AsMut<[u8]> + ?Sized>(
 /// threshold but *below* the `opt-level = 1`/`2`/`3` one: a hook crate
 /// built at `opt-level = "z"`/`"s"` (this crate's own recommended default
 /// for a Hook binary — see [`crate::state`]'s `MAX_TYPED_STATE_LEN` doc
-/// comment) needs `rshooks-build build --auto-guard --default-maxiter 34`
+/// comment) needs `rshooks build --auto-guard --default-maxiter 34`
 /// (sized to this exact buffer) for any hook that calls this function
 /// (directly, or via any [`crate::api::keylet`] helper) to pass the guard
 /// checker; a hook crate built at `opt-level = 1`/`2`/`3` needs neither —

@@ -240,10 +240,10 @@ the root README's "`--auto-guard`" section). `#[derive(HookKey)]`/
 `ToBytes::write`/`FromBytes::read` call — see `HookData`'s doc comment's
 "Zero-cost by construction" section, which all three derives share) — but
 the only way to *prove* that is to build both versions through
-`rshooks-build` and compare `rshooks-build check`'s reported worst-case
+`rshooks-build` and compare `rshooks check`'s reported worst-case
 instruction count.
 
-This table is a real `rshooks-build build`/`check` measurement, at this
+This table is a real `rshooks build`/`check` measurement, at this
 workspace's `opt-level = 3` default (`examples/Cargo.toml`, `docs/
 DESIGN.md`'s §2 C6), of this hook's core deposit-ledger logic (the state
 key/value pairing plus the plain-tag `CFG`/`INS` parameters; not yet
@@ -274,7 +274,7 @@ cheap, it's that the derive *always* generates that shape, by construction,
 without a hook author having to discover and apply the trick themselves.)
 
 No `--auto-guard`/`--default-maxiter` flags are needed for either version —
-`rshooks-build check` reports both as guard-clean at the source level (see
+`rshooks check` reports both as guard-clean at the source level (see
 `examples/README.md`'s "On `--auto-guard`" section for what that means and
 why it's the idiom this crate prefers).
 

@@ -49,7 +49,7 @@ pub use rshooks_macros::cbak;
 
 /// Declares descriptive and SetHook-facing metadata for a Hook binary.
 ///
-/// `rshooks-build build` extracts this declaration from cargo's raw wasm,
+/// `rshooks build` extracts this declaration from cargo's raw wasm,
 /// combines it with build-derived values such as `HookHash` and the
 /// `hook`/`cbak` worst-case instruction counts, and writes a sibling JSON
 /// artifact. The declaration itself is build-only: the macro carries compact

@@ -59,7 +59,7 @@ add that import.
 The `metadata!` block declares build-only information about the Hook: a
 display name, an optional description, which transaction types trigger it
 (`HookOn`), and (optionally) its on-ledger `HookName`. It's not required —
-a Hook without it still builds and runs — but `rshooks-build` uses it to
+a Hook without it still builds and runs — but `rshooks` uses it to
 generate a JSON sidecar describing the binary. See [Hook
 Metadata](../build/metadata.md) for the full grammar.
 
@@ -97,13 +97,13 @@ Rollback, and Errors](../concepts/errors.md).
 From the crate's own directory:
 
 ```sh
-rshooks-build build
+rshooks build
 ```
 
 or from elsewhere, pointing at its manifest:
 
 ```sh
-rshooks-build build --manifest-path my-hook/Cargo.toml
+rshooks build --manifest-path my-hook/Cargo.toml
 ```
 
 This runs `cargo build --release --target wasm32v1-none`, then
@@ -163,5 +163,5 @@ computed from the final, cleaned `.wasm` bytes, so they only exist once a
 build has run.
 
 From here, [Building a Hook](building.md) explains what each pipeline
-stage actually does, and [The `rshooks-build` CLI](../build/cli.md) is the
+stage actually does, and [The `rshooks` CLI](../build/cli.md) is the
 complete flag reference for every subcommand.

@@ -2,7 +2,7 @@
 
 A Hook crate can declare a `metadata!` block describing itself — its
 name, description, trigger transaction types, and on-ledger `HookName`.
-`rshooks-build build` reads this declaration and writes a JSON sidecar
+`rshooks build` reads this declaration and writes a JSON sidecar
 next to the compiled wasm, combining what you wrote with facts only
 available after the build (the binary's hash and its worst-case
 instruction counts). This page covers the full grammar and the sidecar's
@@ -69,7 +69,7 @@ rejected.
 
 Names use Xahau's canonical `TransactionType` spellings, including some
 that are easy to get wrong by guessing: `SetHook`, `SetRegularKey`, and
-`AMMCreate`. `rshooks-build` maintains the authoritative list of every
+`AMMCreate`. `rshooks` maintains the authoritative list of every
 valid name against the actual protocol transaction set.
 
 ## `HookName`
@@ -79,7 +79,7 @@ Unicode scalar values** — deliberately counting characters, not encoded
 bytes. This is a separate rule from xahaud's own ledger-level requirement
 that a `HookName` be **4 through 16 UTF-8 bytes**; a name intended for
 direct on-chain submission needs to satisfy both. Because these two rules
-can diverge for non-ASCII names, `rshooks-build build` checks the
+can diverge for non-ASCII names, `rshooks build` checks the
 byte-length rule too and prints a warning (not a hard error) when a
 declared `HookName` doesn't fit it.
 
@@ -88,7 +88,7 @@ declared `HookName` doesn't fit it.
 `metadata!`'s expansion carries the declaration as compact JSON, hex-
 encoded into the name of a Hook wasm export that is never actually called
 — a deliberately dead export named `__rshooks_metadata_v1_<HEX>`.
-`rshooks-build build` reads this carrier from cargo's *raw* artifact,
+`rshooks build` reads this carrier from cargo's *raw* artifact,
 before cleaning, and the ordinary hook-cleaner pass then removes it along
 with every other non-`hook`/`cbak` export. **The declaration is build-only
 and never changes the deployed binary**: it adds no data segment, no
@@ -109,7 +109,7 @@ metadata! {
 }
 ```
 
-`rshooks-build build` writes an `out/<crate>.json` sidecar shaped like
+`rshooks build` writes an `out/<crate>.json` sidecar shaped like
 this (real output, from the `accept-all` example):
 
 ```json

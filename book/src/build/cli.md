@@ -1,6 +1,6 @@
-# The `rshooks-build` CLI
+# The `rshooks` CLI
 
-`rshooks-build` is a single binary with three subcommands: `build` (the
+`rshooks` is a single binary with three subcommands: `build` (the
 one you'll use for everyday work), `clean` (post-process an
 already-compiled wasm without invoking cargo), and `check` (validate any
 wasm file against the full SetHook rule set, without modifying it). This
@@ -8,16 +8,16 @@ page is the complete flag reference for all three, taken directly from the
 CLI's own definitions.
 
 Every subcommand also accepts the standard clap-generated `-h`/`--help`;
-`rshooks-build --version` prints the installed version.
+`rshooks --version` prints the installed version.
 
-## `rshooks-build build`
+## `rshooks build`
 
 Builds a Rust crate for `wasm32v1-none` (`cargo build --release --target
 wasm32v1-none`), then cleans and validates the result into a SetHook-legal
 binary. This is the pipeline described in [Building a Hook](../getting-started/building.md).
 
 ```sh
-rshooks-build build --manifest-path path/to/Cargo.toml
+rshooks build --manifest-path path/to/Cargo.toml
 ```
 
 | flag | default | description |
@@ -36,7 +36,7 @@ artifact file name) and, if the crate declares `metadata!`, a matching
 sidecar from a previous build that no longer declares `metadata!` is
 removed automatically.
 
-## `rshooks-build clean`
+## `rshooks clean`
 
 Cleans and validates an already-built wasm file directly, without invoking
 cargo. Useful for post-processing an artifact you already have on disk —
@@ -44,7 +44,7 @@ for example one built by a different pipeline, or one you want to
 reprocess with different flags without rebuilding.
 
 ```sh
-rshooks-build clean path/to/artifact.wasm
+rshooks clean path/to/artifact.wasm
 ```
 
 | flag | default | description |
@@ -60,7 +60,7 @@ rshooks-build clean path/to/artifact.wasm
 `build`, since it needs the original crate's `metadata!` carrier from
 cargo's raw artifact.
 
-## `rshooks-build check`
+## `rshooks check`
 
 Validates a wasm file against the full SetHook rule set without modifying
 it. Unlike `build`/`clean`, this works on **any** wasm file, including
@@ -68,7 +68,7 @@ ones not built by this toolchain at all — for example, a Hook compiled
 from C.
 
 ```sh
-rshooks-build check path/to/hook.wasm
+rshooks check path/to/hook.wasm
 ```
 
 | flag | default | description |
