@@ -11,6 +11,9 @@ out/
 # Keep binary test fixtures
 !crates/rshooks-build/tests/fixtures/**/*.wasm
 
+# mdBook build output
+/book/book
+
 # OS / editor noise
 .DS_Store
 

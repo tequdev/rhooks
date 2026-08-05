@@ -1,0 +1,14 @@
+[book]
+title = "The rshooks Book"
+description = "A user guide for rshooks — writing Xahau Hooks in Rust"
+authors = ["tequ"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+additional-css = ["theme-xahau.css"]
+
+[output.html.playground]
+runnable = false

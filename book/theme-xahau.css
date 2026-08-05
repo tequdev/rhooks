@@ -1,0 +1,230 @@
+/* VitePress-like theme for mdBook, matching https://docs.xahau.tools/
+ * (VitePress default theme: Inter, indigo brand palette).
+ *
+ * Light palette -> .light / .rust and the no-JS fallback.
+ * Dark palette  -> .navy / .coal / .ayu.
+ */
+
+/* Inter variable font, bundled (SIL OFL). Same subsets VitePress ships. */
+@font-face {
+    font-family: Inter;
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("fonts/inter-roman-latin.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+        U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC,
+        U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+    font-family: Inter;
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("fonts/inter-roman-latin-ext.woff2") format("woff2");
+    unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F,
+        U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+        U+A720-A7FF;
+}
+
+/* VitePress typography. */
+html {
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif,
+        "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+        "Noto Color Emoji";
+    font-optical-sizing: auto;
+}
+
+:root {
+    --mono-font: ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+        "Courier New", monospace;
+}
+
+/* ------------------------------------------------------------------ */
+/* Light: VitePress default-light palette                              */
+/* ------------------------------------------------------------------ */
+.light,
+.rust,
+html:not(.js) {
+    --vp-divider: #e2e2e3;
+
+    --bg: #ffffff;
+    --fg: #3c3c43;
+
+    --sidebar-bg: #f6f6f7;
+    --sidebar-fg: #3c3c43;
+    --sidebar-non-existant: #929295;
+    --sidebar-active: #3451b2;
+    --sidebar-spacer: #e2e2e3;
+
+    --scrollbar: #c2c2c4;
+
+    --icons: #67676c;
+    --icons-hover: #3c3c43;
+
+    --links: #3451b2;
+
+    --inline-code-color: #3451b2;
+
+    --theme-popup-bg: #ffffff;
+    --theme-popup-border: #e2e2e3;
+    --theme-hover: #f6f6f7;
+
+    --quote-bg: #f6f6f7;
+    --quote-border: #e2e2e3;
+
+    --table-border-color: #e2e2e3;
+    --table-header-bg: #f6f6f7;
+    --table-alternate-bg: #f9f9fa;
+
+    --searchbar-border-color: #e2e2e3;
+    --searchbar-bg: #f6f6f7;
+    --searchbar-fg: #3c3c43;
+    --searchbar-shadow-color: rgba(0, 0, 0, 0.07);
+    --searchresults-header-fg: #67676c;
+    --searchresults-border-color: #e2e2e3;
+    --searchresults-li-bg: #f6f6f7;
+    --search-mark-bg: #c7d2fe;
+
+    --color-scheme: light;
+
+    --footnote-highlight: #3a5ccc;
+
+    --overlay-bg: rgba(200, 200, 205, 0.4);
+
+    --blockquote-note-color: #3451b2;
+    --blockquote-tip-color: #18794e;
+    --blockquote-important-color: #6f42c1;
+    --blockquote-warning-color: #915930;
+    --blockquote-caution-color: #b8272c;
+
+    --sidebar-header-border-color: #e2e2e3;
+}
+
+/* ------------------------------------------------------------------ */
+/* Dark: VitePress default-dark palette                                */
+/* ------------------------------------------------------------------ */
+.navy,
+.coal,
+.ayu {
+    --vp-divider: #2e2e32;
+
+    --bg: #1b1b1f;
+    --fg: #dfdfd6;
+
+    --sidebar-bg: #161618;
+    --sidebar-fg: #98989f;
+    --sidebar-non-existant: #6a6a71;
+    --sidebar-active: #a8b1ff;
+    --sidebar-spacer: #2e2e32;
+
+    --scrollbar: #3c3f44;
+
+    --icons: #98989f;
+    --icons-hover: #dfdfd6;
+
+    --links: #a8b1ff;
+
+    --inline-code-color: #a8b1ff;
+
+    --theme-popup-bg: #202127;
+    --theme-popup-border: #3c3f44;
+    --theme-hover: #2e2e32;
+
+    --quote-bg: #202127;
+    --quote-border: #2e2e32;
+
+    --table-border-color: #2e2e32;
+    --table-header-bg: #202127;
+    --table-alternate-bg: #1e1e22;
+
+    --searchbar-border-color: #2e2e32;
+    --searchbar-bg: #202127;
+    --searchbar-fg: #dfdfd6;
+    --searchbar-shadow-color: rgba(0, 0, 0, 0.4);
+    --searchresults-header-fg: #98989f;
+    --searchresults-border-color: #2e2e32;
+    --searchresults-li-bg: #202127;
+    --search-mark-bg: #3e63dd;
+
+    --color-scheme: dark;
+
+    --footnote-highlight: #5c73e7;
+
+    --overlay-bg: rgba(0, 0, 0, 0.4);
+
+    --blockquote-note-color: #a8b1ff;
+    --blockquote-tip-color: #3dd68c;
+    --blockquote-important-color: #c8abfa;
+    --blockquote-warning-color: #f9b44e;
+    --blockquote-caution-color: #f66f81;
+
+    --sidebar-header-border-color: #2e2e32;
+}
+
+/* ------------------------------------------------------------------ */
+/* VitePress-style details                                             */
+/* ------------------------------------------------------------------ */
+
+/* Headings: Inter semi-bold, VitePress h2 section divider. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-weight: 600;
+}
+
+main h2 {
+    border-top: 1px solid var(--vp-divider);
+    padding-top: 24px;
+    margin-top: 36px;
+}
+
+/* Inline code: soft chip background, brand-colored text (VitePress). */
+:not(pre) > code {
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 0.875em;
+    background-color: rgba(142, 150, 170, 0.14);
+}
+
+.navy :not(pre) > code,
+.coal :not(pre) > code,
+.ayu :not(pre) > code {
+    background-color: rgba(101, 117, 133, 0.16);
+}
+
+/* Code blocks: VitePress bg-alt panels with 8px radius. */
+pre > code {
+    border-radius: 8px;
+    padding: 20px 24px;
+    line-height: 1.7;
+}
+
+.light pre > code.hljs,
+.rust pre > code.hljs,
+html:not(.js) pre > code.hljs {
+    background: #f6f6f7;
+}
+
+.navy pre > code.hljs,
+.coal pre > code.hljs,
+.ayu pre > code.hljs {
+    background: #161618;
+}
+
+/* Tables: VitePress keeps header row on the soft background with a
+ * slightly stronger bottom rule. */
+table thead th {
+    font-weight: 600;
+}
+
+/* Links: no underline until hover (VitePress). */
+a {
+    text-decoration: none;
+}
+.content a:hover {
+    text-decoration: underline;
+}

@@ -84,6 +84,14 @@ cargo run -p rshooks-build -- build --manifest-path examples/81_govern/Cargo.tom
 cargo run -p rshooks-build -- check examples/81_govern/out/govern.wasm
 """
 
+[tasks."book:build"]
+description = "Build the user guide (mdBook) into book/book"
+run = "mdbook build book"
+
+[tasks."book:serve"]
+description = "Serve the user guide locally with live reload"
+run = "mdbook serve book --open"
+
 [tasks."e2e:node-up"]
 description = "Start a standalone Xahau node for e2e tests (xrpld-netgen; amd64 image, runs under emulation on Apple Silicon)"
 run = "xrpld-netgen up:standalone --protocol xahau --version $XAHAUD_VERSION"
