@@ -3,9 +3,10 @@
 //! a SetHook-legal Hook binary. See `docs/DESIGN.md` §6.1 for the full
 //! command reference.
 
-use std::io::{BufRead, Write as _};
+use std::io::{BufRead, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -169,12 +170,13 @@ fn prepare_sidecar(
     metadata: Option<HookMetadata>,
     final_wasm: &[u8],
     report: &ValidationReport,
+    rustc: Option<String>,
 ) -> Result<Option<PreparedSidecar>> {
     let Some(metadata) = metadata else {
         return Ok(None);
     };
 
-    let built = build_metadata(metadata, final_wasm, report)?;
+    let built = build_metadata(metadata, final_wasm, report, rustc)?;
     let mut bytes =
         serde_json::to_vec_pretty(&built.document).context("serializing Hook metadata sidecar")?;
     bytes.push(b'\n');
@@ -252,6 +254,7 @@ fn cmd_build(
     let wasm = std::fs::read(&artifact)
         .with_context(|| format!("reading build artifact {}", artifact.display()))?;
     let metadata = extract_metadata(&wasm)?;
+    let rustc = metadata.is_some().then(|| detect_rustc_version(&cargo)).flatten();
 
     let out_dir = out.unwrap_or_else(|| default_out_dir(manifest_path.as_deref()));
     std::fs::create_dir_all(&out_dir)
@@ -262,7 +265,7 @@ fn cmd_build(
     let out_path = out_dir.join(file_name);
 
     let (output, report) = run_pipeline_and_report(&wasm, opts)?;
-    let sidecar = prepare_sidecar(metadata, &output, &report)?;
+    let sidecar = prepare_sidecar(metadata, &output, &report, rustc)?;
 
     let metadata_path = out_path.with_extension("json");
     if sidecar.is_none() && remove_stale_sidecar(&metadata_path)? {
@@ -379,6 +382,63 @@ fn find_cargo() -> Result<PathBuf> {
         "could not find `cargo` on PATH; run `rshooks build` from a shell where \
          `cargo build` already works"
     )
+}
+
+/// Detects the `rustc` toolchain that performed this build, for the
+/// sidecar's `builder` provenance record. Prefers the `rustc` that sits
+/// next to the resolved `cargo` (with rustup, both are shims in
+/// `~/.cargo/bin` that resolve the same active toolchain), then falls back
+/// to whatever `rustc` is on `PATH`. Never fails the build: any spawn or
+/// parse problem returns `None`.
+fn detect_rustc_version(cargo: &Path) -> Option<String> {
+    let sibling = cargo.parent().map(|dir| dir.join("rustc"));
+    sibling
+        .into_iter()
+        .chain(std::iter::once(PathBuf::from("rustc")))
+        .find_map(|candidate| run_rustc_version(&candidate))
+}
+
+/// Maximum time to wait for a `rustc -V` probe before giving up. Guards
+/// against a broken/blocking shim (e.g. a rustup proxy that hangs or tries
+/// to download a toolchain) hanging the whole build.
+const RUSTC_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const RUSTC_PROBE_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+fn run_rustc_version(rustc: &Path) -> Option<String> {
+    let mut child = Command::new(rustc)
+        .arg("-V")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+
+    // `checked_add` cannot realistically overflow with a 5-second timeout,
+    // but the workspace denies unchecked arithmetic; an overflow (which
+    // would never happen in practice) just times out immediately instead.
+    let deadline = Instant::now()
+        .checked_add(RUSTC_PROBE_TIMEOUT)
+        .unwrap_or_else(Instant::now);
+    let status = loop {
+        match child.try_wait().ok()? {
+            Some(status) => break status,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            None => std::thread::sleep(RUSTC_PROBE_POLL_INTERVAL),
+        }
+    };
+
+    if !status.success() {
+        return None;
+    }
+
+    let mut stdout = String::new();
+    child.stdout.take()?.read_to_string(&mut stdout).ok()?;
+    let first_line = stdout.lines().next()?.trim();
+    (!first_line.is_empty()).then(|| first_line.to_string())
 }
 
 #[cfg(test)]
