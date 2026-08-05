@@ -71,8 +71,10 @@ metadata! {
 `rshooks build` writes a matching `.json` sidecar beside the cleaned
 `.wasm`. Its top-level SetHook fields use deployable raw values (transaction
 masks and hex `HookName`); the readable declarations are under `human`. The
-sidecar also includes the final binary's `HookHash` and static `WCE`
-(`hook`/`cbak`) values. Metadata is carried only through an unreachable
+sidecar also includes the final binary's `HookHash`, static `WCE`
+(`hook`/`cbak`) values, and a `builder` block recording the toolchain
+(`rshooks-build` version and `rustc -V`) that produced it, for deterministic
+reproduction later. Metadata is carried only through an unreachable
 raw-WASM export that the cleaner removes, so it does not change the final
 WASM bytes, hash, or instruction count.
 

@@ -1532,13 +1532,18 @@ only.
   "HookOn": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF",
   "HookCanEmit": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFE",
   "HookName": "656D69742D7478",
+  "HookHash": "DDAF35A1...64 uppercase hex characters",
+  "WCE": { "hook": 4150, "cbak": 0 },
+  "builder": {
+    "name": "rshooks-build",
+    "version": "0.1.0",
+    "rustc": "rustc 1.89.0 (29483883e 2025-08-04)"
+  },
   "human": {
     "HookOn": ["Invoke"],
     "HookCanEmit": ["Payment"],
     "HookName": "emit-tx"
-  },
-  "HookHash": "DDAF35A1...64 uppercase hex characters",
-  "WCE": { "hook": 4150, "cbak": 0 }
+  }
 }
 ```
 
@@ -1549,6 +1554,13 @@ values because static WCE is not calculated for gas hooks. The final module's
 reachable `env::emit` import is also cross-checked against `HookCanEmit`: a
 declaration without emit usage and emit usage without a declaration both
 produce build warnings.
+
+`builder` records the toolchain provenance of the build itself: the
+`rshooks-build` package name and version, and the full first line of
+`rustc -V` from the toolchain that performed it (`null` if detection
+fails; detection never fails the build). Because optimization behavior can
+shift across toolchain updates even for unchanged source, this is what
+lets a given `HookHash`/`WCE` pair be reproduced deterministically later.
 
 The metadata schema follows the requested 2..=8 Unicode-character rule for
 `HookName`. Deployment tooling must additionally account for the current

@@ -124,6 +124,11 @@ this (real output, from the `accept-all` example):
     "hook": 15,
     "cbak": 0
   },
+  "builder": {
+    "name": "rshooks-build",
+    "version": "0.1.0",
+    "rustc": "rustc 1.89.0 (29483883e 2025-08-04)"
+  },
   "human": {
     "HookOn": [
       "Invoke"
@@ -153,6 +158,13 @@ this (real output, from the `accept-all` example):
   terminal during the build: static instruction-count upper bounds for
   `hook` and `cbak`, or `null` for both on a Gas-type (`--api-version 1`)
   module, which has no static bound of this kind.
+- **`builder`** — provenance of the toolchain that produced this sidecar:
+  the tool's package `name` and `version`, and the full first line of
+  `rustc -V` from the compiler that performed the build (`null` if it
+  couldn't be detected). Optimization behavior can change across toolchain
+  updates even when the source doesn't, so recording exactly which
+  compiler produced a given `HookHash`/`WCE` pair is what lets a build be
+  reproduced deterministically later.
 - **`human`** — the readable, source-level form of every field above:
   transaction type names as written, and the `HookName` string itself
   rather than its hex encoding. Use `human` to review what a sidecar

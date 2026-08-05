@@ -215,6 +215,36 @@ pub struct WorstCaseExecution {
     pub cbak: Option<u64>,
 }
 
+/// Toolchain provenance for a sidecar, recorded so a build can be
+/// reproduced deterministically even after tool updates change
+/// optimization behavior.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BuilderInfo {
+    /// Package name of the tool that produced this sidecar; always
+    /// `"rshooks-build"`.
+    pub name: String,
+    /// Package version of the tool that produced this sidecar.
+    pub version: String,
+    /// Full first line of `rustc -V` from the toolchain that performed the
+    /// build, or `None` if it could not be determined. Detection failures
+    /// never fail the build.
+    pub rustc: Option<String>,
+}
+
+impl BuilderInfo {
+    /// Builds this package's provenance record. `rustc` is the
+    /// already-detected `rustc -V` first line (detection itself spawns a
+    /// process, so it lives in the CLI, not here).
+    #[must_use]
+    pub fn current(rustc: Option<String>) -> Self {
+        Self {
+            name: env!("CARGO_PKG_NAME").to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            rustc,
+        }
+    }
+}
+
 /// Complete JSON sidecar document written next to a built Hook wasm.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataDocument {
@@ -224,6 +254,8 @@ pub struct MetadataDocument {
     pub hook_hash: String,
     /// Worst-case instruction counts, when statically available.
     pub wce: WorstCaseExecution,
+    /// Toolchain provenance for reproducing this exact build.
+    pub builder: BuilderInfo,
 }
 
 impl Serialize for MetadataDocument {
@@ -267,6 +299,7 @@ impl Serialize for MetadataDocument {
         )?;
         map.serialize_entry("HookHash", &self.hook_hash)?;
         map.serialize_entry("WCE", &self.wce)?;
+        map.serialize_entry("builder", &self.builder)?;
         map.serialize_entry("human", &HumanMetadata::from(&self.metadata))?;
         map.end()
     }
@@ -385,11 +418,15 @@ pub fn extract_metadata(wasm: &[u8]) -> Result<Option<HookMetadata>> {
     Ok(metadata)
 }
 
-/// Creates the final sidecar document from source metadata and final wasm facts.
+/// Creates the final sidecar document from source metadata and final wasm
+/// facts. `rustc` is the already-detected `rustc -V` first line for the
+/// [`BuilderInfo`] provenance record (`None` if detection failed or wasn't
+/// attempted).
 pub fn build_metadata(
     metadata: HookMetadata,
     final_wasm: &[u8],
     report: &ValidationReport,
+    rustc: Option<String>,
 ) -> Result<MetadataBuild> {
     let uses_emit = uses_reachable_emit(final_wasm)?;
     let mut warnings = Vec::new();
@@ -431,6 +468,7 @@ pub fn build_metadata(
             metadata,
             hook_hash: hook_hash(final_wasm),
             wce,
+            builder: BuilderInfo::current(rustc),
         },
         warnings,
     })

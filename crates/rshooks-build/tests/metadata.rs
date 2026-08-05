@@ -159,8 +159,13 @@ fn absent_trigger_selection_serializes_as_null_raw_hook_on() {
     assert_eq!(metadata.incoming_hook_on, None);
     assert_eq!(metadata.outgoing_hook_on, None);
 
-    let built = build_metadata(metadata, &no_emit_wasm(), &ValidationReport::default())
-        .expect("metadata generation succeeds");
+    let built = build_metadata(
+        metadata,
+        &no_emit_wasm(),
+        &ValidationReport::default(),
+        None,
+    )
+    .expect("metadata generation succeeds");
     let value = serde_json::to_value(built.document).expect("serialize metadata document");
     assert!(value["HookOn"].is_null());
     assert!(value.get("HookOnIncoming").is_none());
@@ -235,7 +240,7 @@ fn hook_can_emit_warning_matrix_uses_final_reachable_import() {
         } else {
             no_emit_wasm()
         };
-        let built = build_metadata(source_metadata(hook_can_emit), &wasm, &report)
+        let built = build_metadata(source_metadata(hook_can_emit), &wasm, &report, None)
             .expect("metadata generation succeeds");
         assert_eq!(built.warnings.len(), expected_warnings);
     }
@@ -250,7 +255,7 @@ fn serializes_requested_names_and_nullable_wce() {
         }),
         ..ValidationReport::default()
     };
-    let v0 = build_metadata(source_metadata(None), &no_emit_wasm(), &v0_report)
+    let v0 = build_metadata(source_metadata(None), &no_emit_wasm(), &v0_report, None)
         .expect("v0 metadata generation succeeds");
     let value = serde_json::to_value(v0.document).expect("serialize v0 document");
     assert_eq!(value["name"], "Probe");
@@ -275,16 +280,63 @@ fn serializes_requested_names_and_nullable_wce() {
             .as_str()
             .is_some_and(|hash| hash.len() == 64)
     );
+    assert_eq!(value["builder"]["name"], "rshooks-build");
+    assert_eq!(value["builder"]["version"], env!("CARGO_PKG_VERSION"));
+    assert!(value["builder"]["rustc"].is_null());
 
     let v1 = build_metadata(
         source_metadata(None),
         &no_emit_wasm(),
         &ValidationReport::default(),
+        None,
     )
     .expect("v1 metadata generation succeeds");
     let value = serde_json::to_value(v1.document).expect("serialize v1 document");
     assert!(value["WCE"]["hook"].is_null());
     assert!(value["WCE"]["cbak"].is_null());
+}
+
+#[test]
+fn builder_provenance_carries_detected_rustc_and_sits_between_wce_and_human() {
+    let built = build_metadata(
+        source_metadata(None),
+        &no_emit_wasm(),
+        &ValidationReport::default(),
+        Some("rustc 1.89.0 (29483883e 2025-08-04)".to_string()),
+    )
+    .expect("metadata generation succeeds");
+    let value = serde_json::to_value(&built.document).expect("serialize metadata document");
+
+    assert_eq!(value["builder"]["name"], "rshooks-build");
+    assert_eq!(value["builder"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        value["builder"]["rustc"],
+        "rustc 1.89.0 (29483883e 2025-08-04)"
+    );
+
+    let bytes = serde_json::to_vec(&built.document).expect("serialize to bytes");
+    let text = String::from_utf8(bytes).expect("valid utf-8");
+    let wce_pos = text.find("\"WCE\"").expect("WCE key present");
+    let builder_pos = text.find("\"builder\"").expect("builder key present");
+    let human_pos = text.find("\"human\"").expect("human key present");
+    assert!(
+        wce_pos < builder_pos && builder_pos < human_pos,
+        "expected key order WCE, builder, human; got: {text}"
+    );
+
+    let builder_name_pos = text
+        .find("\"name\":\"rshooks-build\"")
+        .expect("builder.name key present");
+    let builder_version_pos = text
+        .find("\"version\"")
+        .expect("builder.version key present");
+    let builder_rustc_pos = text.find("\"rustc\"").expect("builder.rustc key present");
+    assert!(
+        builder_pos < builder_name_pos
+            && builder_name_pos < builder_version_pos
+            && builder_version_pos < builder_rustc_pos,
+        "expected builder field order name, version, rustc; got: {text}"
+    );
 }
 
 #[test]
@@ -298,8 +350,13 @@ fn serializes_directional_trigger_masks_and_human_values() {
         hook_can_emit: Some(vec!["Payment".to_string()]),
         hook_name: Some("支払".to_string()),
     };
-    let built = build_metadata(metadata, &no_emit_wasm(), &ValidationReport::default())
-        .expect("metadata generation succeeds");
+    let built = build_metadata(
+        metadata,
+        &no_emit_wasm(),
+        &ValidationReport::default(),
+        None,
+    )
+    .expect("metadata generation succeeds");
     let value = serde_json::to_value(built.document).expect("serialize metadata document");
 
     assert!(value.get("HookOn").is_none());
@@ -329,6 +386,7 @@ fn distinguishes_absent_and_explicitly_empty_hook_can_emit() {
         source_metadata(Some(Vec::new())),
         &no_emit_wasm(),
         &ValidationReport::default(),
+        None,
     )
     .expect("metadata generation succeeds");
     let value = serde_json::to_value(built.document).expect("serialize metadata document");
@@ -350,7 +408,7 @@ fn warns_when_hook_name_character_length_is_valid_but_protocol_bytes_are_not() {
 
     let mut too_short = source_metadata(None);
     too_short.hook_name = Some("ab".to_string());
-    let built = build_metadata(too_short, &no_emit_wasm(), &report)
+    let built = build_metadata(too_short, &no_emit_wasm(), &report, None)
         .expect("short HookName metadata generation succeeds");
     assert_eq!(built.warnings.len(), 1);
     assert!(built.warnings[0].contains("2 UTF-8 bytes"));
@@ -358,14 +416,14 @@ fn warns_when_hook_name_character_length_is_valid_but_protocol_bytes_are_not() {
 
     let mut too_long = source_metadata(None);
     too_long.hook_name = Some("日本語日本語".to_string());
-    let built = build_metadata(too_long, &no_emit_wasm(), &report)
+    let built = build_metadata(too_long, &no_emit_wasm(), &report, None)
         .expect("long HookName metadata generation succeeds");
     assert_eq!(built.warnings.len(), 1);
     assert!(built.warnings[0].contains("18 UTF-8 bytes"));
 
     let mut protocol_compatible = source_metadata(None);
     protocol_compatible.hook_name = Some("éé".to_string());
-    let built = build_metadata(protocol_compatible, &no_emit_wasm(), &report)
+    let built = build_metadata(protocol_compatible, &no_emit_wasm(), &report, None)
         .expect("protocol-compatible HookName metadata generation succeeds");
     assert!(built.warnings.is_empty());
 }
