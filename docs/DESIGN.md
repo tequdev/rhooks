@@ -1,4 +1,4 @@
-# rhooks — Rust Library & Toolchain for Xahau Hooks
+# rshooks — Rust Library & Toolchain for Xahau Hooks
 
 Status: REVIEWED — rework findings from the external design review (Codex
 gpt-5.5, reasoning effort high, 2026-07-23) have been incorporated; see §11.
@@ -150,7 +150,7 @@ These come from xahaud's SetHook validation (`SetHook.cpp`,
 ## 3. Repository layout
 
 ```
-rhooks/
+rshooks/
 ├── Cargo.toml                # workspace: crates/* (examples excluded)
 ├── rust-toolchain.toml       # stable channel + wasm32v1-none target
 ├── rustfmt.toml
@@ -910,8 +910,8 @@ back to this section instead of re-explaining it.
 |---|---|---|---|
 | Xahau Binary (the protocol's own STObject/tx wire format) | **Big-endian** | `txn.rs`'s `txn_template!`-generated setters write every multi-byte field with an explicit big-endian encoding (`u32`/`u16` field values, the `tts` transaction-type code, native-amount drops — see e.g. the `.to_be_bytes()` calls building setter bodies and the `tts::$tt as u16).to_be_bytes()` STObject field header); `examples/80_reward/src/mint_txn.rs` and `examples/81_govern/src/txn.rs` (hand-rolled "Tx Builder" equivalents for the genesis hooks) do the same by hand throughout | `crates/rshooks/src/txn.rs`, `examples/80_reward`, `examples/81_govern` |
 | Xahau Binary — the Hook API host's "as-int64" mode | **Big-endian** | `state`/`state_foreign`/`otxn_field`/`slot` called with `write_ptr = 0, write_len = 0` return the entry's raw bytes packed big-endian into the non-negative `i64` result (xahaud `applyHook.cpp`, `data_as_int64`) | `api::state::state_u64`/`state_foreign_u64`, `api::otxn::otxn_field_u64` |
-| Xahau Binary — keylets | **Big-endian** | A keylet's first two bytes are the ledger-entry-type tag, big-endian, per xahaud's own keylet construction. rhooks never assembles keylet bytes itself — every `keylet_xxx` helper (`api/keylet.rs`) calls the host's `util_keylet` and receives an already-built, opaque `Keylet`/`[u8; 34]` back — this row documents the host's own convention, not code in this crate | xahaud host (`util_keylet`); wrapped opaquely by `crates/rshooks/src/api/keylet.rs` |
-| Xahau Binary — short state/param keys | **Big-endian-flavored zero-padding**: a key shorter than the fixed key width is **left**-padded with zero bytes by the host (the value's bytes end up at the *end* of the fixed-width key, not the front) | rhooks' `StateKeyEncode` layer (`[u8; N]`, `state_keys!`, `#[derive(HookKey)]`) sends a short key at its own real length and relies on this host-side left-pad directly — see §5.7 for the full rule; `pad_left!` (`crates/rshooks/src/macros.rs`) reproduces this same left-pad *locally*, for the rarer case of needing the already-padded bytes themselves as a value, not as a `state`/`state_set` argument | host left-pad: xahaud; local equivalent: `pad_left!` (`crates/rshooks/src/macros.rs`) |
+| Xahau Binary — keylets | **Big-endian** | A keylet's first two bytes are the ledger-entry-type tag, big-endian, per xahaud's own keylet construction. rshooks never assembles keylet bytes itself — every `keylet_xxx` helper (`api/keylet.rs`) calls the host's `util_keylet` and receives an already-built, opaque `Keylet`/`[u8; 34]` back — this row documents the host's own convention, not code in this crate | xahaud host (`util_keylet`); wrapped opaquely by `crates/rshooks/src/api/keylet.rs` |
+| Xahau Binary — short state/param keys | **Big-endian-flavored zero-padding**: a key shorter than the fixed key width is **left**-padded with zero bytes by the host (the value's bytes end up at the *end* of the fixed-width key, not the front) | rshooks' `StateKeyEncode` layer (`[u8; N]`, `state_keys!`, `#[derive(HookKey)]`) sends a short key at its own real length and relies on this host-side left-pad directly — see §5.7 for the full rule; `pad_left!` (`crates/rshooks/src/macros.rs`) reproduces this same left-pad *locally*, for the rarer case of needing the already-padded bytes themselves as a value, not as a `state`/`state_set` argument | host left-pad: xahaud; local equivalent: `pad_left!` (`crates/rshooks/src/macros.rs`) |
 | Hook-private data: state values, param values | **Little-endian** (the guest's own native memory image — LE on `wasm32v1-none`) | The C hook idiom `state(&native_int64, 8, key, klen)` — a raw pointer to a native `int64_t`, read/written in whatever the guest's own endianness is; `crates/rshooks/src/convert.rs`'s `ToBytes`/`FromBytes` traits (and every `rshooks::types` newtype, plus the `#[derive(HookKey)]`/`#[derive(HookData)]` macros built on them) encode/decode this way; `api::state::state_u32`/`state_i64`/`state_xfl` (+ their `state_set_*`/`state_update_*` twins) read/write this convention via the ordinary (non-as-int64) buffer path | `crates/rshooks/src/convert.rs`, `crates/rshooks/src/types.rs`, `api::state::state_u32`/`state_i64`/`state_xfl`/`state_u64_le`/`state_foreign_u64_le` |
 | Raw byte sequences (`AccountId`, `Hash`, ...) | **Neutral** — not a byte-order question | An `AccountId`/`Hash` is an opaque sequence of bytes with no numeric interpretation; scalar Hook API return values, `sfcode`s, and an `XFL`'s raw bit pattern are likewise "values," not multi-byte integers subject to a byte-order convention | — |
 
@@ -974,7 +974,7 @@ shorter key internally to the host's own fixed-width storage slot (see
 `state(&v, 8, "RR", 2)`: a 2-byte literal key, handed straight to the
 host, unpadded.
 
-rhooks' typed key layer (`crate::state::StateKeyEncode` — the trait behind
+rshooks' typed key layer (`crate::state::StateKeyEncode` — the trait behind
 `state_get`/`state_set_loose`/`state_update_loose` and their `_foreign`
 twins, `state_keys!`, and `#[derive(HookKey)]`) matches this exactly: every
 `encode()` call returns the key's own **real** encoded length, never
@@ -1509,7 +1509,7 @@ incoming/outgoing sets are compile errors; use `HookOn` for equal sets.
 
 The proc macro serializes the declaration as compact JSON, hex-encodes it,
 and places it in the name of a wasm-only, unreachable export whose prefix is
-`__rhooks_metadata_v1_`. It does not put metadata in a static or a custom
+`__rshooks_metadata_v1_`. It does not put metadata in a static or a custom
 section: with Rust's wasm linker that payload can also become a live active
 data segment. `rshooks-build` reads the carrier before cleaning; the normal
 export restriction and reachability GC then remove both the extra export and

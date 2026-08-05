@@ -15,7 +15,7 @@ import {
 import { calculateHookOn, convertStringToHex, type TransactionMetadata } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-hook-params'
+const namespace = 'rshooks-e2e-hook-params'
 const WORST_CASE_INSTRUCTIONS = 177
 const MIN_DROPS = 5_000_000n
 

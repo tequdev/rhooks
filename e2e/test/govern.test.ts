@@ -17,7 +17,7 @@ import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
 type Wallet = XrplIntegrationTestContext['alice']
 
-const namespace = 'rhooks-e2e-govern'
+const namespace = 'rshooks-e2e-govern'
 const WORST_CASE_HOOK_INSTRUCTIONS = 41510
 
 function accountIdHex(classicAddress: string): string {

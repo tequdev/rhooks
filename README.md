@@ -1,4 +1,4 @@
-# rhooks
+# rshooks
 
 A Rust monorepo for developing [Xahau](https://xahau.network/) Hooks
 (WebAssembly smart contracts) end to end — from raw Hook API bindings to a

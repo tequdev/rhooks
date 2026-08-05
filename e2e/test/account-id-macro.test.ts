@@ -15,7 +15,7 @@ import {
 import { calculateHookOn } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-account-id-macro'
+const namespace = 'rshooks-e2e-account-id-macro'
 const WORST_CASE_HOOK_INSTRUCTIONS = 294
 
 describe('account-id-macro', () => {

@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 
 use crate::{err, sha256};
 
-const EXPORT_PREFIX: &str = "__rhooks_metadata_v1_";
+const EXPORT_PREFIX: &str = "__rshooks_metadata_v1_";
 
 #[derive(Clone)]
 struct StringValue {
@@ -45,7 +45,7 @@ pub(crate) fn expand(input: TokenStream) -> TokenStream {
     };
     let payload_hex = hex_upper(&payload);
     let digest = sha256::sha256(&payload);
-    let carrier_ident = format!("__rhooks_metadata_{}", hex_lower(&digest));
+    let carrier_ident = format!("__rshooks_metadata_{}", hex_lower(&digest));
 
     let mut generated = String::new();
     for variant in variants(&metadata) {

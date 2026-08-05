@@ -20,7 +20,7 @@ import {
 } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-slot-objects'
+const namespace = 'rshooks-e2e-slot-objects'
 const WORST_CASE_INSTRUCTIONS = 61658
 
 const BIT_ACCOUNT_WALK = 1

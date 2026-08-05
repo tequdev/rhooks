@@ -74,7 +74,7 @@
 //! [`crate::convert::ToBytes::MAX_LEN`] does not leave room for the
 //! discriminant byte in the 32-byte key.
 //!
-//! # Key length and padding: rhooks sends the real length, the host pads
+//! # Key length and padding: rshooks sends the real length, the host pads
 //!
 //! See also DESIGN.md §5.7 ("Hook state key encoding: real length, not
 //! local zero-padding") for the external, table-based write-up this

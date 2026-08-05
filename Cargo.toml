@@ -7,7 +7,7 @@ edition = "2024"
 rust-version = "1.85"
 version = "0.1.0"
 license = "MIT"
-repository = "https://github.com/tequdev/rhooks"
+repository = "https://github.com/tequdev/rshooks"
 readme = "README.md"
 
 [workspace.lints.rust]

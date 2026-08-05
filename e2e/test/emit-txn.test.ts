@@ -19,7 +19,7 @@ import {
 } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-emit-txn'
+const namespace = 'rshooks-e2e-emit-txn'
 const WORST_CASE_HOOK_INSTRUCTIONS = 331
 
 describe('emit-txn', () => {

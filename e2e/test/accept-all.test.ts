@@ -15,7 +15,7 @@ import {
 import { calculateHookOn, type TransactionMetadata } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-accept-all'
+const namespace = 'rshooks-e2e-accept-all'
 const WORST_CASE_INSTRUCTIONS = 15
 
 describe('accept-all', () => {

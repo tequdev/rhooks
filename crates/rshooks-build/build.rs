@@ -14,7 +14,7 @@ fn main() {
         .define("GUARD_CHECKER_BUILD", None)
         .warnings(false)
         .file("cpp/guard_shim.cpp")
-        .compile("rhooks_guard_shim");
+        .compile("rshooks_guard_shim");
 
     println!("cargo:rerun-if-changed=cpp/guard_shim.cpp");
     println!("cargo:rerun-if-changed={vendor_dir}/Guard.h");

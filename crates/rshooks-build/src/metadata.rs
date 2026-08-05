@@ -15,7 +15,7 @@ use sha2::{Digest, Sha512};
 use crate::ValidationReport;
 
 /// Prefix used by `metadata!` carrier exports in raw Hook wasm artifacts.
-pub const METADATA_EXPORT_PREFIX: &str = "__rhooks_metadata_v1_";
+pub const METADATA_EXPORT_PREFIX: &str = "__rshooks_metadata_v1_";
 
 /// Canonical Xahau JSON spellings emitted by the current `metadata!` macro
 /// for every known `TxType` variant (excluding the data-carrying `Unknown`).

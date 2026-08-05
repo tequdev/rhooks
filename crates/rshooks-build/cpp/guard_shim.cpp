@@ -40,7 +40,7 @@ extern "C" {
 //
 // No global state is touched; every call is independent and this function
 // is safe to call concurrently from multiple threads.
-int rhooks_validate_guards(
+int rshooks_validate_guards(
     const uint8_t* wasm,
     size_t wasm_len,
     uint64_t* out_hook_cost,

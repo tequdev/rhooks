@@ -20,7 +20,7 @@ import {
 } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-firewall'
+const namespace = 'rshooks-e2e-firewall'
 const WORST_CASE_INSTRUCTIONS = 135
 
 function accountIdHex(classicAddress: string): string {

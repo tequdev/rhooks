@@ -20,7 +20,7 @@ import {
 } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-guard-patterns'
+const namespace = 'rshooks-e2e-guard-patterns'
 const WORST_CASE_INSTRUCTIONS = 615
 
 function accountIdHex(classicAddress: string): string {

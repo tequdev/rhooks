@@ -15,7 +15,7 @@ import {
 import { calculateHookOn, type TransactionMetadata } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-slot-ledger'
+const namespace = 'rshooks-e2e-slot-ledger'
 const WORST_CASE_INSTRUCTIONS = 197
 
 describe('slot-ledger', () => {

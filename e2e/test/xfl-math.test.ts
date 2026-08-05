@@ -15,7 +15,7 @@ import {
 import { calculateHookOn, type TransactionMetadata } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-xfl-math'
+const namespace = 'rshooks-e2e-xfl-math'
 const WORST_CASE_INSTRUCTIONS = 357
 
 describe('xfl-math', () => {
