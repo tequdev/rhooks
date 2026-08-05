@@ -17,7 +17,7 @@ import {
 import { calculateHookOn, type TransactionMetadata } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-state-counter'
+const namespace = 'rshooks-e2e-state-counter'
 const WORST_CASE_INSTRUCTIONS = 254
 
 // Hook state keys are left-padded to 32 bytes by the host.

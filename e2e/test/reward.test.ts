@@ -15,7 +15,7 @@ import {
 import { calculateHookOn } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-reward'
+const namespace = 'rshooks-e2e-reward'
 const WORST_CASE_HOOK_INSTRUCTIONS = 13269
 
 describe('reward', () => {

@@ -24,7 +24,7 @@ import {
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 import { hashCron } from 'xahau/dist/npm/utils/hashes'
 
-const namespace = 'rhooks-e2e-keylets'
+const namespace = 'rshooks-e2e-keylets'
 const WORST_CASE_INSTRUCTIONS = 4150
 
 const SPACE = {

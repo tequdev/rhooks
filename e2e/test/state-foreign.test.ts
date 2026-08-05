@@ -14,7 +14,7 @@ import {
 import { calculateHookOn, convertStringToHex, decodeAccountID } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-state-foreign'
+const namespace = 'rshooks-e2e-state-foreign'
 
 function accountIdHex(classicAddress: string): string {
   return Buffer.from(decodeAccountID(classicAddress)).toString('hex').toUpperCase()

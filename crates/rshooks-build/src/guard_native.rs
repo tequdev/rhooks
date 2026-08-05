@@ -21,7 +21,7 @@ unsafe extern "C" {
     /// contract. Never called directly outside this module — all calls go
     /// through [`validate_guards_native`], which upholds every invariant
     /// documented there (valid pointer/length pairs, buffer capacity).
-    fn rhooks_validate_guards(
+    fn rshooks_validate_guards(
         wasm: *const u8,
         wasm_len: usize,
         out_hook_cost: *mut u64,
@@ -128,7 +128,7 @@ pub fn validate_guards_native(wasm: &[u8]) -> Result<GuardVerdict, NativeGuardEr
     // documented preconditions beyond these (no global state, safe to call
     // repeatedly).
     let status = unsafe {
-        rhooks_validate_guards(
+        rshooks_validate_guards(
             wasm.as_ptr(),
             wasm.len(),
             &mut hook_cost,

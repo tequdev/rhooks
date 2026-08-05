@@ -15,7 +15,7 @@ import {
 import { calculateHookOn, type TransactionMetadata } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-errors'
+const namespace = 'rshooks-e2e-errors'
 const WORST_CASE_INSTRUCTIONS = 200
 const BLOCKED_SOURCE_TAG = 13
 const MAX_DROPS = 100_000_000

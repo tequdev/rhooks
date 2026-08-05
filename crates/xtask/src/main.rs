@@ -15,7 +15,7 @@ mod render;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "xtask", about = "rhooks repo-maintenance tasks")]
+#[command(name = "xtask", about = "rshooks repo-maintenance tasks")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

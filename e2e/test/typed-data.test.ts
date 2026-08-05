@@ -21,7 +21,7 @@ import {
 } from 'xahau'
 import { HookFlags } from 'xahau/dist/npm/models/common/xahau'
 
-const namespace = 'rhooks-e2e-typed-data'
+const namespace = 'rshooks-e2e-typed-data'
 const WORST_CASE_INSTRUCTIONS = 504
 
 const ACTION_DEPOSIT = 1
