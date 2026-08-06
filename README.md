@@ -4,6 +4,8 @@ A Rust monorepo for developing [Xahau](https://xahau.network/) Hooks
 (WebAssembly smart contracts) end to end — from raw Hook API bindings to a
 SetHook-valid `.wasm` binary.
 
+⚠️ Alpha software — here be dragons🐲. Expect bugs and breaking changes.
+
 See [`docs/DESIGN.md`](docs/DESIGN.md) for the full design.
 
 ## Crates
