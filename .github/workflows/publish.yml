@@ -42,7 +42,7 @@ jobs:
         run: cargo +stable publish -p rshooks-core -p rshooks-macros -p rshooks -p rshooks-build${{ inputs.dry-run && ' --dry-run' || '' }}
 
   release:
-    name: Tag and create GitHub releases
+    name: Tag and create GitHub release
     needs: publish
     if: ${{ !inputs.dry-run }}
     runs-on: ubuntu-latest
@@ -51,41 +51,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust toolchain (per rust-toolchain.toml)
-        run: rustup show active-toolchain || rustup toolchain install
-
-      # One tag + release per published crate (rshooks-core-v0.1.0, ...),
-      # mirroring the per-crate `cargo publish -p ...` list above. Safe to
-      # re-run: an existing tag or release for a crate is left alone
-      # instead of failing the job.
-      - name: Tag and release each published crate
+      # All published crates share the workspace version (version.workspace
+      # = true), and the repo is versioned/released as a whole, so one tag
+      # covers the release. `gh release create` creates the tag itself
+      # (pinned to the commit that triggered this run); safe to re-run
+      # since an existing release is left alone instead of failing the job.
+      - name: Tag and release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          crates_json=$(cargo metadata --no-deps --format-version=1 \
-            | jq -c '[.packages[] | select(.name | IN("rshooks-core", "rshooks-macros", "rshooks", "rshooks-build")) | {name, version}]')
-
-          count=$(jq 'length' <<<"$crates_json")
-          if [ "$count" -ne 4 ]; then
-            echo "::error::expected 4 published crates in cargo metadata, got $count" >&2
+          version=$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "::error::could not determine workspace version from Cargo.toml" >&2
             exit 1
           fi
+          tag="v${version}"
 
-          jq -r '.[] | "\(.name) \(.version)"' <<<"$crates_json" | while read -r name version; do
-            tag="${name}-v${version}"
-
-            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
-              echo "Tag $tag already exists, skipping tag/push"
-            else
-              git tag "$tag"
-              git push origin "$tag"
-            fi
-
-            if gh release view "$tag" >/dev/null 2>&1; then
-              echo "Release $tag already exists, skipping"
-            else
-              gh release create "$tag" --title "$tag" --generate-notes
-            fi
-          done
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists, skipping"
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          fi
