@@ -51,17 +51,41 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Install Rust toolchain (per rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
       # One tag + release per published crate (rshooks-core-v0.1.0, ...),
-      # mirroring the per-crate `cargo publish -p ...` list above.
+      # mirroring the per-crate `cargo publish -p ...` list above. Safe to
+      # re-run: an existing tag or release for a crate is left alone
+      # instead of failing the job.
       - name: Tag and release each published crate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cargo metadata --no-deps --format-version=1 \
-            | jq -r '.packages[] | select(.name | IN("rshooks-core", "rshooks-macros", "rshooks", "rshooks-build")) | "\(.name) \(.version)"' \
-            | while read -r name version; do
-                tag="${name}-v${version}"
-                git tag "$tag"
-                git push origin "$tag"
-                gh release create "$tag" --title "$tag" --generate-notes
-              done
+          set -euo pipefail
+
+          crates_json=$(cargo metadata --no-deps --format-version=1 \
+            | jq -c '[.packages[] | select(.name | IN("rshooks-core", "rshooks-macros", "rshooks", "rshooks-build")) | {name, version}]')
+
+          count=$(jq 'length' <<<"$crates_json")
+          if [ "$count" -ne 4 ]; then
+            echo "::error::expected 4 published crates in cargo metadata, got $count" >&2
+            exit 1
+          fi
+
+          jq -r '.[] | "\(.name) \(.version)"' <<<"$crates_json" | while read -r name version; do
+            tag="${name}-v${version}"
+
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              echo "Tag $tag already exists, skipping tag/push"
+            else
+              git tag "$tag"
+              git push origin "$tag"
+            fi
+
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "Release $tag already exists, skipping"
+            else
+              gh release create "$tag" --title "$tag" --generate-notes
+            fi
+          done
