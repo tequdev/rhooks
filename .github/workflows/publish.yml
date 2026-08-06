@@ -42,7 +42,7 @@ jobs:
         run: cargo +stable publish -p rshooks-core -p rshooks-macros -p rshooks -p rshooks-build${{ inputs.dry-run && ' --dry-run' || '' }}
 
   release:
-    name: Tag and create GitHub release
+    name: Tag and create GitHub releases
     needs: publish
     if: ${{ !inputs.dry-run }}
     runs-on: ubuntu-latest
@@ -51,17 +51,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Determine version
-        id: version
-        run: |
-          version=$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Tag and release
+      # One tag + release per published crate (rshooks-core-v0.1.0, ...),
+      # mirroring the per-crate `cargo publish -p ...` list above.
+      - name: Tag and release each published crate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="v${{ steps.version.outputs.version }}"
-          git tag "$tag"
-          git push origin "$tag"
-          gh release create "$tag" --title "$tag" --generate-notes
+          cargo metadata --no-deps --format-version=1 \
+            | jq -r '.packages[] | select(.name | IN("rshooks-core", "rshooks-macros", "rshooks", "rshooks-build")) | "\(.name) \(.version)"' \
+            | while read -r name version; do
+                tag="${name}-v${version}"
+                git tag "$tag"
+                git push origin "$tag"
+                gh release create "$tag" --title "$tag" --generate-notes
+              done
