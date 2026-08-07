@@ -126,7 +126,7 @@ this (real output, from the `accept-all` example):
   },
   "builder": {
     "name": "rshooks-build",
-    "version": "0.1.0",
+    "version": "0.0.0",
     "rustc": "rustc 1.89.0 (29483883e 2025-08-04)"
   },
   "human": {
