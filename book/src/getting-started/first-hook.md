@@ -34,7 +34,7 @@ To see the `trace!` line actually run, enable the `trace` feature in
 
 ```toml
 [dependencies]
-rshooks = { version = "0.1", features = ["trace", "host-panic-handler"] }
+rshooks = { version = "0.0.0", features = ["trace", "host-panic-handler"] }
 ```
 
 ### `#![no_std]`
