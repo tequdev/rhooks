@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 readme.workspace = true
 description = "Ergonomic no_std library for writing Xahau Hooks (WebAssembly smart contracts) in Rust"
-keywords = ["xahau", "hooks", "xrpl", "smart-contracts", "wasm"]
+keywords = ["xahau", "hooks", "smart-contracts", "wasm"]
 categories = ["no-std", "wasm", "cryptography::cryptocurrencies"]
 
 [lib]
