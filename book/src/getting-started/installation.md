@@ -47,7 +47,7 @@ or add it to `Cargo.toml` directly. A minimal Hook crate looks like this:
 ```toml
 [package]
 name = "my-hook"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 
 [lib]
