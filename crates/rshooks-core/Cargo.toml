@@ -7,7 +7,7 @@ license = "MIT AND ISC"
 repository.workspace = true
 readme.workspace = true
 description = "Raw no_std FFI bindings and constants for the Xahau Hooks API"
-keywords = ["xahau", "hooks", "xrpl", "wasm", "no-std"]
+keywords = ["xahau", "hooks", "wasm", "no-std"]
 categories = ["no-std", "wasm", "api-bindings", "cryptography::cryptocurrencies"]
 
 [dev-dependencies]
